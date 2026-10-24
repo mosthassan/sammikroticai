@@ -22,10 +22,10 @@ android {
 
   defaultConfig {
     applicationId = "com.samtecai.sammikrotic"
-    minSdk = 24
+    minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 10
+    versionName = "10.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

@@ -58,12 +58,12 @@ class AuthManager(private val context: Context) {
     private fun ensureFirebaseInitialized() {
         try {
             if (FirebaseApp.getApps(context).isEmpty()) {
-                val options = FirebaseOptions.Builder()
-                    .setProjectId("sam-mikrotic")
-                    .setApplicationId("com.samtecai.sammikrotic")
-                    .setApiKey("AIzaSyAPnh9iJyZQdrhF2sYtzq2CKFdibKvK9J4")
-                    .build()
-                FirebaseApp.initializeApp(context, options)
+                val options = FirebaseOptions.fromResource(context)
+                if (options != null) {
+                    FirebaseApp.initializeApp(context, options)
+                } else {
+                    FirebaseApp.initializeApp(context)
+                }
             }
         } catch (e: Exception) {
             Log.w("AuthManager", "FirebaseApp initialization fallback: ${e.message}")

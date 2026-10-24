@@ -306,5 +306,72 @@ class FirebaseSyncAndAuthUnitTest {
         assertEquals(5, remoteMeta.networkDevicesCount)
         assertEquals(2, remoteMeta.currencyRatesCount)
     }
+
+    @Test
+    fun testRobustNetworkDeviceRecoveryInSyncPushAndPull() = kotlinx.coroutines.runBlocking {
+        val netRepo = com.example.data.network.NetworkRepository(context)
+        val testDev = com.example.data.network.NetworkDevice(
+            id = "dev_mkt_alpha_1",
+            name = "راوتر مايكروتك الرئيسي CCR2004",
+            ipAddress = "10.10.100.1",
+            deviceType = com.example.data.network.DeviceType.ROUTER,
+            macAddress = "CC:22:33:44:55:66",
+            towerLocation = "السنترال",
+            status = com.example.data.network.DeviceStatus.ONLINE
+        )
+        netRepo.addOrUpdateDevice(testDev)
+
+        val netConfig = netRepo.config.value.copy(
+            networkName = "شبكة سام ميكروتك المركزية",
+            ownerName = "المهندس مصطفى",
+            location = "صنعاء"
+        )
+        netRepo.saveConfig(netConfig)
+
+        // Verify BackupRestoreUseCase with dependencies exports devices & profile
+        val backupUseCase = com.example.domain.usecase.BackupRestoreUseCase(
+            db = db,
+            deviceDao = netRepo,
+            networkRepository = netRepo,
+            context = context
+        )
+        val exportedJson = backupUseCase.exportDatabaseToJson()
+        val root = org.json.JSONObject(exportedJson)
+
+        assertTrue(root.has("network_devices"))
+        val devArr = root.getJSONArray("network_devices")
+        assertTrue(devArr.length() >= 1)
+        var foundDevice = false
+        for (i in 0 until devArr.length()) {
+            if (devArr.getJSONObject(i).getString("id") == "dev_mkt_alpha_1") {
+                foundDevice = true
+                break
+            }
+        }
+        assertTrue("Device dev_mkt_alpha_1 must be in exported json", foundDevice)
+
+        assertTrue(root.has("network_profile"))
+        assertEquals("شبكة سام ميكروتك المركزية", root.getJSONObject("network_profile").getString("networkName"))
+
+        // Now test restore into fresh environment
+        val targetDb = com.example.data.local.AppDatabase.createInMemory(context)
+        val targetNetRepo = com.example.data.network.NetworkRepository(context)
+        targetNetRepo.deleteAllDevices()
+        assertEquals(0, targetNetRepo.getAllDevices().size)
+
+        val restoreUseCase = com.example.domain.usecase.BackupRestoreUseCase(
+            db = targetDb,
+            deviceDao = targetNetRepo,
+            networkRepository = targetNetRepo,
+            context = context
+        )
+        val res = restoreUseCase.restoreDatabaseFromJson(exportedJson)
+        assertTrue("Restore must succeed", res.isSuccess)
+
+        val restoredDevices = targetNetRepo.getAllDevices()
+        assertTrue("Must restore devices into target network repository", restoredDevices.isNotEmpty())
+        assertTrue(restoredDevices.any { it.id == "dev_mkt_alpha_1" && it.ipAddress == "10.10.100.1" })
+        assertEquals("شبكة سام ميكروتك المركزية", targetNetRepo.config.value.networkName)
+    }
 }
 

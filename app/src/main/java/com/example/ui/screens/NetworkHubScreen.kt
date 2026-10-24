@@ -609,9 +609,7 @@ private fun NetworkConfigTab(
 
                     Spacer(modifier = Modifier.height(10.dp))
                     val dateFormatted = remember(config.updatedAt) {
-                        val instant = java.time.Instant.ofEpochMilli(config.updatedAt)
-                        val zdt = java.time.ZonedDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
-                        zdt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                        com.example.util.TransactionDateUtils.formatDateTime(config.updatedAt)
                     }
                     Text(
                         text = "آخر تحديث لسعر صرف الهوية: $dateFormatted (العملة الأساسية: YER)",
@@ -1625,19 +1623,8 @@ private fun RateZoneCard(
             )
 
             if (rateEntity != null) {
-                val effectiveDateStr = try {
-                    java.time.LocalDate.ofEpochDay(rateEntity.effectiveDateEpochDay).toString()
-                } catch (e: Exception) {
-                    rateEntity.effectiveDateEpochDay.toString()
-                }
-                val createdTimeStr = try {
-                    val dt = java.time.Instant.ofEpochMilli(rateEntity.createdAt)
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toLocalDateTime()
-                    dt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                } catch (e: Exception) {
-                    ""
-                }
+                val effectiveDateStr = com.example.util.TransactionDateUtils.formatEpochDay(rateEntity.effectiveDateEpochDay)
+                val createdTimeStr = com.example.util.TransactionDateUtils.formatDateTime(rateEntity.createdAt)
 
                 Text(
                     text = "تاريخ السريان: $effectiveDateStr",

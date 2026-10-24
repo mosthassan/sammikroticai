@@ -226,7 +226,7 @@ class FirebaseSyncManager(
             metaDoc.set(metaData, SetOptions.merge()).await()
 
             // Success formatting
-            val dateFormat = SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault())
+            val dateFormat = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.US)
             val formattedTime = dateFormat.format(Date())
 
             prefs.edit().putString(KEY_LAST_SYNC, formattedTime).apply()
@@ -309,7 +309,7 @@ class FirebaseSyncManager(
                 }
             }
 
-            val dateFormat = SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault())
+            val dateFormat = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.US)
             val formattedTime = dateFormat.format(Date())
             _lastSyncTimestamp.value = formattedTime
             _syncStatus.value = SyncStatus.Success(formattedTime, pulledCount)

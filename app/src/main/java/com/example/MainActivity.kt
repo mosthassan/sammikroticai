@@ -323,8 +323,7 @@ class MainActivity : ComponentActivity() {
                 if (pendingRestore != null) {
                     val backup = pendingRestore!!
                     val dateStr = if (backup.timestamp > 0L) {
-                        val sdf = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault())
-                        sdf.format(java.util.Date(backup.timestamp))
+                        com.example.util.TransactionDateUtils.formatDateTime(backup.timestamp)
                     } else "غير محدد"
 
                     androidx.compose.material3.AlertDialog(

@@ -280,3 +280,7 @@ data class IdempotencyKeyEntity(
 )
 
 typealias DeviceEntity = com.example.data.network.NetworkDevice
+
+typealias InvoiceEntity = DocumentEntity
+typealias PurchaseEntity = DocumentEntity
+typealias VoucherEntity = DocumentEntity

@@ -125,7 +125,8 @@ class LedgerWriter(
             totalMinor = totalOrig,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -156,7 +157,8 @@ class LedgerWriter(
                         docId = docId,
                         type = "SELL",
                         quantity = item.quantity,
-                        movementDateEpochDay = dateEpochDay
+                        movementDateEpochDay = dateEpochDay,
+                        createdAt = System.currentTimeMillis()
                     )
                 )
             }
@@ -193,7 +195,7 @@ class LedgerWriter(
         persistJournalDraft(docId, docNumber, draft)
 
         recordAuditLog("DOCUMENT", docId, "POST_SALES_INVOICE", null, "Posted Sales Invoice #$docNumber")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -273,7 +275,8 @@ class LedgerWriter(
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -358,13 +361,14 @@ class LedgerWriter(
                     paymentDocId = docId,
                     invoiceDocId = alloc.invoiceDocId,
                     allocatedOrigMinor = alloc.allocatedOrigMinor,
-                    allocatedBaseMinor = allocBase
+                    allocatedBaseMinor = allocBase,
+                    createdAt = System.currentTimeMillis()
                 )
             )
         }
 
         recordAuditLog("DOCUMENT", docId, "POST_RECEIPT_VOUCHER", null, "Posted Customer Receipt #$docNumber")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -414,7 +418,8 @@ class LedgerWriter(
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -432,7 +437,7 @@ class LedgerWriter(
         persistJournalDraft(docId, docNumber, draft)
 
         recordAuditLog("DOCUMENT", docId, "POST_CAPITAL_RECEIPT", null, "Posted Capital Receipt #$docNumber")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -478,7 +483,8 @@ class LedgerWriter(
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = if (notes.isBlank()) "مساهمة عينية رأسمالية (أصل ثابت: $assetName)" else notes
+            notes = if (notes.isBlank()) "مساهمة عينية رأسمالية (أصل ثابت: $assetName)" else notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -510,7 +516,7 @@ class LedgerWriter(
         db.assetDao().insertAsset(assetEntity)
 
         recordAuditLog("DOCUMENT", docId, "POST_IN_KIND_CAPITAL", null, "Posted In-Kind Capital Contribution #$docNumber: $assetName")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -558,7 +564,8 @@ class LedgerWriter(
             totalMinor = totalAmountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = if (notes.isBlank()) "مساهمة عينية رأسمالية متعددة الأصول ($assetSummary)" else notes
+            notes = if (notes.isBlank()) "مساهمة عينية رأسمالية متعددة الأصول ($assetSummary)" else notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -610,7 +617,7 @@ class LedgerWriter(
         persistJournalDraft(docId, docNumber, draft)
 
         recordAuditLog("DOCUMENT", docId, "POST_IN_KIND_CAPITAL", null, "Posted In-Kind Multi-Asset Capital Contribution #$docNumber ($assetSummary)")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -655,7 +662,8 @@ class LedgerWriter(
             totalMinor = totalOrig,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -709,7 +717,7 @@ class LedgerWriter(
         persistJournalDraft(docId, docNumber, draft)
 
         recordAuditLog("DOCUMENT", docId, "POST_PURCHASE_INVOICE", null, "Posted Purchase Invoice #$docNumber")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -809,7 +817,8 @@ class LedgerWriter(
             totalMinor = amountOrigMinor,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -927,13 +936,14 @@ class LedgerWriter(
                     paymentDocId = docId,
                     invoiceDocId = alloc.invoiceDocId,
                     allocatedOrigMinor = alloc.allocatedOrigMinor,
-                    allocatedBaseMinor = allocBase
+                    allocatedBaseMinor = allocBase,
+                    createdAt = System.currentTimeMillis()
                 )
             )
         }
 
         recordAuditLog("DOCUMENT", docId, "POST_PAYMENT_VOUCHER", null, "Posted Payment Voucher #$docNumber")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -994,7 +1004,8 @@ class LedgerWriter(
             totalMinor = sourceAmountOrigMinor,
             totalBaseMinor = baseMinor,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -1103,7 +1114,8 @@ class LedgerWriter(
             totalMinor = sourceAmountOrigMinor,
             totalBaseMinor = sourceBaseMinor,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -1123,7 +1135,7 @@ class LedgerWriter(
         persistJournalDraft(docId, docNumber, draft)
 
         recordAuditLog("DOCUMENT", docId, "POST_CURRENCY_EXCHANGE", null, "Posted Currency Exchange #$docNumber")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) invariants.verifyAll()
         docEntity
@@ -1174,7 +1186,8 @@ class LedgerWriter(
             totalMinor = amountToDepreciate,
             totalBaseMinor = amountToDepreciate,
             status = DocumentStatus.POSTED.name,
-            notes = "إهلاك الأصل ${asset.name} لشهر $periodMonth/$periodYear"
+            notes = "إهلاك الأصل ${asset.name} لشهر $periodMonth/$periodYear",
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -1329,14 +1342,15 @@ class LedgerWriter(
             totalMinor = absDelta,
             totalBaseMinor = absDelta,
             status = DocumentStatus.POSTED.name,
-            notes = memo
+            notes = memo,
+            createdAt = System.currentTimeMillis()
         )
 
         db.documentDao().insertDocument(docEntity)
         persistJournalDraft(docId, docNumber, draft)
 
         recordAuditLog("DOCUMENT", docId, "POST_REVALUATION", null, "Posted periodic revaluation #$docNumber for $accountCode, delta: $deltaMinor YER")
-        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId)) }
+        idempotencyKey?.let { db.idempotencyDao().insertKey(IdempotencyKeyEntity(it, docId, createdAt = System.currentTimeMillis())) }
 
         if (enableInvariantValidation) {
             invariants.verifyAll()
@@ -1444,7 +1458,8 @@ class LedgerWriter(
                             docId = docId,
                             type = "RETURN",
                             quantity = itm.quantity,
-                            movementDateEpochDay = reversalDateEpochDay
+                            movementDateEpochDay = reversalDateEpochDay,
+                            createdAt = System.currentTimeMillis()
                         )
                     )
                 }
@@ -1471,7 +1486,8 @@ class LedgerWriter(
                         docId = docId,
                         type = "ADJUST",
                         quantity = -mvt.quantity,
-                        movementDateEpochDay = reversalDateEpochDay
+                        movementDateEpochDay = reversalDateEpochDay,
+                        createdAt = System.currentTimeMillis()
                     )
                 )
             }
@@ -1559,7 +1575,8 @@ class LedgerWriter(
             status = DocumentStatus.POSTED.name,
             notes = newNotes,
             reversalOfDocId = originalDocId,
-            revision = originalDoc.revision + 1
+            revision = originalDoc.revision + 1,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(amendedDocEntity)
 
@@ -1589,7 +1606,8 @@ class LedgerWriter(
                         docId = newDocId,
                         type = "SELL",
                         quantity = item.quantity,
-                        movementDateEpochDay = newDateEpochDay
+                        movementDateEpochDay = newDateEpochDay,
+                        createdAt = System.currentTimeMillis()
                     )
                 )
             }
@@ -1729,7 +1747,8 @@ class LedgerWriter(
             totalMinor = amountOrigMinor,
             totalBaseMinor = baseMinor,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
 
@@ -1751,7 +1770,8 @@ class LedgerWriter(
                     docId = docId,
                     type = "RETURN",
                     quantity = returnQty,
-                    movementDateEpochDay = dateEpochDay
+                    movementDateEpochDay = dateEpochDay,
+                    createdAt = System.currentTimeMillis()
                 )
             )
         }
@@ -1794,7 +1814,8 @@ class LedgerWriter(
             totalMinor = totalBase,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
         persistJournalDraft(docId, docNumber, draft)
@@ -1846,7 +1867,8 @@ class LedgerWriter(
             totalMinor = asset.purchaseCostMinor,
             totalBaseMinor = asset.purchaseCostMinor,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
         persistJournalDraft(docId, docNumber, draft)
@@ -1912,7 +1934,8 @@ class LedgerWriter(
             totalMinor = absOrig,
             totalBaseMinor = absBase,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
         persistJournalDraft(docId, docNumber, draft)
@@ -1956,7 +1979,8 @@ class LedgerWriter(
             totalMinor = totalDividendMinor,
             totalBaseMinor = totalDividendMinor,
             status = DocumentStatus.POSTED.name,
-            notes = notes
+            notes = notes,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
         persistJournalDraft(docId, docNumber, draft)
@@ -2022,7 +2046,8 @@ class LedgerWriter(
             totalMinor = totalBase,
             totalBaseMinor = totalBase,
             status = DocumentStatus.POSTED.name,
-            notes = memo
+            notes = memo,
+            createdAt = System.currentTimeMillis()
         )
         db.documentDao().insertDocument(docEntity)
         persistJournalDraft(docId, docNumber, draft)
@@ -2068,7 +2093,8 @@ class LedgerWriter(
                 docId = null,
                 type = "RECEIVE",
                 quantity = quantity,
-                movementDateEpochDay = dateEpochDay
+                movementDateEpochDay = dateEpochDay,
+                createdAt = System.currentTimeMillis()
             )
         )
         recordAuditLog("CARD_PACKAGE", packageId, "RECEIVE_STOCK", null, "Received $quantity cards. Notes: $notes")
@@ -2092,7 +2118,8 @@ class LedgerWriter(
                 docId = null,
                 type = "ADJUST",
                 quantity = adjustmentQty,
-                movementDateEpochDay = dateEpochDay
+                movementDateEpochDay = dateEpochDay,
+                createdAt = System.currentTimeMillis()
             )
         )
         recordAuditLog("CARD_PACKAGE", packageId, "ADJUST_STOCK", null, "Adjusted by $adjustmentQty cards. Reason: $reason")
@@ -2152,7 +2179,8 @@ class LedgerWriter(
             entryDateEpochDay = draft.entryDateEpochDay,
             type = draft.type.name,
             memo = draft.memo,
-            reversalOfEntryId = reversalOfEntryId
+            reversalOfEntryId = reversalOfEntryId,
+            createdAt = System.currentTimeMillis()
         )
         db.journalDao().insertEntry(entryEntity)
 
@@ -2185,7 +2213,8 @@ class LedgerWriter(
                 entityId = entityId,
                 action = action,
                 beforeJson = before,
-                afterJson = after
+                afterJson = after,
+                timestamp = System.currentTimeMillis()
             )
         )
     }

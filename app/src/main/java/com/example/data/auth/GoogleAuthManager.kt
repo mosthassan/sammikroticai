@@ -43,7 +43,15 @@ data class UserProfile(
 class GoogleAuthManager(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("google_auth_prefs", Context.MODE_PRIVATE)
-    private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+    private val auth: FirebaseAuth? by lazy {
+        runCatching {
+            if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) {
+                FirebaseAuth.getInstance()
+            } else {
+                null
+            }
+        }.getOrNull()
+    }
     private val credentialManager: CredentialManager by lazy { CredentialManager.create(context) }
 
     private val _userProfile = MutableStateFlow<UserProfile?>(null)
@@ -60,7 +68,7 @@ class GoogleAuthManager(private val context: Context) {
     }
 
     private fun restoreCachedSession() {
-        val fbUser = try { auth.currentUser } catch (e: Exception) { null }
+        val fbUser = try { auth?.currentUser } catch (e: Exception) { null }
 
         if (fbUser != null && !fbUser.email.isNullOrBlank()) {
             _userProfile.value = UserProfile(
@@ -135,8 +143,8 @@ class GoogleAuthManager(private val context: Context) {
                 var firebaseUid = ""
                 try {
                     val firebaseCred = GoogleAuthProvider.getCredential(idToken, null)
-                    val authResult = auth.signInWithCredential(firebaseCred).await()
-                    firebaseUid = authResult.user?.uid ?: ""
+                    val authResult = auth?.signInWithCredential(firebaseCred)?.await()
+                    firebaseUid = authResult?.user?.uid ?: ""
                 } catch (e: Exception) {
                     Log.w("GoogleAuthManager", "Firebase Auth sign-in: ${e.message}")
                 }
@@ -211,10 +219,10 @@ class GoogleAuthManager(private val context: Context) {
     /**
      * Direct sign-in with verified email (for tests / manual fallback).
      */
-    fun signInDirectWithEmail(email: String, displayName: String? = null) {
+    fun signInDirectWithEmail(email: String, displayName: String? = null, customUid: String? = null) {
         val cleanEmail = email.trim().lowercase()
         val name = displayName?.takeIf { it.isNotBlank() } ?: cleanEmail.substringBefore("@")
-        val uid = cleanEmail.replace(".", "_").replace("@", "_at_")
+        val uid = customUid?.takeIf { it.isNotBlank() } ?: cleanEmail.replace(".", "_").replace("@", "_at_")
 
         val profile = UserProfile(
             email = cleanEmail,
@@ -234,7 +242,7 @@ class GoogleAuthManager(private val context: Context) {
      */
     suspend fun signOut() = withContext(Dispatchers.IO) {
         try {
-            auth.signOut()
+            auth?.signOut()
             credentialManager.clearCredentialState(ClearCredentialStateRequest())
         } catch (e: Exception) {
             Log.w("GoogleAuthManager", "Error clearing credentials: ${e.message}")

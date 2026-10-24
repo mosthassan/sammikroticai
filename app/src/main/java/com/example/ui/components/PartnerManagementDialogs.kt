@@ -314,7 +314,7 @@ fun PartnerDetailDialog(
                                                     fontSize = 13.sp
                                                 )
                                                 Text(
-                                                    LocalDate.ofEpochDay(doc.dateEpochDay).toString() + " • " + if (isInKind) "مساهمة عينية (أصل)" else "مساهمة نقدية",
+                                                    com.example.util.TransactionDateUtils.formatEpochDay(doc.dateEpochDay) + " • " + if (isInKind) "مساهمة عينية (أصل)" else "مساهمة نقدية",
                                                     color = TextSecondaryDark,
                                                     fontSize = 11.sp
                                                 )

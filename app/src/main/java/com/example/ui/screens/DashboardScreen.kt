@@ -226,23 +226,38 @@ fun DashboardScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
+                                val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
                                 Text(
-                                    text = currentUser?.email ?: "mosthassan.ye@gmail.com",
+                                    text = if (fbAuthUser != null) (fbAuthUser.email ?: currentUser?.email ?: "حساب Google موثق")
+                                           else if (currentUser != null) "${currentUser?.email} (بانتظار توثيق Google)"
+                                           else "غير متصل بحساب Google",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = BrandCyanPrimary,
+                                    color = if (fbAuthUser != null) BrandCyanPrimary else if (currentUser != null) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
                         }
 
                         val isSyncing = syncState is SyncState.InProgress
+                        val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                        val isOnline = fbAuthUser != null
+                        val hasLocalEmail = currentUser != null
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (isSyncing) BrandCyanPrimary.copy(alpha = 0.2f) else SemanticIncomeGreen.copy(alpha = 0.15f)
+                            color = if (isSyncing) BrandCyanPrimary.copy(alpha = 0.2f)
+                                    else if (isOnline) SemanticIncomeGreen.copy(alpha = 0.15f)
+                                    else if (hasLocalEmail) Color(0xFFFFB300).copy(alpha = 0.18f)
+                                    else SemanticExpenseRed.copy(alpha = 0.15f)
                         ) {
                             Text(
-                                text = if (isSyncing) "جاري الرفع..." else "سحابة نشطة",
-                                color = if (isSyncing) BrandCyanPrimary else SemanticIncomeGreen,
+                                text = if (isSyncing) "جاري الرفع..."
+                                       else if (isOnline) "سحابة موثقة"
+                                       else if (hasLocalEmail) "توثيق Google مطلوب"
+                                       else "غير متصل",
+                                color = if (isSyncing) BrandCyanPrimary
+                                        else if (isOnline) SemanticIncomeGreen
+                                        else if (hasLocalEmail) Color(0xFFFFB300)
+                                        else SemanticExpenseRed,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -257,7 +272,14 @@ fun DashboardScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { viewModel.syncPushToFirebase() },
+                            onClick = {
+                                val fbUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                                if (fbUser == null) {
+                                    viewModel.signInWithGoogle(activity ?: context)
+                                } else {
+                                    viewModel.syncPushToFirebase()
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier

@@ -398,7 +398,8 @@ fun PartiesScreen(
                     isVendor = isVend,
                     isPartner = isPart,
                     creditLimitMinor = limitMinor,
-                    equityPercentageBasisPoints = equityBps
+                    equityPercentageBasisPoints = equityBps,
+                    createdAt = System.currentTimeMillis()
                 )
                 viewModel.insertParty(newParty) {
                     showAddPartySheet = false

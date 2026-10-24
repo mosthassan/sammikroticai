@@ -211,14 +211,22 @@ fun CloudSyncSheet(
                         }
 
                         // Connection Status Tag
-                        val isOnline = currentUser != null
+                        val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                        val isOnline = fbAuthUser != null
+                        val hasLocalEmail = currentUser != null
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (isOnline) SemanticIncomeGreen.copy(alpha = 0.15f) else SemanticExpenseRed.copy(alpha = 0.15f)
+                            color = if (isOnline) SemanticIncomeGreen.copy(alpha = 0.15f)
+                                    else if (hasLocalEmail) Color(0xFFFFB300).copy(alpha = 0.18f)
+                                    else SemanticExpenseRed.copy(alpha = 0.15f)
                         ) {
                             Text(
-                                text = if (isOnline) "متصل ومفعل" else "غير متصل",
-                                color = if (isOnline) SemanticIncomeGreen else SemanticExpenseRed,
+                                text = if (isOnline) "متصل وموثق (Google)"
+                                       else if (hasLocalEmail) "توثيق Google مطلوب"
+                                       else "غير متصل",
+                                color = if (isOnline) SemanticIncomeGreen
+                                        else if (hasLocalEmail) Color(0xFFFFB300)
+                                        else SemanticExpenseRed,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -260,7 +268,7 @@ fun CloudSyncSheet(
 
                         OutlinedButton(
                             onClick = {
-                                customEmailInput = currentUser?.email ?: "mosthassan.ye@gmail.com"
+                                customEmailInput = currentUser?.email ?: ""
                                 showEmailEditDialog = true
                             },
                             modifier = Modifier.testTag("btn_switch_account"),
@@ -278,7 +286,7 @@ fun CloudSyncSheet(
                     // Safe fallback button for test/debug environments without matching SHA-1
                     OutlinedButton(
                         onClick = {
-                            customEmailInput = currentUser?.email ?: "mosthassan.ye@gmail.com"
+                            customEmailInput = currentUser?.email ?: ""
                             showEmailEditDialog = true
                         },
                         modifier = Modifier
@@ -452,7 +460,14 @@ fun CloudSyncSheet(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Button(
-                    onClick = { viewModel.syncPushToFirebase() },
+                    onClick = {
+                        val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                        if (fbAuthUser == null) {
+                            viewModel.signInWithGoogle(activity ?: context)
+                        } else {
+                            viewModel.syncPushToFirebase()
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .testTag("btn_sync_push_cloud"),
@@ -505,8 +520,7 @@ fun CloudSyncSheet(
                         )
                         val lastTime = syncMeta?.lastSyncedAt ?: 0L
                         val timeStr = if (lastTime > 0L) {
-                            val sdf = SimpleDateFormat("HH:mm - yyyy/MM/dd", Locale.getDefault())
-                            sdf.format(Date(lastTime))
+                            com.example.util.TransactionDateUtils.formatDateTime(lastTime)
                         } else {
                             "لم تتم بعد"
                         }

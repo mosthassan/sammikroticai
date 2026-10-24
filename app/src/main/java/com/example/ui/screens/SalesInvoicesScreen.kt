@@ -1110,8 +1110,9 @@ fun InvoiceItemCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val formattedDate = com.example.util.TransactionDateUtils.formatEpochDay(invoice.dateEpochDay)
                         Text(
-                            text = if (cardsCount > 0) "$cardsCount كرت • ${invoice.fiscalYear}/01/${invoice.docNumber}" else "خدمات • ${invoice.fiscalYear}/01/${invoice.docNumber}",
+                            text = if (cardsCount > 0) "$cardsCount كرت • $formattedDate" else "خدمات • $formattedDate",
                             fontSize = 11.sp,
                             color = TextSecondaryDark,
                             fontFamily = FontFamily.Monospace

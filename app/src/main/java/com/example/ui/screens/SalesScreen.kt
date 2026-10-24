@@ -1037,8 +1037,9 @@ private fun SalesInvoicesTab(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val formattedDate = com.example.util.TransactionDateUtils.formatEpochDay(inv.dateEpochDay)
                                 Text(
-                                    text = if (cardsCount > 0) "$cardsCount كرت • ${inv.fiscalYear}/01/${inv.docNumber}" else "خدمات • ${inv.fiscalYear}/01/${inv.docNumber}",
+                                    text = if (cardsCount > 0) "$cardsCount كرت • $formattedDate" else "خدمات • $formattedDate",
                                     fontSize = 11.sp,
                                     color = TextSecondaryDark,
                                     fontFamily = FontFamily.Monospace

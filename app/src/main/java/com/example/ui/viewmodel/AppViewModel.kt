@@ -803,7 +803,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val newVendor = PartyEntity(
                         id = UuidUtils.newTimeOrderedId(),
                         name = vendorName.trim().ifBlank { "مورد عام" },
-                        isVendor = true
+                        isVendor = true,
+                        createdAt = System.currentTimeMillis()
                     )
                     db.partyDao().insertParty(newVendor)
                     vendor = newVendor
@@ -1262,7 +1263,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         val newVendor = PartyEntity(
                             id = UuidUtils.newTimeOrderedId(),
                             name = draft.vendorName.trim(),
-                            isVendor = true
+                            isVendor = true,
+                            createdAt = System.currentTimeMillis()
                         )
                         db.partyDao().insertParty(newVendor)
                         vendor = newVendor
@@ -1297,7 +1299,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val user = res.getOrNull()
                 _userMessage.emit("تم تسجيل الدخول بنجاح بحساب Google: ${user?.email}")
                 if (user != null) {
-                    googleAuthManager.signInDirectWithEmail(user.email, user.displayName)
+                    googleAuthManager.signInDirectWithEmail(user.email, user.displayName, user.uid)
                     triggerInitialCloudSyncOnLogin(user)
                 }
             } else {
@@ -1329,7 +1331,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         isSignedIn = true
                     )
                     authManager.saveSessionDirectly(session)
-                    googleAuthManager.signInDirectWithEmail(email, displayName)
+                    googleAuthManager.signInDirectWithEmail(email, displayName, uid)
                     triggerInitialCloudSyncOnLogin(session)
                     _userMessage.emit("تم تسجيل الدخول بنجاح بحساب Google: $email")
                 } else {
@@ -1354,7 +1356,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun signInDirectly(email: String, displayName: String = "") {
         val user = authManager.signInDirectly(email, displayName)
-        googleAuthManager.signInDirectWithEmail(email, displayName)
+        googleAuthManager.signInDirectWithEmail(email, displayName, user.uid)
         viewModelScope.launch {
             _userMessage.emit("تم تفعيل الحساب: ${user.email}")
             triggerInitialCloudSyncOnLogin(user)
@@ -1372,9 +1374,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restoreFromCloud(targetUid: String? = null, targetEmail: String? = null) {
         val user = currentUser.value
-        val uid = targetUid ?: user?.uid ?: ""
-        val email = targetEmail ?: user?.email ?: ""
-        if (uid.isBlank() && email.isBlank()) {
+        val fbUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+        val uid = targetUid ?: fbUser?.uid ?: user?.uid ?: ""
+        val email = targetEmail ?: fbUser?.email ?: user?.email ?: ""
+        if (fbUser == null && uid.isBlank() && email.isBlank()) {
             viewModelScope.launch {
                 _userMessage.emit("يرجى تسجيل الدخول بحساب Google أولاً لتحديد النسخة السحابية")
             }
@@ -1393,9 +1396,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncPushToFirebase() {
+        val fbUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
         val user = currentUser.value
-        val uid = user?.uid ?: ""
-        val email = user?.email ?: ""
+        val uid = fbUser?.uid ?: user?.uid ?: ""
+        val email = fbUser?.email ?: user?.email ?: ""
+        val hasFirebaseApp = runCatching { com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty() }.getOrDefault(false)
+
+        if (hasFirebaseApp && fbUser == null) {
+            viewModelScope.launch {
+                _userMessage.emit("يرجى الضغط على زر 'دخول Google بنقرة' أولاً لتوثيق صلاحيات السحابة في Firebase")
+            }
+            return
+        }
+
         if (uid.isBlank() && email.isBlank()) {
             viewModelScope.launch {
                 _userMessage.emit("يرجى تسجيل الدخول بحساب Google أولاً لرفع النسخة السحابية")
@@ -1551,34 +1564,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun performCloudSync() {
-        val email = currentUserProfile.value?.email ?: currentUser.value?.email ?: "mosthassan.ye@gmail.com"
-        viewModelScope.launch {
-            val res = firebaseSyncManager.performFullSync(email)
-            if (res.isSuccess) {
-                val count = res.getOrNull() ?: 0
-                _userMessage.emit("اكتملت المزامنة السحابية بنجاح ($count سجل)")
-                refreshDashboard()
-            } else {
-                val err = res.exceptionOrNull()?.localizedMessage ?: "فشلت المزامنة السحابية"
-                _userMessage.emit(err)
-            }
-        }
+        syncPushToFirebase()
     }
 
     fun performCloudPull() {
-        val email = currentUserProfile.value?.email ?: currentUser.value?.email ?: "mosthassan.ye@gmail.com"
-        viewModelScope.launch {
-            val res = firebaseSyncManager.pullDataFromCloud(email)
-            if (res.isSuccess) {
-                val count = res.getOrNull() ?: 0
-                _userMessage.emit("تم جلب البيانات من السحاب بنجاح ($count سجل)")
-                refreshDashboard()
-                runInvariantCheck()
-            } else {
-                val err = res.exceptionOrNull()?.localizedMessage ?: "فشل جلب البيانات السحابية"
-                _userMessage.emit(err)
-            }
-        }
+        syncPullFromFirebase()
     }
 }
 

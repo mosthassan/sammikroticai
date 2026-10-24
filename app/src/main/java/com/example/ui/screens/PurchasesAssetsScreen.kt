@@ -292,6 +292,13 @@ fun PurchasesAssetsScreen(
                                         Text("فاتورة مشتريات #${inv.docNumber}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                         Spacer(modifier = Modifier.width(8.dp))
                                         StatusChip(status = inv.status)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = com.example.util.TransactionDateUtils.formatEpochDay(inv.dateEpochDay),
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontFamily = FontFamily.Monospace
+                                        )
                                     }
                                     Text("المورد: $vendorName", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                                     if (inv.notes.isNotBlank()) {
@@ -538,6 +545,15 @@ fun PurchasesAssetsScreen(
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("المورد:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(vendorName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("تاريخ الفاتورة:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    com.example.util.TransactionDateUtils.formatEpochDay(inv.dateEpochDay),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("إجمالي الفاتورة:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

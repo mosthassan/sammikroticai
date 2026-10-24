@@ -16,6 +16,7 @@ import com.example.data.network.toBackupDto
 import com.example.domain.usecase.BackupRestoreUseCase
 import com.example.util.NetworkProfileBackupDto
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +78,13 @@ class FirestoreSyncManager(
     private val firestore: FirebaseFirestore?
         get() = try {
             if (FirebaseApp.getApps(context).isNotEmpty()) {
-                FirebaseFirestore.getInstance()
+                val dbIdRes = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
+                val dbId = if (dbIdRes != 0) runCatching { context.getString(dbIdRes) }.getOrNull() else null
+                if (!dbId.isNullOrBlank() && dbId != "(default)") {
+                    FirebaseFirestore.getInstance(FirebaseApp.getInstance(), dbId)
+                } else {
+                    FirebaseFirestore.getInstance()
+                }
             } else {
                 null
             }
@@ -119,12 +126,17 @@ class FirestoreSyncManager(
             .replace("@", "_at_")
     }
 
+    private fun resolveEffectiveUid(uid: String, userEmail: String): String {
+        val authUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        return authUid?.takeIf { it.isNotBlank() } ?: uid.ifBlank { sanitizeTenantEmail(userEmail) }
+    }
+
     /**
      * Checks if a remote backup exists for the specified user in Firestore.
      */
     suspend fun checkRemoteBackup(uid: String, userEmail: String): CloudBackupMeta? = withContext(Dispatchers.IO) {
         val fs = firestore ?: return@withContext null
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         if (safeUid.isBlank()) return@withContext null
 
         try {
@@ -133,11 +145,31 @@ class FirestoreSyncManager(
                 .collection("backup_latest").document("latest")
                 .get().await()
 
+            // Fallback 1: check email-sanitized path under users/ if safeUid was the auth UID
             if (!doc.exists() && userEmail.isNotBlank()) {
-                // Secondary check under tenant scope
-                doc = fs.collection("tenants").document(sanitizeTenantEmail(userEmail))
-                    .collection("snapshots").document("latest")
-                    .get().await()
+                val emailKey = sanitizeTenantEmail(userEmail)
+                if (emailKey != safeUid) {
+                    runCatching {
+                        val emailDoc = fs.collection("users").document(emailKey)
+                            .collection("backup_latest").document("latest")
+                            .get().await()
+                        if (emailDoc.exists()) {
+                            doc = emailDoc
+                        }
+                    }
+                }
+            }
+
+            // Fallback 2: Secondary check under tenant scope (non-blocking)
+            if (!doc.exists() && userEmail.isNotBlank()) {
+                runCatching {
+                    val tenantDoc = fs.collection("tenants").document(sanitizeTenantEmail(userEmail))
+                        .collection("snapshots").document("latest")
+                        .get().await()
+                    if (tenantDoc.exists()) {
+                        doc = tenantDoc
+                    }
+                }
             }
 
             if (doc.exists()) {
@@ -187,7 +219,7 @@ class FirestoreSyncManager(
      * parties, documents, network devices, and organization identity) into Firestore under users/{uid}/backup_latest.
      */
     suspend fun syncPush(uid: String, userEmail: String): Result<String> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         if (safeUid.isBlank()) {
             val err = "معرف المستخدم غير محدد، يرجى تسجيل الدخول أولاً"
             _syncState.value = SyncState.Error(err)
@@ -197,6 +229,14 @@ class FirestoreSyncManager(
         val fs = firestore
         if (fs == null) {
             val err = "خدمة Firebase غير مهيأة على هذا الجهاز"
+            _syncState.value = SyncState.Error(err)
+            return@withContext Result.failure(IllegalStateException(err))
+        }
+
+        val fbAuthUser = runCatching { FirebaseAuth.getInstance().currentUser }.getOrNull()
+        val hasFirebaseApp = runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
+        if (hasFirebaseApp && fbAuthUser == null) {
+            val err = "يرجى تسجيل الدخول بحساب Google أولاً عبر زر 'دخول Google بنقرة' لتوثيق صلاحيات السحابة في Firebase وتجنب رفض الصلاحيات (PERMISSION_DENIED)"
             _syncState.value = SyncState.Error(err)
             return@withContext Result.failure(IllegalStateException(err))
         }
@@ -249,7 +289,7 @@ class FirestoreSyncManager(
             val now = System.currentTimeMillis()
 
             val devicesListMap = mutableListOf<Map<String, Any?>>()
-            if (devicesArr != null) {
+            if (devicesArr != null && devicesArr.length() > 0) {
                 for (i in 0 until devicesArr.length()) {
                     val d = devicesArr.getJSONObject(i)
                     devicesListMap.add(
@@ -270,6 +310,35 @@ class FirestoreSyncManager(
                             "credentials" to d.optString("credentials", "admin")
                         )
                     )
+                }
+            } else {
+                // Robust Fallback: Pull directly from DeviceDao / NetworkRepository if JSON was missing devices
+                val fallbackDevices = effectiveDeviceDao?.getAllDevices() ?: emptyList()
+                fallbackDevices.forEach { d ->
+                    devicesListMap.add(
+                        mapOf(
+                            "id" to d.id,
+                            "name" to d.name,
+                            "ipAddress" to d.ipAddress,
+                            "deviceType" to d.deviceType.name,
+                            "macAddress" to d.macAddress,
+                            "towerLocation" to d.towerLocation,
+                            "frequency" to d.frequency,
+                            "channelWidth" to d.channelWidth,
+                            "status" to d.status.name,
+                            "notes" to d.notes,
+                            "model" to d.model,
+                            "managementPort" to d.managementPort,
+                            "subnet" to d.subnet,
+                            "credentials" to d.credentials
+                        )
+                    )
+                }
+                if (devicesListMap.isNotEmpty()) {
+                    val injectedDevArr = JSONArray()
+                    devicesListMap.forEach { injectedDevArr.put(JSONObject(it)) }
+                    root.put("network_devices", injectedDevArr)
+                    root.put("networkDevices", injectedDevArr)
                 }
             }
 
@@ -292,28 +361,71 @@ class FirestoreSyncManager(
                 }
             }
 
-            val profileMap = profileObj?.let { p ->
+            var effectiveNetName = netName
+            val profileMap = if (profileObj != null) {
                 mapOf(
-                    "networkName" to p.optString("networkName"),
-                    "ownerName" to p.optString("ownerName"),
-                    "location" to p.optString("location"),
-                    "welcomeMessage" to p.optString("welcomeMessage"),
-                    "supportPhone" to p.optString("supportPhone"),
-                    "supportWhatsapp" to p.optString("supportWhatsapp"),
-                    "mainRouterModel" to p.optString("mainRouterModel"),
-                    "routerOsVersion" to p.optString("routerOsVersion"),
-                    "hotspotDomain" to p.optString("hotspotDomain"),
-                    "hotspotServerName" to p.optString("hotspotServerName"),
-                    "adminPort" to p.optInt("adminPort", 8728),
-                    "primaryDns" to p.optString("primaryDns"),
-                    "secondaryDns" to p.optString("secondaryDns"),
-                    "approvedSubnet" to p.optString("approvedSubnet"),
-                    "rateZone" to p.optString("rateZone", "SANAA"),
-                    "defaultUsdRateMicros" to p.optLong("defaultUsdRateMicros"),
-                    "defaultSarRateMicros" to p.optLong("defaultSarRateMicros"),
-                    "updatedAt" to p.optLong("updatedAt")
+                    "networkName" to profileObj.optString("networkName"),
+                    "ownerName" to profileObj.optString("ownerName"),
+                    "location" to profileObj.optString("location"),
+                    "welcomeMessage" to profileObj.optString("welcomeMessage"),
+                    "supportPhone" to profileObj.optString("supportPhone"),
+                    "supportWhatsapp" to profileObj.optString("supportWhatsapp"),
+                    "mainRouterModel" to profileObj.optString("mainRouterModel"),
+                    "routerOsVersion" to profileObj.optString("routerOsVersion"),
+                    "hotspotDomain" to profileObj.optString("hotspotDomain"),
+                    "hotspotServerName" to profileObj.optString("hotspotServerName"),
+                    "adminPort" to profileObj.optInt("adminPort", 8728),
+                    "primaryDns" to profileObj.optString("primaryDns"),
+                    "secondaryDns" to profileObj.optString("secondaryDns"),
+                    "approvedSubnet" to profileObj.optString("approvedSubnet"),
+                    "rateZone" to profileObj.optString("rateZone", "SANAA"),
+                    "defaultUsdRateMicros" to profileObj.optLong("defaultUsdRateMicros"),
+                    "defaultSarRateMicros" to profileObj.optLong("defaultSarRateMicros"),
+                    "updatedAt" to profileObj.optLong("updatedAt")
                 )
+            } else {
+                // Robust Fallback: Pull from NetworkRepository config
+                effectiveNetworkRepository?.config?.value?.toBackupDto()?.let { p ->
+                    effectiveNetName = p.networkName
+                    val pMap = mapOf(
+                        "networkName" to p.networkName,
+                        "ownerName" to p.ownerName,
+                        "location" to p.location,
+                        "welcomeMessage" to p.welcomeMessage,
+                        "supportPhone" to p.supportPhone,
+                        "supportWhatsapp" to p.supportWhatsapp,
+                        "mainRouterModel" to p.mainRouterModel,
+                        "routerOsVersion" to p.routerOsVersion,
+                        "hotspotDomain" to p.hotspotDomain,
+                        "hotspotServerName" to p.hotspotServerName,
+                        "adminPort" to p.adminPort,
+                        "primaryDns" to p.primaryDns,
+                        "secondaryDns" to p.secondaryDns,
+                        "approvedSubnet" to p.approvedSubnet,
+                        "rateZone" to p.rateZone,
+                        "defaultUsdRateMicros" to p.defaultUsdRateMicros,
+                        "defaultSarRateMicros" to p.defaultSarRateMicros,
+                        "updatedAt" to p.updatedAt
+                    )
+                    root.put("network_profile", JSONObject(pMap))
+                    root.put("networkProfile", JSONObject(pMap))
+                    pMap
+                }
             }
+
+            val finalDevicesCount = devicesListMap.size
+            val finalProfileCount = if (profileMap != null) 1 else 0
+            val finalTotalRecords = partiesCount +
+                    pkgsCount +
+                    docsCount +
+                    linesCount +
+                    treasuriesCount +
+                    finalDevicesCount +
+                    ratesCount +
+                    finalProfileCount +
+                    orgCount
+
+            val finalJsonSnapshot = root.toString()
 
             val organizationMap = orgObj?.let { o ->
                 mapOf(
@@ -335,7 +447,7 @@ class FirestoreSyncManager(
                 "userEmail" to userEmail,
                 "timestamp" to now,
                 "checksum" to checksum,
-                "jsonContent" to jsonSnapshot,
+                "jsonContent" to finalJsonSnapshot,
                 "partiesCount" to partiesCount,
                 "packagesCount" to pkgsCount,
                 "treasuriesCount" to treasuriesCount,
@@ -346,11 +458,11 @@ class FirestoreSyncManager(
                 "allocationsCount" to (allocArr?.length() ?: 0),
                 "assetsCount" to (assetsArr?.length() ?: 0),
                 "currencyRatesCount" to ratesCount,
-                "networkDevicesCount" to devicesCount,
-                "hasNetworkProfile" to (profileCount > 0),
-                "networkName" to netName,
+                "networkDevicesCount" to finalDevicesCount,
+                "hasNetworkProfile" to (finalProfileCount > 0),
+                "networkName" to effectiveNetName,
                 "organizationName" to orgName,
-                "totalRecords" to totalRecords,
+                "totalRecords" to finalTotalRecords,
                 "networkDevices" to devicesListMap,
                 "networkProfile" to profileMap,
                 "currencyRates" to ratesListMap,
@@ -364,7 +476,7 @@ class FirestoreSyncManager(
                 .set(backupData, SetOptions.merge())
                 .await()
 
-            // User document summary record
+            // User document summary record (safe against subcollection-only rules)
             val userMeta = hashMapOf(
                 "lastBackupEpochMs" to now,
                 "userEmail" to userEmail,
@@ -378,40 +490,54 @@ class FirestoreSyncManager(
                 "totalRecords" to totalRecords,
                 "checksum" to checksum
             )
-            fs.collection("users").document(safeUid)
-                .set(userMeta, SetOptions.merge())
-                .await()
+            runCatching {
+                fs.collection("users").document(safeUid)
+                    .set(userMeta, SetOptions.merge())
+                    .await()
+            }.onFailure { e ->
+                Log.w("FirestoreSyncManager", "User root document metadata write skipped or denied: ${e.message}")
+            }
 
             // Dedicated modular sub-collections for granular access
             if (devicesListMap.isNotEmpty()) {
-                fs.collection("users").document(safeUid)
-                    .collection("network_devices").document("devices_data")
-                    .set(mapOf("devices" to devicesListMap, "updatedAt" to now, "count" to devicesCount), SetOptions.merge())
-                    .await()
+                runCatching {
+                    fs.collection("users").document(safeUid)
+                        .collection("network_devices").document("devices_data")
+                        .set(mapOf("devices" to devicesListMap, "updatedAt" to now, "count" to devicesCount), SetOptions.merge())
+                        .await()
+                }
             }
             if (ratesListMap.isNotEmpty()) {
-                fs.collection("users").document(safeUid)
-                    .collection("exchange_rates").document("rates_data")
-                    .set(mapOf("rates" to ratesListMap, "updatedAt" to now, "count" to ratesCount), SetOptions.merge())
-                    .await()
+                runCatching {
+                    fs.collection("users").document(safeUid)
+                        .collection("exchange_rates").document("rates_data")
+                        .set(mapOf("rates" to ratesListMap, "updatedAt" to now, "count" to ratesCount), SetOptions.merge())
+                        .await()
+                }
             }
             if (profileMap != null || organizationMap != null) {
-                val configData = hashMapOf<String, Any?>("updatedAt" to now)
-                profileMap?.let { configData["profile"] = it }
-                organizationMap?.let { configData["organization"] = it }
-                fs.collection("users").document(safeUid)
-                    .collection("config").document("network_identity")
-                    .set(configData, SetOptions.merge())
-                    .await()
+                runCatching {
+                    val configData = hashMapOf<String, Any?>("updatedAt" to now)
+                    profileMap?.let { configData["profile"] = it }
+                    organizationMap?.let { configData["organization"] = it }
+                    fs.collection("users").document(safeUid)
+                        .collection("config").document("network_identity")
+                        .set(configData, SetOptions.merge())
+                        .await()
+                }
             }
 
-            // Legacy / multi-tenant mirror if email is present
+            // Legacy / multi-tenant mirror if email is present (non-blocking)
             if (userEmail.isNotBlank()) {
-                val tenantKey = sanitizeTenantEmail(userEmail)
-                fs.collection("tenants").document(tenantKey)
-                    .collection("snapshots").document("latest")
-                    .set(backupData, SetOptions.merge())
-                    .await()
+                runCatching {
+                    val tenantKey = sanitizeTenantEmail(userEmail)
+                    fs.collection("tenants").document(tenantKey)
+                        .collection("snapshots").document("latest")
+                        .set(backupData, SetOptions.merge())
+                        .await()
+                }.onFailure { e ->
+                    Log.w("FirestoreSyncManager", "Tenant mirror write skipped or denied: ${e.message}")
+                }
             }
 
             _syncState.value = SyncState.InProgress("اكتمل حفظ النسخة السحابية...", 0.95f)
@@ -476,7 +602,7 @@ class FirestoreSyncManager(
      * records into local Room and NetworkRepository within a single transaction.
      */
     suspend fun syncPull(uid: String, userEmail: String): Result<String> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         if (safeUid.isBlank()) {
             val err = "معرف المستخدم غير محدد، يرجى تسجيل الدخول أولاً"
             _syncState.value = SyncState.Error(err)
@@ -500,10 +626,31 @@ class FirestoreSyncManager(
                 .get()
                 .await()
 
+            // Fallback 1: check email-sanitized path under users/ if safeUid was the auth UID
             if (!snapshotDoc.exists() && userEmail.isNotBlank()) {
-                snapshotDoc = fs.collection("tenants").document(sanitizeTenantEmail(userEmail))
-                    .collection("snapshots").document("latest")
-                    .get().await()
+                val emailKey = sanitizeTenantEmail(userEmail)
+                if (emailKey != safeUid) {
+                    runCatching {
+                        val emailDoc = fs.collection("users").document(emailKey)
+                            .collection("backup_latest").document("latest")
+                            .get().await()
+                        if (emailDoc.exists()) {
+                            snapshotDoc = emailDoc
+                        }
+                    }
+                }
+            }
+
+            // Fallback 2: check legacy tenant collection (non-blocking)
+            if (!snapshotDoc.exists() && userEmail.isNotBlank()) {
+                runCatching {
+                    val tenantDoc = fs.collection("tenants").document(sanitizeTenantEmail(userEmail))
+                        .collection("snapshots").document("latest")
+                        .get().await()
+                    if (tenantDoc.exists()) {
+                        snapshotDoc = tenantDoc
+                    }
+                }
             }
 
             if (!snapshotDoc.exists()) {
@@ -531,13 +678,78 @@ class FirestoreSyncManager(
 
             val now = System.currentTimeMillis()
             val restoredRoot = JSONObject(jsonContent)
-            val resProfObj = restoredRoot.optJSONObject("network_profile") ?: restoredRoot.optJSONObject("networkProfile")
+            var resProfObj = restoredRoot.optJSONObject("network_profile") ?: restoredRoot.optJSONObject("networkProfile")
             val resOrgObj = restoredRoot.optJSONObject("organization")
+
+            // Robust Recovery: If jsonContent lacked network devices (e.g. older backup), restore from document fields
+            val devJsonArr = restoredRoot.optJSONArray("network_devices") ?: restoredRoot.optJSONArray("networkDevices")
+            var effectiveDevCount = devJsonArr?.length() ?: 0
+            if (effectiveDevCount == 0 && snapshotDoc.get("networkDevices") != null) {
+                val rawList = snapshotDoc.get("networkDevices") as? List<*>
+                if (!rawList.isNullOrEmpty()) {
+                    val fallbackDevices = mutableListOf<NetworkDevice>()
+                    for (item in rawList) {
+                        val map = item as? Map<*, *> ?: continue
+                        val typeStr = map["deviceType"]?.toString() ?: DeviceType.ACCESS_POINT.name
+                        val statusStr = map["status"]?.toString() ?: DeviceStatus.ONLINE.name
+                        fallbackDevices.add(
+                            NetworkDevice(
+                                id = map["id"]?.toString() ?: UUID.randomUUID().toString(),
+                                name = map["name"]?.toString() ?: "",
+                                ipAddress = map["ipAddress"]?.toString() ?: "",
+                                deviceType = runCatching { DeviceType.valueOf(typeStr) }.getOrDefault(DeviceType.ACCESS_POINT),
+                                macAddress = map["macAddress"]?.toString() ?: "",
+                                towerLocation = map["towerLocation"]?.toString() ?: "البرج الرئيسي",
+                                frequency = map["frequency"]?.toString() ?: "5500 MHz",
+                                channelWidth = map["channelWidth"]?.toString() ?: "20/40 MHz",
+                                status = runCatching { DeviceStatus.valueOf(statusStr) }.getOrDefault(DeviceStatus.ONLINE),
+                                notes = map["notes"]?.toString() ?: "",
+                                model = map["model"]?.toString() ?: "MikroTik RouterBOARD",
+                                managementPort = (map["managementPort"] as? Number)?.toInt() ?: 8728,
+                                subnet = map["subnet"]?.toString() ?: "10.10.1.0/24",
+                                credentials = map["credentials"]?.toString() ?: "admin"
+                            )
+                        )
+                    }
+                    if (fallbackDevices.isNotEmpty()) {
+                        effectiveDeviceDao?.deleteAllDevices()
+                        effectiveDeviceDao?.insertAll(fallbackDevices)
+                        effectiveDevCount = fallbackDevices.size
+                    }
+                }
+            }
+
+            // Robust Recovery: If jsonContent lacked network profile, restore from document fields
+            if (resProfObj == null && snapshotDoc.get("networkProfile") != null) {
+                val profMap = snapshotDoc.get("networkProfile") as? Map<*, *>
+                if (profMap != null) {
+                    val dto = NetworkProfileBackupDto(
+                        networkName = profMap["networkName"]?.toString() ?: "شبكة توزيع الإنترنت",
+                        ownerName = profMap["ownerName"]?.toString() ?: "مدير الشبكة",
+                        location = profMap["location"]?.toString() ?: "المركز الرئيسي",
+                        welcomeMessage = profMap["welcomeMessage"]?.toString() ?: "أهلاً بكم في شبكتنا - إنترنت فائق السرعة",
+                        supportPhone = profMap["supportPhone"]?.toString() ?: "770000000",
+                        supportWhatsapp = profMap["supportWhatsapp"]?.toString() ?: "967770000000",
+                        mainRouterModel = profMap["mainRouterModel"]?.toString() ?: "MikroTik CCR2004-16G-2S+",
+                        routerOsVersion = profMap["routerOsVersion"]?.toString() ?: "v7.16",
+                        hotspotDomain = profMap["hotspotDomain"]?.toString() ?: "login.net",
+                        hotspotServerName = profMap["hotspotServerName"]?.toString() ?: "hotspot1",
+                        adminPort = (profMap["adminPort"] as? Number)?.toInt() ?: 8728,
+                        primaryDns = profMap["primaryDns"]?.toString() ?: "8.8.8.8",
+                        secondaryDns = profMap["secondaryDns"]?.toString() ?: "1.1.1.1",
+                        approvedSubnet = profMap["approvedSubnet"]?.toString() ?: "10.10.0.0/16",
+                        rateZone = profMap["rateZone"]?.toString() ?: "SANAA",
+                        defaultUsdRateMicros = (profMap["defaultUsdRateMicros"] as? Number)?.toLong() ?: 535_000_000L,
+                        defaultSarRateMicros = (profMap["defaultSarRateMicros"] as? Number)?.toLong() ?: 140_500_000L,
+                        updatedAt = (profMap["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                    )
+                    effectiveNetworkRepository?.restoreNetworkProfile(dto)
+                }
+            }
+
             val resNetName = resProfObj?.optString("networkName", "") ?: snapshotDoc.getString("networkName").orEmpty()
             val resOrgName = resOrgObj?.optString("name", "") ?: snapshotDoc.getString("organizationName").orEmpty()
-            val resDevCount = restoredRoot.optJSONArray("network_devices")?.length()
-                ?: restoredRoot.optJSONArray("networkDevices")?.length()
-                ?: (snapshotDoc.getLong("networkDevicesCount")?.toInt() ?: 0)
+            val resDevCount = if (effectiveDevCount > 0) effectiveDevCount else (snapshotDoc.getLong("networkDevicesCount")?.toInt() ?: 0)
             val resRatesCount = restoredRoot.optJSONArray("currency_rates")?.length()
                 ?: (snapshotDoc.getLong("currencyRatesCount")?.toInt() ?: 0)
             val docsCount = restoredRoot.optJSONArray("documents")?.length() ?: (snapshotDoc.getLong("documentsCount")?.toInt() ?: 0)
@@ -546,7 +758,7 @@ class FirestoreSyncManager(
             val packagesCount = restoredRoot.optJSONArray("packages")?.length() ?: (snapshotDoc.getLong("packagesCount")?.toInt() ?: 0)
             val treasuriesCount = restoredRoot.optJSONArray("treasuries")?.length() ?: (snapshotDoc.getLong("treasuriesCount")?.toInt() ?: 0)
 
-            val totalRecords = docsCount + linesCount + partiesCount + packagesCount + treasuriesCount + resDevCount + resRatesCount + (if (resProfObj != null) 1 else 0) + (if (resOrgObj != null) 1 else 0)
+            val totalRecords = docsCount + linesCount + partiesCount + packagesCount + treasuriesCount + resDevCount + resRatesCount + (if (resProfObj != null || !resNetName.isBlank()) 1 else 0) + (if (resOrgObj != null) 1 else 0)
 
             prefs.edit()
                 .putLong("last_sync_timestamp", now)
@@ -602,7 +814,7 @@ class FirestoreSyncManager(
     // --- Granular Push & Pull Methods for Network Devices ---
 
     suspend fun pushNetworkDevices(uid: String, userEmail: String): Result<Int> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         val fs = firestore ?: return@withContext Result.failure(IllegalStateException("Firebase غير مهيأ"))
         try {
             val devices = effectiveDeviceDao?.getAllDevices() ?: emptyList()
@@ -640,7 +852,7 @@ class FirestoreSyncManager(
     }
 
     suspend fun pullNetworkDevices(uid: String, userEmail: String): Result<Int> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         val fs = firestore ?: return@withContext Result.failure(IllegalStateException("Firebase غير مهيأ"))
         try {
             val doc = fs.collection("users").document(safeUid)
@@ -680,7 +892,7 @@ class FirestoreSyncManager(
     // --- Granular Push & Pull Methods for Exchange Rates ---
 
     suspend fun pushExchangeRates(uid: String, userEmail: String): Result<Int> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         val fs = firestore ?: return@withContext Result.failure(IllegalStateException("Firebase غير مهيأ"))
         try {
             val rates = db.currencyRateDao().getAllRatesSync()
@@ -712,7 +924,7 @@ class FirestoreSyncManager(
     }
 
     suspend fun pullExchangeRates(uid: String, userEmail: String): Result<Int> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         val fs = firestore ?: return@withContext Result.failure(IllegalStateException("Firebase غير مهيأ"))
         try {
             val doc = fs.collection("users").document(safeUid)
@@ -752,7 +964,7 @@ class FirestoreSyncManager(
     // --- Granular Push & Pull Methods for Network Identity & Initial Configuration ---
 
     suspend fun pushNetworkIdentityAndConfig(uid: String, userEmail: String): Result<String> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         val fs = firestore ?: return@withContext Result.failure(IllegalStateException("Firebase غير مهيأ"))
         try {
             val org = db.organizationDao().getOrganizationSync()
@@ -804,7 +1016,7 @@ class FirestoreSyncManager(
     }
 
     suspend fun pullNetworkIdentityAndConfig(uid: String, userEmail: String): Result<String> = withContext(Dispatchers.IO) {
-        val safeUid = uid.ifBlank { sanitizeTenantEmail(userEmail) }
+        val safeUid = resolveEffectiveUid(uid, userEmail)
         val fs = firestore ?: return@withContext Result.failure(IllegalStateException("Firebase غير مهيأ"))
         try {
             val doc = fs.collection("users").document(safeUid)

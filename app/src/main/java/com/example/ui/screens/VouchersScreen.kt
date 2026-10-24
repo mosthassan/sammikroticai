@@ -473,6 +473,13 @@ fun VouchersScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     StatusChip(status = voucher.status)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = com.example.util.TransactionDateUtils.formatEpochDay(voucher.dateEpochDay),
+                                        fontSize = 11.sp,
+                                        color = TextSecondaryDark,
+                                        fontFamily = FontFamily.Monospace
+                                    )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
@@ -606,6 +613,19 @@ fun VouchersScreen(
                             ) {
                                 Text("الطرف:", color = TextSecondaryDark, fontSize = 12.sp)
                                 Text(partyName, color = TextPrimaryDark, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("التاريخ:", color = TextSecondaryDark, fontSize = 12.sp)
+                                Text(
+                                    com.example.util.TransactionDateUtils.formatEpochDay(voucher.dateEpochDay),
+                                    color = TextPrimaryDark,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
