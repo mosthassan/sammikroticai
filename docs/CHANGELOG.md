@@ -36,3 +36,31 @@
 
 ### 6. Partner Equity Fixed Agreed Mode Fix
 - Fixed `PartnerEquityUseCase.setEquityShareMode` to gracefully handle uninitialized organizations by creating/updating the record, preventing fallback failures in fixed agreed equity mode tests.
+
+## [Phase 2.5 - Financial Reports Suite & Export Engine] - 2026-10-25
+
+### 1. Report 1: Monthly Profit Breakdown (12 Months)
+- Built multi-period ISP profitability analysis isolating direct bandwidth capacity costing (account 5101) from operational overheads.
+- Integrated Hare-Niemeyer largest-remainder algorithm for zero-rounding partner dividend allocations.
+- Real-time comparison versus previous month and same month of previous year with basis-point margin analytics.
+
+### 2. Report 2: Statement of Changes in Equity (IFRS)
+- Implemented 5-column equity movement matrix across Share Capital (`3101`), Partner Current Accounts (`3201`), Retained Earnings (`3301`), and Period Net Profit (`3302`).
+- Tracked cash and in-kind capital contributions, drawings, and profit distributions with full mathematical continuity.
+
+### 3. Report 3: Cash Flow Statement (IAS 7 Direct Method)
+- Direct cash flow classification for all cash and electronic wallet movements into Operating, Investing, and Financing activities.
+- Handled compound multi-item invoice splits using Hare-Niemeyer integer arithmetic.
+- Isolated inter-treasury transfers (zero net impact) and disclosed non-cash financing/investing transactions in the notes.
+
+### 4. Report 4: Daily Cash Register (سجل الصندوق اليومي)
+- Implemented chronological real-time transaction ledger for individual treasuries and currencies with dual running balances (original currency and base currency YER).
+- Added informational market valuation estimate note: `"تقدير بسعر اليوم، لا يدخل في أي قيد"`.
+- Dual reconciliation verification against physical cash balances and GL control account balances.
+
+### 5. Unified Reports Export Engine (PDF & CSV)
+- Added `ReportsCsvGenerator`: Generates UTF-8 with BOM (`\uFEFF`) CSV files with standard decimal values (period separator, zero thousands commas) using integer arithmetic (zero Double/Float).
+- Added `ReportsPdfGenerator`: Pixel-perfect A4 PDF generation with StaticLayout RTL Arabic text rendering, dark navy banners, cyan accents, KPI overview cards, alternating rows, and dynamic reconciliation badges.
+- Added `ReportExportManager`: Secure native Android share chooser and external viewer wrapper leveraging Jetpack `FileProvider`.
+- Added interactive export buttons to all 4 report screens (`ReportExportButtons`).
+

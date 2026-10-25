@@ -58,6 +58,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.example.ui.components.ReportExportButtons
+import com.example.util.ReportExportManager
+import com.example.util.ReportsCsvGenerator
+import com.example.util.ReportsPdfGenerator
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -211,6 +216,22 @@ fun CashFlowStatementView(
             // Hero Summary Card: Opening, Net Change, Closing Cash
             item {
                 CashFlowHeroCard(statement = rep)
+            }
+
+            // Export Buttons (PDF & CSV)
+            item {
+                val context = LocalContext.current
+                ReportExportButtons(
+                    onExportPdf = {
+                        val pdf = ReportsPdfGenerator.generateCashFlowStatementPdf(context, rep)
+                        ReportExportManager.sharePdf(context, pdf, "قائمة التدفقات النقدية")
+                    },
+                    onExportCsv = {
+                        val csv = ReportsCsvGenerator.generateCashFlowStatementCsv(context, rep)
+                        ReportExportManager.shareCsv(context, csv, "قائمة التدفقات النقدية")
+                    },
+                    tagPrefix = "cash_flow"
+                )
             }
 
             // 1. Operating Activities Card

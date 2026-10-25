@@ -212,7 +212,10 @@ object HareNiemeyerSplitter {
 
         // Mathematical invariant: exact equality must hold down to single minor unit
         check(allocatedOp + allocatedInv == totalPaymentMinor) {
-            "Hare-Niemeyer split invariant failed: $allocatedOp + $allocatedInv != $totalPaymentMinor"
+            val formattedTotal = Money(totalPaymentMinor, CurrencyCode.YER).format()
+            val formattedOp = Money(allocatedOp, CurrencyCode.YER).format()
+            val formattedInv = Money(allocatedInv, CurrencyCode.YER).format()
+            "Hare-Niemeyer split invariant failed: $formattedOp + $formattedInv != $formattedTotal"
         }
 
         return Pair(allocatedOp, allocatedInv)

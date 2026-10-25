@@ -56,6 +56,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import com.example.ui.components.ReportExportButtons
+import com.example.util.ReportExportManager
+import com.example.util.ReportsCsvGenerator
+import com.example.util.ReportsPdfGenerator
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -179,6 +184,23 @@ fun MonthlyProfitReportView(
                         }
                     }
                 }
+            }
+        }
+
+        if (report != null) {
+            item {
+                val context = LocalContext.current
+                ReportExportButtons(
+                    onExportPdf = {
+                        val pdf = ReportsPdfGenerator.generateMonthlyProfitPdf(context, report)
+                        ReportExportManager.sharePdf(context, pdf, "تقرير الأرباح والخسائر الشهرية ${report.fiscalYear}")
+                    },
+                    onExportCsv = {
+                        val csv = ReportsCsvGenerator.generateMonthlyProfitCsv(context, report)
+                        ReportExportManager.shareCsv(context, csv, "الأرباح الشهرية ${report.fiscalYear}")
+                    },
+                    tagPrefix = "monthly_profit"
+                )
             }
         }
 

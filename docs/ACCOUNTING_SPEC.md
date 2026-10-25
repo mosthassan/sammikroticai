@@ -124,3 +124,34 @@
 
 ### 3.13 Year-End Closing (إقفال سنوي)
 - **Rule:** Journal type `CLOSING`. Sum of all 4xxx credit balances debited; sum of all 5xxx debit balances credited; net transfer to `3301` (Retained Earnings).
+
+---
+
+## 4. Financial Statements & Reporting Specifications
+
+### 4.1 Monthly Profit & Loss Statement (الأرباح والخسائر الشهرية)
+- **Multi-Period Isolation:** Strictly calculates 12 distinct fiscal month slices ($m \in 1..12$) based on dynamic fiscal year boundaries.
+- **Direct ISP Costing:** Upstream capacity (account 5101) directly offsets revenue before operating expenses, producing a clean Gross Margin.
+- **Partner Dividend Modeling:** Partner shares of annual net profits are calculated dynamically using the Hare-Niemeyer (Largest Remainder) algorithm to prevent 1-Rial rounding loss.
+
+### 4.2 Statement of Changes in Equity (قائمة التغيرات في حقوق الملكية)
+- **5-Column Equity Movement Matrix:** Spans Share Capital (`3101`), Partner Current Accounts (`3201`), Retained Earnings (`3301`), and Period Net Profit (`3302`).
+- **In-Kind Asset Tracking:** Asset and equipment contributions made by partners are recognized at cost into fixed assets (`1501`) and equity (`3101` or `3201`) with full document lineage.
+- **Mathematical Continuity:** Enforces $\text{Opening Equity} + \sum \text{Movements} == \text{Closing Equity}$.
+
+### 4.3 Cash Flow Statement (قائمة التدفقات النقدية - IAS 7)
+- **Direct Method Classification:** Categorizes every transaction on accounts `1101` and `1102` into Operating, Investing, and Financing activities.
+- **Compound Invoice Splits:** Proportional allocation between Operating (expenses) and Investing (capital equipment) is executed via the Hare-Niemeyer method strictly in integer math.
+- **Zero-Net Exclusion:** Internal transfers and currency exchanges are formally classified with zero net impact on total cash.
+- **Cash Reconciliation:** Matches total closing cash against individual drawer balances and GL cash account totals.
+
+### 4.4 Daily Cash Register (سجل الصندوق اليومي)
+- **Dual Currency Running Balances:** Every line records running balances in both original currency and functional currency (YER).
+- **Informational Market Valuation:** Displays estimated market YER value for foreign currency balances using current exchange rates, accompanied by the mandatory disclaimer: `"تقدير بسعر اليوم، لا يدخل في أي قيد"`.
+- **Dual Reconciliation:** Verifies that original currency closing balance equals physical treasury account records, and base currency closing balance equals General Ledger control account balance (`1101`/`1102`).
+
+### 4.5 Financial Reports Export & Distribution
+- **CSV Standards:** UTF-8 encoding prefixed with Byte Order Mark (`\uFEFF`) to ensure seamless display in Arabic Excel. All monetary numbers use standard period decimal points (e.g. `1234.50`) and zero thousands commas.
+- **PDF Generation:** Pixel-perfect A4 documents with StaticLayout RTL Arabic text, dark navy headers, cyan accents, KPI overview cards, and audit reconciliation badges.
+- **System Sharing:** Secure document dispatch via Android `FileProvider` (`${applicationId}.fileprovider`) and `Intent.ACTION_SEND`.
+

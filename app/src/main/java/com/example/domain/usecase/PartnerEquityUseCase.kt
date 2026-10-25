@@ -2,6 +2,7 @@ package com.example.domain.usecase
 
 import com.example.core.ledger.PartnerDividendSpec
 import com.example.core.model.CurrencyCode
+import com.example.core.model.Money
 import com.example.core.model.EquityShareMode
 import com.example.core.model.ExchangeRate
 import com.example.core.model.RateZone
@@ -204,7 +205,9 @@ class PartnerEquityUseCase(
         // Strict Invariant: Sum of shares == totalProfitMinor down to 1 Rial
         val finalSum = finalShares.sumOf { it.amountMinor }
         check(finalSum == totalProfitMinor) {
-            "خلل في قاعدة اتزان توزيع الأرباح (Hare-Niemeyer): المجموع الموزع ($finalSum) لا يطابق المطلوب ($totalProfitMinor)"
+            val formattedFinal = Money(finalSum, CurrencyCode.YER).format()
+            val formattedTotal = Money(totalProfitMinor, CurrencyCode.YER).format()
+            "خلل في قاعدة اتزان توزيع الأرباح (Hare-Niemeyer): المجموع الموزع ($formattedFinal) لا يطابق المطلوب ($formattedTotal)"
         }
 
         return finalShares

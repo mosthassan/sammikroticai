@@ -184,6 +184,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _cashFlowStatement = MutableStateFlow<com.example.domain.report.CashFlowStatement?>(null)
     val cashFlowStatement: StateFlow<com.example.domain.report.CashFlowStatement?> = _cashFlowStatement.asStateFlow()
 
+    private val _dailyCashRegister = MutableStateFlow<com.example.domain.report.DailyCashRegisterStatement?>(null)
+    val dailyCashRegister: StateFlow<com.example.domain.report.DailyCashRegisterStatement?> = _dailyCashRegister.asStateFlow()
+
     private val _balanceSheet = MutableStateFlow<BalanceSheetReport?>(null)
     val balanceSheet: StateFlow<BalanceSheetReport?> = _balanceSheet.asStateFlow()
 
@@ -1149,6 +1152,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val rep = com.example.domain.report.generateCashFlowStatement(db, fromEpochDay, toEpochDay)
             _cashFlowStatement.value = rep
+        }
+    }
+
+    fun loadDailyCashRegister(treasuryId: String, fromEpochDay: Long, toEpochDay: Long) {
+        viewModelScope.launch {
+            try {
+                val rep = com.example.domain.report.generateDailyCashRegister(db, treasuryId, fromEpochDay, toEpochDay)
+                _dailyCashRegister.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل سجل الصندوق اليومي: ${e.message}")
+            }
         }
     }
 

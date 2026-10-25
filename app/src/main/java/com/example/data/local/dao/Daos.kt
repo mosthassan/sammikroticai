@@ -199,6 +199,28 @@ data class AccountCashBalanceRow(
     val balanceMinor: Long
 )
 
+data class DailyCashRegisterLineRow(
+    val lineId: String,
+    val entryId: String,
+    val docId: String,
+    val entryNumber: Long,
+    val entryDateEpochDay: Long,
+    val entryType: String,
+    val docType: String,
+    val docNumber: Long,
+    val docPartyId: String?,
+    val linePartyId: String?,
+    val partyName: String?,
+    val docNotes: String,
+    val lineMemo: String,
+    val origMinor: Long,
+    val currency: String,
+    val exchangeRateMicros: Long,
+    val baseDebitMinor: Long,
+    val baseCreditMinor: Long,
+    val treasuryId: String
+)
+
 /**
  * Journal entries and lines write access is restricted exclusively to LedgerWriter.
  */
@@ -802,6 +824,116 @@ internal interface JournalDao {
         startDateEpochDay: Long,
         endDateEpochDay: Long
     ): List<NonCashDocRow>
+
+    @Query("""
+        SELECT 
+            jl.id AS lineId,
+            jl.entryId AS entryId,
+            je.docId AS docId,
+            je.entryNumber AS entryNumber,
+            je.entryDateEpochDay AS entryDateEpochDay,
+            je.type AS entryType,
+            d.type AS docType,
+            d.docNumber AS docNumber,
+            d.partyId AS docPartyId,
+            jl.partyId AS linePartyId,
+            p.name AS partyName,
+            COALESCE(d.notes, '') AS docNotes,
+            COALESCE(jl.memo, '') AS lineMemo,
+            jl.origMinor AS origMinor,
+            jl.currency AS currency,
+            jl.exchangeRateMicros AS exchangeRateMicros,
+            jl.baseDebitMinor AS baseDebitMinor,
+            jl.baseCreditMinor AS baseCreditMinor,
+            jl.treasuryId AS treasuryId
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
+        LEFT JOIN parties p ON COALESCE(jl.partyId, d.partyId) = p.id
+        WHERE jl.treasuryId = :treasuryId
+          AND jl.currency = :currency
+          AND je.entryDateEpochDay >= :startDateEpochDay
+          AND je.entryDateEpochDay <= :endDateEpochDay
+        ORDER BY je.entryDateEpochDay ASC, je.entryNumber ASC, jl.lineNo ASC
+    """)
+    suspend fun getDailyCashRegisterLines(
+        treasuryId: String,
+        currency: String,
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): List<DailyCashRegisterLineRow>
+
+    @Query("""
+        SELECT COALESCE(
+            SUM(
+                CASE 
+                    WHEN jl.baseDebitMinor > 0 THEN jl.origMinor
+                    WHEN jl.baseCreditMinor > 0 THEN -jl.origMinor
+                    ELSE jl.origMinor
+                END
+            ), 0
+        )
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.treasuryId = :treasuryId
+          AND jl.currency = :currency
+          AND je.entryDateEpochDay < :startDateEpochDay
+    """)
+    suspend fun getTreasuryOpeningOrigBalance(
+        treasuryId: String,
+        currency: String,
+        startDateEpochDay: Long
+    ): Long
+
+    @Query("""
+        SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.treasuryId = :treasuryId
+          AND jl.currency = :currency
+          AND je.entryDateEpochDay < :startDateEpochDay
+    """)
+    suspend fun getTreasuryOpeningBaseBalance(
+        treasuryId: String,
+        currency: String,
+        startDateEpochDay: Long
+    ): Long
+
+    @Query("""
+        SELECT COALESCE(
+            SUM(
+                CASE 
+                    WHEN jl.baseDebitMinor > 0 THEN jl.origMinor
+                    WHEN jl.baseCreditMinor > 0 THEN -jl.origMinor
+                    ELSE jl.origMinor
+                END
+            ), 0
+        )
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.treasuryId = :treasuryId
+          AND jl.currency = :currency
+          AND je.entryDateEpochDay <= :asOfDateEpochDay
+    """)
+    suspend fun getTreasuryClosingOrigBalance(
+        treasuryId: String,
+        currency: String,
+        asOfDateEpochDay: Long
+    ): Long
+
+    @Query("""
+        SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.treasuryId = :treasuryId
+          AND jl.currency = :currency
+          AND je.entryDateEpochDay <= :asOfDateEpochDay
+    """)
+    suspend fun getTreasuryClosingBaseBalance(
+        treasuryId: String,
+        currency: String,
+        asOfDateEpochDay: Long
+    ): Long
 }
 
 @Dao

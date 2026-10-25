@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
@@ -140,10 +141,17 @@ fun ReportsScreen(
                 val mStart = java.time.LocalDate.of(now.year, now.monthValue, 1).toEpochDay()
                 viewModel.loadCashFlowStatement(mStart, todayEpoch)
             }
-            3 -> viewModel.loadIncomeStatement(todayEpoch - 30, todayEpoch)
-            4 -> viewModel.loadBalanceSheet(todayEpoch)
-            5 -> viewModel.loadAgingReport(todayEpoch)
-            6 -> {
+            3 -> {
+                val now = java.time.LocalDate.now()
+                val mStart = java.time.LocalDate.of(now.year, now.monthValue, 1).toEpochDay()
+                viewModel.allTreasuries.value.firstOrNull()?.id?.let { trId ->
+                    viewModel.loadDailyCashRegister(trId, mStart, todayEpoch)
+                }
+            }
+            4 -> viewModel.loadIncomeStatement(todayEpoch - 30, todayEpoch)
+            5 -> viewModel.loadBalanceSheet(todayEpoch)
+            6 -> viewModel.loadAgingReport(todayEpoch)
+            7 -> {
                 viewModel.loadIncomeStatement(todayEpoch - 30, todayEpoch)
                 viewModel.loadBalanceSheet(todayEpoch)
             }
@@ -167,6 +175,11 @@ fun ReportsScreen(
                     title = "قائمة التدفقات النقدية",
                     icon = Icons.Default.AccountBalanceWallet,
                     accentColor = SemanticIncomeGreen
+                ),
+                FintechTabItem(
+                    title = "سجل الصندوق اليومي",
+                    icon = Icons.Default.PointOfSale,
+                    accentColor = BrandCyanPrimary
                 ),
                 FintechTabItem(
                     title = "قائمة الدخل (P&L)",
@@ -209,17 +222,18 @@ fun ReportsScreen(
                 0 -> MonthlyProfitReportView(viewModel = viewModel)
                 1 -> PartnerEquityReportView(viewModel = viewModel)
                 2 -> CashFlowStatementView(viewModel = viewModel)
-                3 -> IncomeStatementView(incomeReport, onPeriodSelected = { start, end ->
+                3 -> DailyCashRegisterView(viewModel = viewModel)
+                4 -> IncomeStatementView(incomeReport, onPeriodSelected = { start, end ->
                     viewModel.loadIncomeStatement(start, end)
                 })
-                4 -> BalanceSheetView(balanceReport, onRefresh = {
+                5 -> BalanceSheetView(balanceReport, onRefresh = {
                     viewModel.loadBalanceSheet(todayEpoch)
                 })
-                5 -> AgingReportView(agingReport, onRefresh = {
+                6 -> AgingReportView(agingReport, onRefresh = {
                     viewModel.loadAgingReport(todayEpoch)
                 })
-                6 -> PartnerDividendsView(incomeReport, balanceReport, viewModel)
-                7 -> CloudSyncAndBackupView(viewModel)
+                7 -> PartnerDividendsView(incomeReport, balanceReport, viewModel)
+                8 -> CloudSyncAndBackupView(viewModel)
             }
         }
     }
