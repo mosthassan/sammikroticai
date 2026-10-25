@@ -172,6 +172,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _incomeStatement = MutableStateFlow<IncomeStatementReport?>(null)
     val incomeStatement: StateFlow<IncomeStatementReport?> = _incomeStatement.asStateFlow()
 
+    private val _monthlyProfitReport = MutableStateFlow<com.example.domain.report.MonthlyProfitReport?>(null)
+    val monthlyProfitReport: StateFlow<com.example.domain.report.MonthlyProfitReport?> = _monthlyProfitReport.asStateFlow()
+
+    private val _partnerStatement = MutableStateFlow<com.example.domain.report.PartnerStatementReport?>(null)
+    val partnerStatement: StateFlow<com.example.domain.report.PartnerStatementReport?> = _partnerStatement.asStateFlow()
+
+    private val _changesInEquity = MutableStateFlow<com.example.domain.report.StatementOfChangesInEquityReport?>(null)
+    val changesInEquity: StateFlow<com.example.domain.report.StatementOfChangesInEquityReport?> = _changesInEquity.asStateFlow()
+
+    private val _cashFlowStatement = MutableStateFlow<com.example.domain.report.CashFlowStatement?>(null)
+    val cashFlowStatement: StateFlow<com.example.domain.report.CashFlowStatement?> = _cashFlowStatement.asStateFlow()
+
     private val _balanceSheet = MutableStateFlow<BalanceSheetReport?>(null)
     val balanceSheet: StateFlow<BalanceSheetReport?> = _balanceSheet.asStateFlow()
 
@@ -1109,6 +1121,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val rep = statementsUseCase.generateIncomeStatement(startEpoch, endEpoch)
             _incomeStatement.value = rep
+        }
+    }
+
+    fun loadMonthlyProfitReport(fiscalYear: Int) {
+        viewModelScope.launch {
+            val rep = com.example.domain.report.generateMonthlyProfitReport(db, fiscalYear)
+            _monthlyProfitReport.value = rep
+        }
+    }
+
+    fun loadPartnerStatement(partnerPartyId: String, fromEpochDay: Long, toEpochDay: Long) {
+        viewModelScope.launch {
+            val rep = com.example.domain.report.generatePartnerStatementReport(db, partnerPartyId, fromEpochDay, toEpochDay)
+            _partnerStatement.value = rep
+        }
+    }
+
+    fun loadChangesInEquity(fromEpochDay: Long, toEpochDay: Long) {
+        viewModelScope.launch {
+            val rep = com.example.domain.report.generateStatementOfChangesInEquityReport(db, fromEpochDay, toEpochDay)
+            _changesInEquity.value = rep
+        }
+    }
+
+    fun loadCashFlowStatement(fromEpochDay: Long, toEpochDay: Long) {
+        viewModelScope.launch {
+            val rep = com.example.domain.report.generateCashFlowStatement(db, fromEpochDay, toEpochDay)
+            _cashFlowStatement.value = rep
         }
     }
 

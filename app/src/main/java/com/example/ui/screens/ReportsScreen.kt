@@ -129,10 +129,21 @@ fun ReportsScreen(
 
     LaunchedEffect(selectedTab) {
         when (selectedTab) {
-            0 -> viewModel.loadIncomeStatement(todayEpoch - 30, todayEpoch)
-            1 -> viewModel.loadBalanceSheet(todayEpoch)
-            2 -> viewModel.loadAgingReport(todayEpoch)
-            3 -> {
+            0 -> viewModel.loadMonthlyProfitReport(java.time.LocalDate.now().year)
+            1 -> {
+                val now = java.time.LocalDate.now()
+                val yStart = java.time.LocalDate.of(now.year, 1, 1).toEpochDay()
+                viewModel.loadChangesInEquity(yStart, todayEpoch)
+            }
+            2 -> {
+                val now = java.time.LocalDate.now()
+                val mStart = java.time.LocalDate.of(now.year, now.monthValue, 1).toEpochDay()
+                viewModel.loadCashFlowStatement(mStart, todayEpoch)
+            }
+            3 -> viewModel.loadIncomeStatement(todayEpoch - 30, todayEpoch)
+            4 -> viewModel.loadBalanceSheet(todayEpoch)
+            5 -> viewModel.loadAgingReport(todayEpoch)
+            6 -> {
                 viewModel.loadIncomeStatement(todayEpoch - 30, todayEpoch)
                 viewModel.loadBalanceSheet(todayEpoch)
             }
@@ -142,6 +153,21 @@ fun ReportsScreen(
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
         ModernFintechScrollableTabs(
             items = listOf(
+                FintechTabItem(
+                    title = "الأرباح الشهرية (12 شهراً)",
+                    icon = Icons.Default.ReceiptLong,
+                    accentColor = MikroTikCyan
+                ),
+                FintechTabItem(
+                    title = "كشف الشريك وحقوق الملكية",
+                    icon = Icons.Default.Group,
+                    accentColor = AssetPurple
+                ),
+                FintechTabItem(
+                    title = "قائمة التدفقات النقدية",
+                    icon = Icons.Default.AccountBalanceWallet,
+                    accentColor = SemanticIncomeGreen
+                ),
                 FintechTabItem(
                     title = "قائمة الدخل (P&L)",
                     icon = Icons.Default.Analytics,
@@ -158,9 +184,9 @@ fun ReportsScreen(
                     accentColor = StatusWarning
                 ),
                 FintechTabItem(
-                    title = "أرباح الشركاء",
-                    icon = Icons.Default.Group,
-                    accentColor = AssetPurple
+                    title = "توزيع أرباح الشركاء",
+                    icon = Icons.Default.Payments,
+                    accentColor = MikroTikCyan
                 ),
                 FintechTabItem(
                     title = "سحابة Firebase وحساب Google",
@@ -180,17 +206,20 @@ fun ReportsScreen(
                 .padding(16.dp)
         ) {
             when (selectedTab) {
-                0 -> IncomeStatementView(incomeReport, onPeriodSelected = { start, end ->
+                0 -> MonthlyProfitReportView(viewModel = viewModel)
+                1 -> PartnerEquityReportView(viewModel = viewModel)
+                2 -> CashFlowStatementView(viewModel = viewModel)
+                3 -> IncomeStatementView(incomeReport, onPeriodSelected = { start, end ->
                     viewModel.loadIncomeStatement(start, end)
                 })
-                1 -> BalanceSheetView(balanceReport, onRefresh = {
+                4 -> BalanceSheetView(balanceReport, onRefresh = {
                     viewModel.loadBalanceSheet(todayEpoch)
                 })
-                2 -> AgingReportView(agingReport, onRefresh = {
+                5 -> AgingReportView(agingReport, onRefresh = {
                     viewModel.loadAgingReport(todayEpoch)
                 })
-                3 -> PartnerDividendsView(incomeReport, balanceReport, viewModel)
-                4 -> CloudSyncAndBackupView(viewModel)
+                6 -> PartnerDividendsView(incomeReport, balanceReport, viewModel)
+                7 -> CloudSyncAndBackupView(viewModel)
             }
         }
     }
@@ -245,6 +274,29 @@ private fun IncomeStatementView(
                 Text("جاري استخراج قائمة الدخل وتكلفة الخدمة...", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
+            // Reconciliation Status Badge
+            item {
+                val breakdown = remember(report) {
+                    com.example.domain.report.calculateProfitBreakdown(
+                        rows = report.allLineDetails,
+                        fromEpochDay = report.startDateEpochDay ?: 0L,
+                        toEpochDay = report.endDateEpochDay ?: todayEpoch
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "فحص الاتزان وسلامة الدخل:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    com.example.ui.components.ReconciliationStatusBadge(reconciliation = breakdown.reconciliation)
+                }
+            }
+
             // Net Profit Hero Banner
             item {
                 val isProfit = report.netProfitMinor >= 0
@@ -419,13 +471,28 @@ private fun BalanceSheetView(
                     modifier = Modifier.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (report.isBalanced) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = statusColor,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    val balanceChecks = remember(report) {
+                        listOf(
+                            com.example.domain.report.ReconciliationCheck(
+                                name = "معادلة الميزانية (الأصول = الخصوم + حقوق الملكية)",
+                                expectedMinor = report.totalAssetsMinor,
+                                actualMinor = report.totalLiabilitiesAndEquityMinor,
+                                passed = (report.totalAssetsMinor == report.totalLiabilitiesAndEquityMinor),
+                                note = "تطابق إجمالي الأصول مع مجموع الالتزامات وحقوق الشركاء"
+                            ),
+                            com.example.domain.report.ReconciliationCheck(
+                                name = "صافي الأصول الثابتة الدفترية",
+                                expectedMinor = report.netFixedAssetsMinor,
+                                actualMinor = report.fixedAssetsCostMinor - report.accumulatedDepreciationMinor,
+                                passed = (report.netFixedAssetsMinor == report.fixedAssetsCostMinor - report.accumulatedDepreciationMinor),
+                                note = "تكلفة الأصول التاريخية ناقص مجمع الإهلاك المتراكم"
+                            )
+                        )
+                    }
+                    val balanceReconciliation = remember(balanceChecks) {
+                        com.example.domain.report.ReconciliationSummary(balanceChecks)
+                    }
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = if (report.isBalanced) "الميزانية متطابقة رياضياً (IFRS متوافقة)" else "تنبيه: عدم اتزان بين الأصول والخصوم",
@@ -439,6 +506,8 @@ private fun BalanceSheetView(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    com.example.ui.components.ReconciliationStatusBadge(reconciliation = balanceReconciliation)
                     IconButton(onClick = onRefresh) {
                         Icon(Icons.Default.Refresh, contentDescription = "تحديث")
                     }

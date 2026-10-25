@@ -110,6 +110,95 @@ data class PartyForeignBalanceItem(
     val currency: String
 )
 
+data class PartnerMovementRow(
+    val entryId: String,
+    val docId: String,
+    val entryDateEpochDay: Long,
+    val docType: String,
+    val docNumber: Long,
+    val memo: String,
+    val accountCode: String,
+    val baseDebitMinor: Long,
+    val baseCreditMinor: Long,
+    val origMinor: Long,
+    val currency: String,
+    val exchangeRateMicros: Long,
+    val docNotes: String
+)
+
+data class EquityPeriodLineRow(
+    val entryId: String,
+    val docId: String,
+    val entryDateEpochDay: Long,
+    val docType: String,
+    val docNumber: Long,
+    val accountCode: String,
+    val partyId: String?,
+    val memo: String,
+    val baseDebitMinor: Long,
+    val baseCreditMinor: Long,
+    val docNotes: String
+)
+
+data class CashJournalLineRow(
+    val lineId: String,
+    val entryId: String,
+    val docId: String,
+    val entryNumber: Long,
+    val entryDateEpochDay: Long,
+    val entryType: String,
+    val docType: String,
+    val docNumber: Long,
+    val docStatus: String,
+    val docPartyId: String?,
+    val docNotes: String,
+    val docExchangeRateMicros: Long,
+    val docTotalMinor: Long,
+    val docCurrency: String,
+    val accountCode: String,
+    val baseDebitMinor: Long,
+    val baseCreditMinor: Long,
+    val origMinor: Long,
+    val currency: String,
+    val linePartyId: String?,
+    val treasuryId: String?,
+    val memo: String
+)
+
+data class EntryOffsetLineRow(
+    val entryId: String,
+    val lineId: String,
+    val accountCode: String,
+    val baseDebitMinor: Long,
+    val baseCreditMinor: Long,
+    val origMinor: Long,
+    val currency: String,
+    val partyId: String?,
+    val memo: String
+)
+
+data class NonCashDocRow(
+    val docId: String,
+    val docNumber: Long,
+    val docType: String,
+    val dateEpochDay: Long,
+    val partyId: String,
+    val partyName: String?,
+    val currency: String,
+    val totalMinor: Long,
+    val totalBaseMinor: Long,
+    val notes: String,
+    val accountCode: String,
+    val lineMemo: String,
+    val baseDebitMinor: Long,
+    val baseCreditMinor: Long
+)
+
+data class AccountCashBalanceRow(
+    val accountCode: String,
+    val balanceMinor: Long
+)
+
 /**
  * Journal entries and lines write access is restricted exclusively to LedgerWriter.
  */
@@ -479,6 +568,240 @@ internal interface JournalDao {
         WHERE accountCode = :accountCode AND currency != 'YER' AND partyId IS NOT NULL
     """)
     suspend fun getPartiesWithForeignBalance(accountCode: String): List<PartyForeignBalanceItem>
+
+    @Query("""
+        SELECT COALESCE(SUM(jl.baseCreditMinor - jl.baseDebitMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.partyId = :partyId AND jl.accountCode = :accountCode
+          AND (:asOfDateEpochDay IS NULL OR je.entryDateEpochDay <= :asOfDateEpochDay)
+          AND je.type != 'CLOSING'
+    """)
+    suspend fun getPartnerAccountCreditBalanceAsOf(
+        partyId: String,
+        accountCode: String,
+        asOfDateEpochDay: Long?
+    ): Long
+
+    @Query("""
+        SELECT je.id AS entryId, d.id AS docId, je.entryDateEpochDay AS entryDateEpochDay,
+               d.type AS docType, d.docNumber AS docNumber, jl.memo AS memo,
+               jl.accountCode AS accountCode,
+               jl.baseDebitMinor AS baseDebitMinor, jl.baseCreditMinor AS baseCreditMinor,
+               jl.origMinor AS origMinor, jl.currency AS currency,
+               d.exchangeRateMicros AS exchangeRateMicros,
+               COALESCE(d.notes, '') AS docNotes
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
+        WHERE jl.partyId = :partyId AND jl.accountCode IN ('3101', '3201')
+          AND (:startDateEpochDay IS NULL OR je.entryDateEpochDay >= :startDateEpochDay)
+          AND (:endDateEpochDay IS NULL OR je.entryDateEpochDay <= :endDateEpochDay)
+          AND je.type != 'CLOSING'
+        ORDER BY je.entryDateEpochDay ASC, je.entryNumber ASC, jl.lineNo ASC
+    """)
+    suspend fun getPartnerMovementLines(
+        partyId: String,
+        startDateEpochDay: Long?,
+        endDateEpochDay: Long?
+    ): List<PartnerMovementRow>
+
+    @Query("""
+        SELECT je.id AS entryId, d.id AS docId, je.entryDateEpochDay AS entryDateEpochDay,
+               d.type AS docType, d.docNumber AS docNumber,
+               jl.accountCode AS accountCode, jl.partyId AS partyId,
+               jl.memo AS memo,
+               jl.baseDebitMinor AS baseDebitMinor, jl.baseCreditMinor AS baseCreditMinor,
+               COALESCE(d.notes, '') AS docNotes
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
+        WHERE jl.accountCode IN ('3101', '3201', '3301')
+          AND je.entryDateEpochDay >= :startDateEpochDay
+          AND je.entryDateEpochDay <= :endDateEpochDay
+          AND je.type != 'CLOSING'
+        ORDER BY je.entryDateEpochDay ASC, je.entryNumber ASC, jl.lineNo ASC
+    """)
+    suspend fun getEquityPeriodLines(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): List<EquityPeriodLineRow>
+
+    @Query("""
+        SELECT COALESCE(SUM(jl.baseCreditMinor - jl.baseDebitMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.accountCode IN ('3101', '3201')
+          AND (jl.partyId IS NULL OR jl.partyId NOT IN (SELECT id FROM parties WHERE isPartner = 1))
+          AND (:asOfDateEpochDay IS NULL OR je.entryDateEpochDay <= :asOfDateEpochDay)
+          AND je.type != 'CLOSING'
+    """)
+    suspend fun getOrphanPartnerLinesBalance(asOfDateEpochDay: Long?): Long
+
+    @Query("""
+        SELECT 
+            jl.id AS lineId,
+            je.id AS entryId,
+            d.id AS docId,
+            je.entryNumber AS entryNumber,
+            je.entryDateEpochDay AS entryDateEpochDay,
+            je.type AS entryType,
+            d.type AS docType,
+            d.docNumber AS docNumber,
+            d.status AS docStatus,
+            d.partyId AS docPartyId,
+            COALESCE(d.notes, '') AS docNotes,
+            d.exchangeRateMicros AS docExchangeRateMicros,
+            d.totalMinor AS docTotalMinor,
+            d.currency AS docCurrency,
+            jl.accountCode AS accountCode,
+            jl.baseDebitMinor AS baseDebitMinor,
+            jl.baseCreditMinor AS baseCreditMinor,
+            jl.origMinor AS origMinor,
+            jl.currency AS currency,
+            jl.partyId AS linePartyId,
+            jl.treasuryId AS treasuryId,
+            jl.memo AS memo
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
+        WHERE jl.accountCode IN ('1101', '1102')
+          AND je.entryDateEpochDay >= :startDateEpochDay
+          AND je.entryDateEpochDay <= :endDateEpochDay
+          AND je.type != 'CLOSING'
+        ORDER BY je.entryDateEpochDay ASC, je.entryNumber ASC, jl.lineNo ASC
+    """)
+    suspend fun getCashMovementLines(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): List<CashJournalLineRow>
+
+    @Query("""
+        SELECT 
+            jl.entryId AS entryId,
+            jl.id AS lineId,
+            jl.accountCode AS accountCode,
+            jl.baseDebitMinor AS baseDebitMinor,
+            jl.baseCreditMinor AS baseCreditMinor,
+            jl.origMinor AS origMinor,
+            jl.currency AS currency,
+            jl.partyId AS partyId,
+            jl.memo AS memo
+        FROM journal_lines jl
+        WHERE jl.entryId IN (
+            SELECT DISTINCT jl2.entryId
+            FROM journal_lines jl2
+            INNER JOIN journal_entries je2 ON jl2.entryId = je2.id
+            WHERE jl2.accountCode IN ('1101', '1102')
+              AND je2.entryDateEpochDay >= :startDateEpochDay
+              AND je2.entryDateEpochDay <= :endDateEpochDay
+              AND je2.type != 'CLOSING'
+        )
+        ORDER BY jl.entryId ASC, jl.lineNo ASC
+    """)
+    suspend fun getOffsetLinesForCashEntries(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): List<EntryOffsetLineRow>
+
+    @Query("""
+        SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.accountCode IN ('1101', '1102')
+          AND (
+              je.entryDateEpochDay < :startDateEpochDay
+              OR (je.entryDateEpochDay <= :endDateEpochDay AND je.docId IN (SELECT id FROM documents WHERE type = 'OPENING_BALANCE'))
+          )
+          AND je.type != 'CLOSING'
+    """)
+    suspend fun getCashOpeningBalance(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): Long
+
+    @Query("""
+        SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.accountCode IN ('1101', '1102')
+          AND je.entryDateEpochDay <= :endDateEpochDay
+          AND je.type != 'CLOSING'
+    """)
+    suspend fun getCashClosingBalance(
+        endDateEpochDay: Long
+    ): Long
+
+    @Query("""
+        SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.accountCode IN ('1101', '1102')
+          AND je.entryDateEpochDay >= :startDateEpochDay
+          AND je.entryDateEpochDay <= :endDateEpochDay
+          AND je.type != 'CLOSING'
+          AND je.docId NOT IN (SELECT id FROM documents WHERE type = 'OPENING_BALANCE')
+    """)
+    suspend fun getCashNetPeriodMovement(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): Long
+
+    @Query("""
+        SELECT 
+            jl.accountCode AS accountCode,
+            COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0) AS balanceMinor
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.accountCode IN ('1101', '1102')
+          AND je.entryDateEpochDay <= :endDateEpochDay
+          AND je.type != 'CLOSING'
+        GROUP BY jl.accountCode
+    """)
+    suspend fun getCashAccountBalancesAsOf(
+        endDateEpochDay: Long
+    ): List<AccountCashBalanceRow>
+
+    @Query("""
+        SELECT 
+            d.id AS docId,
+            d.docNumber AS docNumber,
+            d.type AS docType,
+            d.dateEpochDay AS dateEpochDay,
+            d.partyId AS partyId,
+            p.name AS partyName,
+            d.currency AS currency,
+            d.totalMinor AS totalMinor,
+            d.totalBaseMinor AS totalBaseMinor,
+            COALESCE(d.notes, '') AS notes,
+            jl.accountCode AS accountCode,
+            jl.memo AS lineMemo,
+            jl.baseDebitMinor AS baseDebitMinor,
+            jl.baseCreditMinor AS baseCreditMinor
+        FROM documents d
+        INNER JOIN journal_entries je ON d.id = je.docId
+        INNER JOIN journal_lines jl ON je.id = jl.entryId
+        LEFT JOIN parties p ON d.partyId = p.id
+        WHERE d.dateEpochDay >= :startDateEpochDay
+          AND d.dateEpochDay <= :endDateEpochDay
+          AND d.status = 'POSTED'
+          AND (
+              (jl.accountCode = '1501' AND jl.baseDebitMinor > 0)
+              OR
+              (jl.accountCode = '3201' AND jl.baseCreditMinor > 0 AND d.type = 'PAYMENT_VOUCHER')
+          )
+          AND d.id NOT IN (
+              SELECT DISTINCT je_cash.docId
+              FROM journal_entries je_cash
+              INNER JOIN journal_lines jl_cash ON je_cash.id = jl_cash.entryId
+              WHERE jl_cash.accountCode IN ('1101', '1102')
+          )
+        ORDER BY d.dateEpochDay ASC, d.docNumber ASC
+    """)
+    suspend fun getNonCashDisclosureLines(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): List<NonCashDocRow>
 }
 
 @Dao
@@ -539,6 +862,32 @@ interface DocumentDao {
 
     @Query("SELECT * FROM document_items")
     suspend fun getAllDocumentItemsSync(): List<DocumentItemEntity>
+
+    @Query("""
+        SELECT di.* FROM document_items di
+        WHERE di.docId IN (
+            SELECT DISTINCT a.invoiceDocId
+            FROM allocations a
+            WHERE a.paymentDocId IN (
+                SELECT DISTINCT je.docId
+                FROM journal_entries je
+                INNER JOIN journal_lines jl ON je.id = jl.entryId
+                INNER JOIN documents d ON je.docId = d.id
+                WHERE jl.accountCode IN ('1101', '1102')
+                  AND d.type = 'PAYMENT_VOUCHER'
+                  AND je.entryDateEpochDay >= :startDateEpochDay
+                  AND je.entryDateEpochDay <= :endDateEpochDay
+            ) AND a.isVoided = 0
+        )
+        ORDER BY di.docId ASC, di.itemIndex ASC
+    """)
+    suspend fun getDocumentItemsForPeriodCashPaymentInvoices(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): List<DocumentItemEntity>
+
+    @Query("SELECT * FROM document_items WHERE docId IN (:docIds) ORDER BY docId ASC, itemIndex ASC")
+    suspend fun getItemsForDocuments(docIds: List<String>): List<DocumentItemEntity>
 }
 
 @Dao
@@ -650,6 +999,27 @@ interface AllocationDao {
 
     @Query("UPDATE allocations SET isVoided = 1 WHERE paymentDocId = :docId OR invoiceDocId = :docId")
     suspend fun voidAllocationsForDoc(docId: String)
+
+    @Query("""
+        SELECT a.* FROM allocations a
+        WHERE a.paymentDocId IN (
+            SELECT DISTINCT je.docId
+            FROM journal_entries je
+            INNER JOIN journal_lines jl ON je.id = jl.entryId
+            INNER JOIN documents d ON je.docId = d.id
+            WHERE jl.accountCode IN ('1101', '1102')
+              AND d.type = 'PAYMENT_VOUCHER'
+              AND je.entryDateEpochDay >= :startDateEpochDay
+              AND je.entryDateEpochDay <= :endDateEpochDay
+        ) AND a.isVoided = 0
+    """)
+    suspend fun getActiveAllocationsForPeriodCashPayments(
+        startDateEpochDay: Long,
+        endDateEpochDay: Long
+    ): List<AllocationEntity>
+
+    @Query("SELECT * FROM allocations WHERE paymentDocId IN (:paymentDocIds) AND isVoided = 0")
+    suspend fun getAllocationsForPayments(paymentDocIds: List<String>): List<AllocationEntity>
 }
 
 @Dao
