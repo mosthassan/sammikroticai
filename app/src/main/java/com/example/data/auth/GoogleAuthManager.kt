@@ -71,9 +71,10 @@ class GoogleAuthManager(private val context: Context) {
         val fbUser = try { auth?.currentUser } catch (e: Exception) { null }
 
         if (fbUser != null && !fbUser.email.isNullOrBlank()) {
+            val email = fbUser.email ?: ""
             _userProfile.value = UserProfile(
-                email = fbUser.email!!,
-                displayName = fbUser.displayName ?: fbUser.email!!.substringBefore("@"),
+                email = email,
+                displayName = fbUser.displayName ?: email.substringBefore("@"),
                 photoUrl = fbUser.photoUrl?.toString(),
                 uid = fbUser.uid,
                 isAuthenticated = true

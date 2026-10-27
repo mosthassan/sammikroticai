@@ -114,7 +114,7 @@ fun PartnerEquityReportView(
 
     val todayEpoch = remember { com.example.core.time.AppClock.todayEpochDay() }
     val yearStartEpoch = remember {
-        val now = LocalDate.now()
+        val now = com.example.core.time.AppClock.todayLocalDate()
         LocalDate.of(now.year, 1, 1).toEpochDay()
     }
 
@@ -122,8 +122,9 @@ fun PartnerEquityReportView(
     val changesInEquity by viewModel.changesInEquity.collectAsState()
 
     LaunchedEffect(selectedPartnerId, subTab) {
-        if (subTab == 0 && selectedPartnerId != null) {
-            viewModel.loadPartnerStatement(selectedPartnerId!!, yearStartEpoch, todayEpoch)
+        val partnerId = selectedPartnerId
+        if (subTab == 0 && partnerId != null) {
+            viewModel.loadPartnerStatement(partnerId, yearStartEpoch, todayEpoch)
         } else if (subTab == 1) {
             viewModel.loadChangesInEquity(yearStartEpoch, todayEpoch)
         }
@@ -218,7 +219,7 @@ private fun PartnerStatementSubView(
                             onClick = { onSelectPartner(p.id) },
                             label = {
                                 Text(
-                                    text = "${p.name} (${(p.equityPercentageBasisPoints / 100.0)}%)",
+                                    text = "${p.name} (${formatBps(p.equityPercentageBasisPoints)})",
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                 )
                             },
@@ -261,7 +262,7 @@ private fun PartnerStatementSubView(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "نسبة الملكية المقيدة: ${(statement.equityPercentageBasisPoints / 100.0)}%",
+                                    text = "نسبة الملكية المقيدة: ${formatBps(statement.equityPercentageBasisPoints)}",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -699,7 +700,7 @@ private fun PartnerEquitySummaryCard(partner: PartnerEquitySummaryRow) {
             ) {
                 Column {
                     Text(partner.partnerName, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("حصة الشريك: ${(partner.equityPercentageBasisPoints / 100.0)}%", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("حصة الشريك: ${formatBps(partner.equityPercentageBasisPoints)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text("إجمالي نصيب الشريك:", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -760,4 +761,13 @@ private fun SummaryDetailText(label: String, amountMinor: Long) {
             fontFamily = FontFamily.Monospace
         )
     }
+}
+
+private fun formatBps(bps: Int): String {
+    val isNeg = bps < 0
+    val absBps = if (isNeg) -bps else bps
+    val whole = absBps / 100
+    val frac = absBps % 100
+    val fracStr = if (frac < 10) "0$frac" else "$frac"
+    return "${if (isNeg) "-" else ""}$whole.$fracStr%"
 }

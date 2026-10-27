@@ -470,7 +470,7 @@ fun DeviceJsonBackupDialog(
                                 onDismissRequest()
                             }
                         },
-                        enabled = parsedCount != null && parsedCount!! > 0,
+                        enabled = (parsedCount ?: 0) > 0,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = StatusOnline)
                     ) {

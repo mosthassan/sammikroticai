@@ -118,7 +118,7 @@ fun DailyCashRegisterView(
     // Load register when selection changes
     LaunchedEffect(selectedTreasuryId, periodMode) {
         val targetId = selectedTreasuryId ?: return@LaunchedEffect
-        val now = LocalDate.now()
+        val now = com.example.core.time.AppClock.todayLocalDate()
         val (start, end) = when (periodMode) {
             0 -> Pair(todayEpoch, todayEpoch)
             1 -> Pair(todayEpoch - 1, todayEpoch - 1)
@@ -160,7 +160,7 @@ fun DailyCashRegisterView(
                 onToggleDailyTotals = { showDailyTotals = it },
                 onRefresh = {
                     selectedTreasuryId?.let { id ->
-                        val now = LocalDate.now()
+                        val now = com.example.core.time.AppClock.todayLocalDate()
                         val (start, end) = when (periodMode) {
                             0 -> Pair(todayEpoch, todayEpoch)
                             1 -> Pair(todayEpoch - 1, todayEpoch - 1)
@@ -220,7 +220,10 @@ fun DailyCashRegisterView(
 
             // 5. Reconciliation Status Card
             item {
-                RegisterReconciliationCard(reconciliation = currentStatement.reconciliation)
+                RegisterReconciliationCard(
+                    reconciliation = currentStatement.reconciliation,
+                    currency = currentStatement.currency
+                )
             }
 
             // 6. Transaction Register (Continuous or Daily Grouped)
@@ -645,7 +648,8 @@ private fun ValueEstimationBanner(note: com.example.domain.report.ValueEstimatio
 
 @Composable
 private fun RegisterReconciliationCard(
-    reconciliation: com.example.domain.report.DailyCashRegisterReconciliation
+    reconciliation: com.example.domain.report.DailyCashRegisterReconciliation,
+    currency: String = "YER"
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
@@ -714,8 +718,10 @@ private fun RegisterReconciliationCard(
                         color = TextSecondaryDark
                     )
                 }
+                val origCurr = runCatching { CurrencyCode.fromString(currency) }.getOrDefault(CurrencyCode.YER)
+                val origDiffFormatted = Money(kotlin.math.abs(reconciliation.origDifferenceMinor), origCurr).format()
                 Text(
-                    text = if (reconciliation.isOrigReconciled) "مطابق (الفرق: 0)" else "فرق: ${reconciliation.origDifferenceMinor}",
+                    text = if (reconciliation.isOrigReconciled) "مطابق (الفرق: 0)" else "فرق: $origDiffFormatted",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                     color = if (reconciliation.isOrigReconciled) SemanticIncomeGreen else SemanticExpenseRed
@@ -743,8 +749,9 @@ private fun RegisterReconciliationCard(
                         color = TextSecondaryDark
                     )
                 }
+                val baseDiffFormatted = Money(kotlin.math.abs(reconciliation.baseDifferenceMinor), CurrencyCode.YER).format()
                 Text(
-                    text = if (reconciliation.isBaseReconciled) "مطابق (الفرق: 0 ر.ي)" else "فرق: ${reconciliation.baseDifferenceMinor} ر.ي",
+                    text = if (reconciliation.isBaseReconciled) "مطابق (الفرق: 0 ر.ي)" else "فرق: $baseDiffFormatted",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                     color = if (reconciliation.isBaseReconciled) SemanticIncomeGreen else SemanticExpenseRed

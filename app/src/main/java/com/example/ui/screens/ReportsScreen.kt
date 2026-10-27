@@ -127,23 +127,21 @@ fun ReportsScreen(
     val agingReport by viewModel.agingReport.collectAsState()
 
     val todayEpoch = remember { com.example.core.time.AppClock.todayEpochDay() }
+    val todayDate = remember { com.example.core.time.AppClock.todayLocalDate() }
 
     LaunchedEffect(selectedTab) {
         when (selectedTab) {
-            0 -> viewModel.loadMonthlyProfitReport(java.time.LocalDate.now().year)
+            0 -> viewModel.loadMonthlyProfitReport(todayDate.year)
             1 -> {
-                val now = java.time.LocalDate.now()
-                val yStart = java.time.LocalDate.of(now.year, 1, 1).toEpochDay()
+                val yStart = java.time.LocalDate.of(todayDate.year, 1, 1).toEpochDay()
                 viewModel.loadChangesInEquity(yStart, todayEpoch)
             }
             2 -> {
-                val now = java.time.LocalDate.now()
-                val mStart = java.time.LocalDate.of(now.year, now.monthValue, 1).toEpochDay()
+                val mStart = java.time.LocalDate.of(todayDate.year, todayDate.monthValue, 1).toEpochDay()
                 viewModel.loadCashFlowStatement(mStart, todayEpoch)
             }
             3 -> {
-                val now = java.time.LocalDate.now()
-                val mStart = java.time.LocalDate.of(now.year, now.monthValue, 1).toEpochDay()
+                val mStart = java.time.LocalDate.of(todayDate.year, todayDate.monthValue, 1).toEpochDay()
                 viewModel.allTreasuries.value.firstOrNull()?.id?.let { trId ->
                     viewModel.loadDailyCashRegister(trId, mStart, todayEpoch)
                 }
@@ -914,9 +912,12 @@ private fun PartnerDividendsView(
                                     ) {
                                         Column {
                                             Text(partner.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                            val pct = partner.equityPercentageBasisPoints / 100.0
+                                            val bps = partner.equityPercentageBasisPoints
+                                            val whole = bps / 100
+                                            val frac = kotlin.math.abs(bps % 100)
+                                            val pctStr = if (frac == 0) "$whole%" else "$whole.${frac.toString().padStart(2, '0')}%"
                                             Text(
-                                                if (currentMode == com.example.core.model.EquityShareMode.DERIVED_FROM_CAPITAL) "حصة ديناميكية من رأس المال" else "نسبة متفق عليها: $pct%",
+                                                if (currentMode == com.example.core.model.EquityShareMode.DERIVED_FROM_CAPITAL) "حصة ديناميكية من رأس المال" else "نسبة متفق عليها: $pctStr",
                                                 fontSize = 10.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1075,7 +1076,7 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
                             ) {
                                 Text("مسار العزل السحابي (Firestore):", color = TextSecondaryDark, fontSize = 11.sp)
                                 Text(
-                                    "tenants/${viewModel.syncManager.sanitizeTenantEmail(profile?.email ?: "")}",
+                                    "users/${profile?.uid?.takeIf { it.isNotBlank() } ?: "غير مسجل"}",
                                     color = TextMutedDark,
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace

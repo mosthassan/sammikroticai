@@ -219,37 +219,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun triggerInitialCloudSyncOnLogin(user: UserSession) {
         viewModelScope.launch {
-            val safeUid = user.uid.ifBlank { syncManager.sanitizeTenantEmail(user.email) }
-            val docCount = db.documentDao().getAllDocumentsSync().size
-            val linesCount = db.journalDao().getAllLinesSync().size
-            val isNewDeviceOrEmpty = docCount == 0 && linesCount == 0
+            try {
+                val safeUid = user.uid.ifBlank {
+                    runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull() ?: ""
+                }
+                if (safeUid.isBlank()) return@launch
+                val docCount = db.documentDao().getAllDocumentsSync().size
+                val linesCount = db.journalDao().getAllLinesSync().size
+                val isNewDeviceOrEmpty = docCount == 0 && linesCount == 0
 
-            val remoteMeta = syncManager.checkRemoteBackup(safeUid, user.email)
-            if (remoteMeta != null && remoteMeta.totalRecords > 0) {
-                if (isNewDeviceOrEmpty) {
-                    _userMessage.emit("تم اكتشاف نسخة سحابية سابقة (${remoteMeta.totalRecords} سجلاً). جاري الاستعادة التلقائية...")
-                    val pullRes = syncManager.syncPull(safeUid, user.email)
-                    if (pullRes.isSuccess) {
-                        _userMessage.emit("تمت استعادة كافة البيانات السحابية تلقائياً بنجاح ومطابقتها محلياً 100%")
-                        refreshDashboard()
-                        runInvariantCheck()
-                    } else {
-                        pendingCloudRestorePrompt.value = remoteMeta
-                        _userMessage.emit("تنبيه: تعذرت الاستعادة التلقائية: ${pullRes.exceptionOrNull()?.localizedMessage}")
-                    }
-                } else {
-                    val lastLocalSync = syncManager.syncMetadata.value?.lastSyncedAt ?: 0L
-                    if (remoteMeta.timestamp > lastLocalSync && autoSyncEnabled.value) {
-                        _userMessage.emit("جاري مزامنة السجلات السحابية المحدثة...")
+                val remoteMeta = syncManager.checkRemoteBackup(safeUid, user.email)
+                if (remoteMeta != null && remoteMeta.totalRecords > 0) {
+                    if (isNewDeviceOrEmpty) {
+                        _userMessage.emit("تم اكتشاف نسخة سحابية سابقة (${remoteMeta.totalRecords} سجلاً). جاري الاستعادة التلقائية...")
                         val pullRes = syncManager.syncPull(safeUid, user.email)
                         if (pullRes.isSuccess) {
+                            _userMessage.emit("تمت استعادة كافة البيانات السحابية تلقائياً بنجاح ومطابقتها محلياً 100%")
                             refreshDashboard()
                             runInvariantCheck()
+                        } else {
+                            pendingCloudRestorePrompt.value = remoteMeta
+                            _userMessage.emit("تنبيه: تعذرت الاستعادة التلقائية: ${pullRes.exceptionOrNull()?.localizedMessage}")
+                        }
+                    } else {
+                        val lastLocalSync = syncManager.syncMetadata.value?.lastSyncedAt ?: 0L
+                        if (remoteMeta.timestamp > lastLocalSync && autoSyncEnabled.value) {
+                            _userMessage.emit("جاري مزامنة السجلات السحابية المحدثة...")
+                            val pullRes = syncManager.syncPull(safeUid, user.email)
+                            if (pullRes.isSuccess) {
+                                refreshDashboard()
+                                runInvariantCheck()
+                            }
                         }
                     }
+                } else if (!isNewDeviceOrEmpty && docCount > 0 && autoSyncEnabled.value) {
+                    syncManager.syncPush(safeUid, user.email)
                 }
-            } else if (!isNewDeviceOrEmpty && docCount > 0 && autoSyncEnabled.value) {
-                syncManager.syncPush(safeUid, user.email)
+            } catch (e: Exception) {
+                android.util.Log.w("AppViewModel", "triggerInitialCloudSyncOnLogin failed: ${e.message}")
             }
         }
     }
@@ -273,48 +280,52 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshDashboard() {
         viewModelScope.launch {
-            val todayEpoch = com.example.core.time.AppClock.todayEpochDay()
-            val filter = selectedPeriodFilter.value
+            try {
+                val todayEpoch = com.example.core.time.AppClock.todayEpochDay()
+                val filter = selectedPeriodFilter.value
 
-            val startEpoch: Long? = when (filter) {
-                PeriodFilter.TODAY -> todayEpoch
-                PeriodFilter.THIS_WEEK -> todayEpoch - 7
-                PeriodFilter.THIS_MONTH -> todayEpoch - 30
-                PeriodFilter.ALL_TIME -> null
-            }
-
-            val income = statementsUseCase.generateIncomeStatement(startEpoch, todayEpoch)
-            val receivables = repository.getNetBalanceForAccount(AccountConstants.ACCOUNTS_RECEIVABLE)
-            val payables = -repository.getNetBalanceForAccount(AccountConstants.ACCOUNTS_PAYABLE)
-
-            // Treasury balances (native currency units for each vault/safe)
-            val treasuries = db.treasuryDao().getAllTreasuriesSync()
-            val trMap = mutableMapOf<String, Long>()
-            treasuries.forEach { tr ->
-                val bal = repository.getTreasuryBalance(tr.id)
-                trMap[tr.currency] = (trMap[tr.currency] ?: 0L) + bal
-            }
-            for (curr in listOf("YER", "USD", "SAR")) {
-                if (!trMap.containsKey(curr)) {
-                    trMap[curr] = repository.getCashBalanceByCurrency(curr)
+                val startEpoch: Long? = when (filter) {
+                    PeriodFilter.TODAY -> todayEpoch
+                    PeriodFilter.THIS_WEEK -> todayEpoch - 7
+                    PeriodFilter.THIS_MONTH -> todayEpoch - 30
+                    PeriodFilter.ALL_TIME -> null
                 }
+
+                val income = statementsUseCase.generateIncomeStatement(startEpoch, todayEpoch)
+                val receivables = repository.getNetBalanceForAccount(AccountConstants.ACCOUNTS_RECEIVABLE)
+                val payables = -repository.getNetBalanceForAccount(AccountConstants.ACCOUNTS_PAYABLE)
+
+                // Treasury balances (native currency units for each vault/safe)
+                val treasuries = db.treasuryDao().getAllTreasuriesSync()
+                val trMap = mutableMapOf<String, Long>()
+                treasuries.forEach { tr ->
+                    val bal = repository.getTreasuryBalance(tr.id)
+                    trMap[tr.currency] = (trMap[tr.currency] ?: 0L) + bal
+                }
+                for (curr in listOf("YER", "USD", "SAR")) {
+                    if (!trMap.containsKey(curr)) {
+                        trMap[curr] = repository.getCashBalanceByCurrency(curr)
+                    }
+                }
+
+                // Invariant check
+                val invRes = repository.runInvariantCheck()
+                _invariantResult.value = invRes
+
+                _dashboardSummary.value = DashboardSummary(
+                    totalSalesPeriodMinor = income.netRevenueMinor,
+                    totalReceiptsPeriodMinor = 0L, // Derived
+                    totalExpensesPeriodMinor = income.directIspCostMinor + income.totalOperatingExpensesMinor,
+                    netCashFlowMinor = income.netProfitMinor,
+                    totalReceivablesMinor = receivables,
+                    totalPayablesMinor = payables,
+                    treasuryBalancesByCurrency = trMap,
+                    openInvoiceCount = 0,
+                    isBalanced = invRes.isValid
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("AppViewModel", "refreshDashboard failed: ${e.message}", e)
             }
-
-            // Invariant check
-            val invRes = repository.runInvariantCheck()
-            _invariantResult.value = invRes
-
-            _dashboardSummary.value = DashboardSummary(
-                totalSalesPeriodMinor = income.netRevenueMinor,
-                totalReceiptsPeriodMinor = 0L, // Derived
-                totalExpensesPeriodMinor = income.directIspCostMinor + income.totalOperatingExpensesMinor,
-                netCashFlowMinor = income.netProfitMinor,
-                totalReceivablesMinor = receivables,
-                totalPayablesMinor = payables,
-                treasuryBalancesByCurrency = trMap,
-                openInvoiceCount = 0,
-                isBalanced = invRes.isValid
-            )
         }
     }
 
@@ -325,8 +336,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runInvariantCheck() {
         viewModelScope.launch {
-            val result = repository.runInvariantCheck()
-            _invariantResult.value = result
+            try {
+                val result = repository.runInvariantCheck()
+                _invariantResult.value = result
+            } catch (e: Exception) {
+                android.util.Log.e("AppViewModel", "runInvariantCheck failed: ${e.message}", e)
+            }
         }
     }
 
@@ -1030,9 +1045,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getDocumentItems(docId: String, onResult: (List<DocumentItemEntity>) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val items = db.documentDao().getItemsForDocument(docId)
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                onResult(items)
+            try {
+                val items = db.documentDao().getItemsForDocument(docId)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(items)
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(emptyList())
+                }
             }
         }
     }
@@ -1122,36 +1143,56 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadIncomeStatement(startEpoch: Long?, endEpoch: Long?) {
         viewModelScope.launch {
-            val rep = statementsUseCase.generateIncomeStatement(startEpoch, endEpoch)
-            _incomeStatement.value = rep
+            try {
+                val rep = statementsUseCase.generateIncomeStatement(startEpoch, endEpoch)
+                _incomeStatement.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل قائمة الدخل: ${e.message}")
+            }
         }
     }
 
     fun loadMonthlyProfitReport(fiscalYear: Int) {
         viewModelScope.launch {
-            val rep = com.example.domain.report.generateMonthlyProfitReport(db, fiscalYear)
-            _monthlyProfitReport.value = rep
+            try {
+                val rep = com.example.domain.report.generateMonthlyProfitReport(db, fiscalYear)
+                _monthlyProfitReport.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل تقرير الأرباح الشهرية: ${e.message}")
+            }
         }
     }
 
     fun loadPartnerStatement(partnerPartyId: String, fromEpochDay: Long, toEpochDay: Long) {
         viewModelScope.launch {
-            val rep = com.example.domain.report.generatePartnerStatementReport(db, partnerPartyId, fromEpochDay, toEpochDay)
-            _partnerStatement.value = rep
+            try {
+                val rep = com.example.domain.report.generatePartnerStatementReport(db, partnerPartyId, fromEpochDay, toEpochDay)
+                _partnerStatement.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل كشف حساب الشريك: ${e.message}")
+            }
         }
     }
 
     fun loadChangesInEquity(fromEpochDay: Long, toEpochDay: Long) {
         viewModelScope.launch {
-            val rep = com.example.domain.report.generateStatementOfChangesInEquityReport(db, fromEpochDay, toEpochDay)
-            _changesInEquity.value = rep
+            try {
+                val rep = com.example.domain.report.generateStatementOfChangesInEquityReport(db, fromEpochDay, toEpochDay)
+                _changesInEquity.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل قائمة التغير في حقوق الملكية: ${e.message}")
+            }
         }
     }
 
     fun loadCashFlowStatement(fromEpochDay: Long, toEpochDay: Long) {
         viewModelScope.launch {
-            val rep = com.example.domain.report.generateCashFlowStatement(db, fromEpochDay, toEpochDay)
-            _cashFlowStatement.value = rep
+            try {
+                val rep = com.example.domain.report.generateCashFlowStatement(db, fromEpochDay, toEpochDay)
+                _cashFlowStatement.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل قائمة التدفقات النقدية: ${e.message}")
+            }
         }
     }
 
@@ -1168,15 +1209,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadBalanceSheet(asOfDateEpoch: Long) {
         viewModelScope.launch {
-            val rep = statementsUseCase.generateBalanceSheet(asOfDateEpoch)
-            _balanceSheet.value = rep
+            try {
+                val rep = statementsUseCase.generateBalanceSheet(asOfDateEpoch)
+                _balanceSheet.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل الميزانية العمومية: ${e.message}")
+            }
         }
     }
 
     fun loadAgingReport(asOfDateEpoch: Long) {
         viewModelScope.launch {
-            val rep = statementsUseCase.generateAgingReport(asOfDateEpoch)
-            _agingReport.value = rep
+            try {
+                val rep = statementsUseCase.generateAgingReport(asOfDateEpoch)
+                _agingReport.value = rep
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر تحميل تقرير أعمار الديون: ${e.message}")
+            }
         }
     }
 
@@ -1206,8 +1255,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPartyActive(partyId: String, isActive: Boolean) {
         viewModelScope.launch {
-            db.partyDao().setPartyActive(partyId, isActive)
-            _userMessage.emit(if (isActive) "تم تنشيط الطرف" else "تمت أرشفة الطرف")
+            try {
+                db.partyDao().setPartyActive(partyId, isActive)
+                _userMessage.emit(if (isActive) "تم تنشيط الطرف" else "تمت أرشفة الطرف")
+            } catch (e: Exception) {
+                _userMessage.emit("فشل تعديل حالة الطرف: ${e.message}")
+            }
         }
     }
 
@@ -1225,8 +1278,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPackageActive(packageId: String, isActive: Boolean) {
         viewModelScope.launch {
-            db.cardPackageDao().setPackageActive(packageId, isActive)
-            _userMessage.emit(if (isActive) "تم تنشيط الباقة" else "تمت أرشفة الباقة")
+            try {
+                db.cardPackageDao().setPackageActive(packageId, isActive)
+                _userMessage.emit(if (isActive) "تم تنشيط الباقة" else "تمت أرشفة الباقة")
+            } catch (e: Exception) {
+                _userMessage.emit("فشل تعديل حالة الباقة: ${e.message}")
+            }
         }
     }
 
@@ -1348,17 +1405,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun signInWithGoogle(activityOrContext: Context) {
         viewModelScope.launch {
-            val res = authManager.signInWithGoogleCredentialManager(activityOrContext)
-            if (res.isSuccess) {
-                val user = res.getOrNull()
-                _userMessage.emit("تم تسجيل الدخول بنجاح بحساب Google: ${user?.email}")
-                if (user != null) {
-                    googleAuthManager.signInDirectWithEmail(user.email, user.displayName, user.uid)
-                    triggerInitialCloudSyncOnLogin(user)
+            try {
+                val res = authManager.signInWithGoogleCredentialManager(activityOrContext)
+                if (res.isSuccess) {
+                    val user = res.getOrNull()
+                    _userMessage.emit("تم تسجيل الدخول بنجاح بحساب Google: ${user?.email}")
+                    if (user != null) {
+                        googleAuthManager.signInDirectWithEmail(user.email, user.displayName, user.uid)
+                        triggerInitialCloudSyncOnLogin(user)
+                    }
+                } else {
+                    val err = res.exceptionOrNull()?.localizedMessage ?: "فشل تسجيل الدخول"
+                    _userMessage.emit(err)
                 }
-            } else {
-                val err = res.exceptionOrNull()?.localizedMessage ?: "فشل تسجيل الدخول"
-                _userMessage.emit(err)
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في تسجيل الدخول: ${e.localizedMessage ?: e.message}")
             }
         }
     }
@@ -1412,17 +1473,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val user = authManager.signInDirectly(email, displayName)
         googleAuthManager.signInDirectWithEmail(email, displayName, user.uid)
         viewModelScope.launch {
-            _userMessage.emit("تم تفعيل الحساب: ${user.email}")
-            triggerInitialCloudSyncOnLogin(user)
+            try {
+                _userMessage.emit("تم تفعيل الحساب: ${user.email}")
+                triggerInitialCloudSyncOnLogin(user)
+            } catch (e: Exception) {
+                android.util.Log.w("AppViewModel", "signInDirectly post-action failed: ${e.message}")
+            }
         }
     }
 
     fun signOut() {
         viewModelScope.launch {
-            authManager.signOut()
-            googleAuthManager.signOut()
-            pendingCloudRestorePrompt.value = null
-            _userMessage.emit("تم تسجيل الخروج")
+            try {
+                authManager.signOut()
+                googleAuthManager.signOut()
+                pendingCloudRestorePrompt.value = null
+                _userMessage.emit("تم تسجيل الخروج")
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ أثناء تسجيل الخروج: ${e.message}")
+            }
         }
     }
 
@@ -1433,18 +1502,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val email = targetEmail ?: fbUser?.email ?: user?.email ?: ""
         if (fbUser == null && uid.isBlank() && email.isBlank()) {
             viewModelScope.launch {
-                _userMessage.emit("يرجى تسجيل الدخول بحساب Google أولاً لتحديد النسخة السحابية")
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول بحساب Google أولاً لتحديد النسخة السحابية")
+                } catch (e: Exception) {
+                    // Ignored
+                }
             }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.syncPull(uid, email)
-            if (res.isSuccess) {
-                _userMessage.emit(res.getOrNull() ?: "تمت استعادة البيانات من السحابة بنجاح")
-                refreshDashboard()
-                runInvariantCheck()
-            } else {
-                _userMessage.emit(res.exceptionOrNull()?.localizedMessage ?: "فشل استعادة البيانات السحابية")
+            try {
+                val res = syncManager.syncPull(uid, email)
+                if (res.isSuccess) {
+                    _userMessage.emit(res.getOrNull() ?: "تمت استعادة البيانات من السحابة بنجاح")
+                    refreshDashboard()
+                    runInvariantCheck()
+                } else {
+                    _userMessage.emit(res.exceptionOrNull()?.localizedMessage ?: "فشل استعادة البيانات السحابية")
+                }
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ أثناء استعادة البيانات: ${e.localizedMessage ?: e.message}")
             }
         }
     }
@@ -1458,23 +1535,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         if (hasFirebaseApp && fbUser == null) {
             viewModelScope.launch {
-                _userMessage.emit("يرجى الضغط على زر 'دخول Google بنقرة' أولاً لتوثيق صلاحيات السحابة في Firebase")
+                try {
+                    _userMessage.emit("يرجى الضغط على زر 'دخول Google بنقرة' أولاً لتوثيق صلاحيات السحابة في Firebase")
+                } catch (e: Exception) {
+                    // Ignored
+                }
             }
             return
         }
 
         if (uid.isBlank() && email.isBlank()) {
             viewModelScope.launch {
-                _userMessage.emit("يرجى تسجيل الدخول بحساب Google أولاً لرفع النسخة السحابية")
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول بحساب Google أولاً لرفع النسخة السحابية")
+                } catch (e: Exception) {
+                    // Ignored
+                }
             }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.syncPush(uid, email)
-            if (res.isSuccess) {
-                _userMessage.emit(res.getOrNull() ?: "تمت المزامنة السحابية بنجاح")
-            } else {
-                _userMessage.emit(res.exceptionOrNull()?.localizedMessage ?: "فشل الرفع السحابي")
+            try {
+                val res = syncManager.syncPush(uid, email)
+                if (res.isSuccess) {
+                    _userMessage.emit(res.getOrNull() ?: "تمت المزامنة السحابية بنجاح")
+                } else {
+                    _userMessage.emit(res.exceptionOrNull()?.localizedMessage ?: "فشل الرفع السحابي")
+                }
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ أثناء الرفع السحابي: ${e.localizedMessage ?: e.message}")
             }
         }
     }
@@ -1488,15 +1577,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val uid = user?.uid ?: ""
         val email = user?.email ?: ""
         if (uid.isBlank() && email.isBlank()) {
-            viewModelScope.launch { _userMessage.emit("يرجى تسجيل الدخول أولاً") }
+            viewModelScope.launch {
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول أولاً")
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.pushNetworkDevices(uid, email)
-            if (res.isSuccess) {
-                _userMessage.emit("تم رفع ${res.getOrNull()} جهاز شبكة إلى السحابة بنجاح")
-            } else {
-                _userMessage.emit("فشل رفع أجهزة الشبكة: ${res.exceptionOrNull()?.localizedMessage}")
+            try {
+                val res = syncManager.pushNetworkDevices(uid, email)
+                if (res.isSuccess) {
+                    _userMessage.emit("تم رفع ${res.getOrNull()} جهاز شبكة إلى السحابة بنجاح")
+                } else {
+                    _userMessage.emit("فشل رفع أجهزة الشبكة: ${res.exceptionOrNull()?.localizedMessage}")
+                }
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في رفع أجهزة الشبكة: ${e.message}")
             }
         }
     }
@@ -1506,15 +1605,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val uid = user?.uid ?: ""
         val email = user?.email ?: ""
         if (uid.isBlank() && email.isBlank()) {
-            viewModelScope.launch { _userMessage.emit("يرجى تسجيل الدخول أولاً") }
+            viewModelScope.launch {
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول أولاً")
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.pullNetworkDevices(uid, email)
-            if (res.isSuccess) {
-                _userMessage.emit("تمت استعادة ${res.getOrNull()} جهاز شبكة من السحابة بنجاح")
-            } else {
-                _userMessage.emit("فشل استعادة أجهزة الشبكة: ${res.exceptionOrNull()?.localizedMessage}")
+            try {
+                val res = syncManager.pullNetworkDevices(uid, email)
+                if (res.isSuccess) {
+                    _userMessage.emit("تمت استعادة ${res.getOrNull()} جهاز شبكة من السحابة بنجاح")
+                } else {
+                    _userMessage.emit("فشل استعادة أجهزة الشبكة: ${res.exceptionOrNull()?.localizedMessage}")
+                }
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في استعادة أجهزة الشبكة: ${e.message}")
             }
         }
     }
@@ -1524,15 +1633,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val uid = user?.uid ?: ""
         val email = user?.email ?: ""
         if (uid.isBlank() && email.isBlank()) {
-            viewModelScope.launch { _userMessage.emit("يرجى تسجيل الدخول أولاً") }
+            viewModelScope.launch {
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول أولاً")
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.pushExchangeRates(uid, email)
-            if (res.isSuccess) {
-                _userMessage.emit("تم رفع ${res.getOrNull()} سعر صرف إلى السحابة بنجاح")
-            } else {
-                _userMessage.emit("فشل رفع أسعار الصرف: ${res.exceptionOrNull()?.localizedMessage}")
+            try {
+                val res = syncManager.pushExchangeRates(uid, email)
+                if (res.isSuccess) {
+                    _userMessage.emit("تم رفع ${res.getOrNull()} سعر صرف إلى السحابة بنجاح")
+                } else {
+                    _userMessage.emit("فشل رفع أسعار الصرف: ${res.exceptionOrNull()?.localizedMessage}")
+                }
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في رفع أسعار الصرف: ${e.message}")
             }
         }
     }
@@ -1542,15 +1661,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val uid = user?.uid ?: ""
         val email = user?.email ?: ""
         if (uid.isBlank() && email.isBlank()) {
-            viewModelScope.launch { _userMessage.emit("يرجى تسجيل الدخول أولاً") }
+            viewModelScope.launch {
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول أولاً")
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.pullExchangeRates(uid, email)
-            if (res.isSuccess) {
-                _userMessage.emit("تمت استعادة ${res.getOrNull()} سعر صرف من السحابة بنجاح")
-            } else {
-                _userMessage.emit("فشل استعادة أسعار الصرف: ${res.exceptionOrNull()?.localizedMessage}")
+            try {
+                val res = syncManager.pullExchangeRates(uid, email)
+                if (res.isSuccess) {
+                    _userMessage.emit("تمت استعادة ${res.getOrNull()} سعر صرف من السحابة بنجاح")
+                } else {
+                    _userMessage.emit("فشل استعادة أسعار الصرف: ${res.exceptionOrNull()?.localizedMessage}")
+                }
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في استعادة أسعار الصرف: ${e.message}")
             }
         }
     }
@@ -1560,12 +1689,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val uid = user?.uid ?: ""
         val email = user?.email ?: ""
         if (uid.isBlank() && email.isBlank()) {
-            viewModelScope.launch { _userMessage.emit("يرجى تسجيل الدخول أولاً") }
+            viewModelScope.launch {
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول أولاً")
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.pushNetworkIdentityAndConfig(uid, email)
-            _userMessage.emit(res.getOrNull() ?: "فشل رفع هوية الشبكة")
+            try {
+                val res = syncManager.pushNetworkIdentityAndConfig(uid, email)
+                _userMessage.emit(res.getOrNull() ?: "فشل رفع هوية الشبكة")
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في رفع هوية الشبكة: ${e.message}")
+            }
         }
     }
 
@@ -1574,12 +1713,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val uid = user?.uid ?: ""
         val email = user?.email ?: ""
         if (uid.isBlank() && email.isBlank()) {
-            viewModelScope.launch { _userMessage.emit("يرجى تسجيل الدخول أولاً") }
+            viewModelScope.launch {
+                try {
+                    _userMessage.emit("يرجى تسجيل الدخول أولاً")
+                } catch (e: Exception) {
+                    // Ignored
+                }
+            }
             return
         }
         viewModelScope.launch {
-            val res = syncManager.pullNetworkIdentityAndConfig(uid, email)
-            _userMessage.emit(res.getOrNull() ?: "فشل استعادة هوية الشبكة")
+            try {
+                val res = syncManager.pullNetworkIdentityAndConfig(uid, email)
+                _userMessage.emit(res.getOrNull() ?: "فشل استعادة هوية الشبكة")
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في استعادة هوية الشبكة: ${e.message}")
+            }
         }
     }
 
@@ -1589,17 +1738,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun signInWithGoogleOneTap(context: android.content.Context) {
         viewModelScope.launch {
-            val res = googleAuthManager.signInWithGoogleOneTap(context)
-            if (res.isSuccess) {
-                val profile = res.getOrNull()
-                if (profile != null) {
-                    val user = authManager.signInDirectly(profile.email, profile.displayName)
-                    _userMessage.emit("تم تسجيل الدخول بنجاح بحساب Google: ${profile.email}")
-                    triggerInitialCloudSyncOnLogin(user)
+            try {
+                val res = googleAuthManager.signInWithGoogleOneTap(context)
+                if (res.isSuccess) {
+                    val profile = res.getOrNull()
+                    if (profile != null) {
+                        val user = authManager.signInDirectly(profile.email, profile.displayName)
+                        _userMessage.emit("تم تسجيل الدخول بنجاح بحساب Google: ${profile.email}")
+                        triggerInitialCloudSyncOnLogin(user)
+                    }
+                } else {
+                    val err = res.exceptionOrNull()?.localizedMessage ?: "فشل تسجيل الدخول عبر Google"
+                    _userMessage.emit(err)
                 }
-            } else {
-                val err = res.exceptionOrNull()?.localizedMessage ?: "فشل تسجيل الدخول عبر Google"
-                _userMessage.emit(err)
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في تسجيل الدخول عبر Google: ${e.message}")
             }
         }
     }
@@ -1611,9 +1764,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun signOutGoogle() {
         viewModelScope.launch {
-            googleAuthManager.signOut()
-            authManager.signOut()
-            _userMessage.emit("تم تسجيل الخروج بنجاح")
+            try {
+                googleAuthManager.signOut()
+                authManager.signOut()
+                _userMessage.emit("تم تسجيل الخروج بنجاح")
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ أثناء تسجيل الخروج: ${e.message}")
+            }
         }
     }
 

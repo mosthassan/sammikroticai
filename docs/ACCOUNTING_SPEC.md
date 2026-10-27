@@ -155,3 +155,21 @@
 - **PDF Generation:** Pixel-perfect A4 documents with StaticLayout RTL Arabic text, dark navy headers, cyan accents, KPI overview cards, and audit reconciliation badges.
 - **System Sharing:** Secure document dispatch via Android `FileProvider` (`${applicationId}.fileprovider`) and `Intent.ACTION_SEND`.
 
+---
+
+## 5. Release Engineering & Build Integrity (Stage 3 Hardening)
+
+### 5.1 Dynamic Keystore & Signing Configuration
+- **Safe Environment Fallback:** Release signing reads `KEYSTORE_PATH`, `STORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD` from environment variables. If a custom release keystore path is not supplied or absent from disk, it safely falls back to `${rootDir}/debug.keystore`, ensuring reproducible local and CI/CD builds (`assembleRelease`) without configuration crashes.
+- **Multi-Environment Debug Safety:** Debug signing explicitly checks for `${rootDir}/debug.keystore` existence on disk before binding, preventing build failures on clean checkouts or developer environments that rely on standard Android SDK debug keystores.
+
+### 5.2 R8 Bytecode Optimization & ProGuard Keep Rules
+- **Minification Active:** `isMinifyEnabled = true` is enabled in `buildTypes { release }` with `proguard-android-optimize.txt` and `app/proguard-rules.pro`.
+- **Zero-Stripping Invariant Protection:**
+  - Preserves Room entities, DAOs, OpenDelegate, and TypeConverters (`androidx.room.**`, `com.example.data.local.**`).
+  - Preserves domain models, IFRS ledger enums, and monetary value objects (`com.example.domain.model.**`, `com.example.core.**`).
+  - Preserves Moshi serialization adapters and reflection metadata (`com.squareup.moshi.**`, `retrofit2.**`).
+  - Preserves Firebase Authentication, Firestore SDK, and Google Identity Credential Manager (`com.google.firebase.**`, `androidx.credentials.**`, `com.google.android.libraries.identity.googleid.**`).
+  - Preserves Kotlin Coroutines dispatchers and exception handlers (`kotlinx.coroutines.**`).
+
+

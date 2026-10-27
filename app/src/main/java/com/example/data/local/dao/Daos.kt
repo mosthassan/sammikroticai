@@ -971,6 +971,15 @@ interface DocumentDao {
     @Query("SELECT * FROM documents WHERE type = :type AND dateEpochDay >= :fromEpochDay AND dateEpochDay <= :toEpochDay AND status != 'VOIDED' ORDER BY dateEpochDay ASC, docNumber ASC")
     suspend fun getDocumentsByTypeAndDateRange(type: String, fromEpochDay: Long, toEpochDay: Long): List<DocumentEntity>
 
+    @Query("SELECT * FROM documents WHERE type = 'SALES_INVOICE' AND status = 'POSTED' AND dateEpochDay <= :asOfDateEpochDay ORDER BY dateEpochDay ASC, docNumber ASC")
+    suspend fun getPostedSalesInvoicesUpTo(asOfDateEpochDay: Long): List<DocumentEntity>
+
+    @Query("SELECT COUNT(*) FROM documents WHERE status = 'DRAFT' AND dateEpochDay >= :fromEpochDay AND dateEpochDay <= :toEpochDay")
+    suspend fun getDraftDocumentsCountInDateRange(fromEpochDay: Long, toEpochDay: Long): Int
+
+    @Query("SELECT COUNT(*) FROM documents WHERE type = 'PERIODIC_REVALUATION' AND status = 'POSTED' AND dateEpochDay >= :fromEpochDay AND dateEpochDay <= :toEpochDay")
+    suspend fun getPostedRevaluationsCountInDateRange(fromEpochDay: Long, toEpochDay: Long): Int
+
     @Query("""
         SELECT di.* FROM document_items di
         INNER JOIN documents d ON di.docId = d.id
@@ -1134,6 +1143,15 @@ interface AllocationDao {
 
     @Query("""
         SELECT a.* FROM allocations a
+        WHERE a.invoiceDocId IN (
+            SELECT d.id FROM documents d
+            WHERE d.type = 'SALES_INVOICE' AND d.status = 'POSTED' AND d.dateEpochDay <= :asOfDateEpochDay
+        ) AND a.isVoided = 0
+    """)
+    suspend fun getActiveAllocationsForInvoicesUpTo(asOfDateEpochDay: Long): List<AllocationEntity>
+
+    @Query("""
+        SELECT a.* FROM allocations a
         WHERE a.paymentDocId IN (
             SELECT DISTINCT je.docId
             FROM journal_entries je
@@ -1191,6 +1209,12 @@ interface AssetDao {
 
     @Query("SELECT COUNT(*) FROM depreciation_runs WHERE periodYear = :year AND periodMonth = :month AND assetId = :assetId")
     suspend fun countDepreciationRun(year: Int, month: Int, assetId: String): Int
+
+    @Query("SELECT COUNT(*) FROM depreciation_runs WHERE periodYear = :year AND periodMonth = :month")
+    suspend fun countDepreciationRunsForPeriod(year: Int, month: Int): Int
+
+    @Query("SELECT * FROM assets WHERE purchaseDateEpochDay <= :toEpochDay AND isDisposed = 0")
+    suspend fun getActiveAssetsUpTo(toEpochDay: Long): List<AssetEntity>
 
     @Query("SELECT * FROM depreciation_runs")
     suspend fun getAllDepreciationRunsSync(): List<DepreciationRunEntity>

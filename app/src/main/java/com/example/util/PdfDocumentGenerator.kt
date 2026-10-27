@@ -754,17 +754,17 @@ object PdfDocumentGenerator {
         curX -= COL_DESC_W
 
         // 3. Debit (مدين)
-        val debitText = if (item.baseDebitMinor > 0) "${item.baseDebitMinor / 100L}" else "-"
+        val debitText = if (item.baseDebitMinor > 0) Money(item.baseDebitMinor, CurrencyCode.YER).format(includeSymbol = false) else "-"
         drawCellText(canvas, debitText, curX - COL_DEBIT_W, startY, COL_DEBIT_W, h, if (item.baseDebitMinor > 0) COLOR_DANGER else COLOR_TEXT_MUTED, isMonospace = true)
         curX -= COL_DEBIT_W
 
         // 4. Credit (دائن)
-        val creditText = if (item.baseCreditMinor > 0) "${item.baseCreditMinor / 100L}" else "-"
+        val creditText = if (item.baseCreditMinor > 0) Money(item.baseCreditMinor, CurrencyCode.YER).format(includeSymbol = false) else "-"
         drawCellText(canvas, creditText, curX - COL_CREDIT_W, startY, COL_CREDIT_W, h, if (item.baseCreditMinor > 0) COLOR_SUCCESS else COLOR_TEXT_MUTED, isMonospace = true)
         curX -= COL_CREDIT_W
 
         // 5. Running Balance (الرصيد)
-        val balText = "${item.runningBalanceMinor / 100L} ر.ي"
+        val balText = Money(item.runningBalanceMinor, CurrencyCode.YER).format(includeSymbol = true)
         drawCellText(canvas, balText, curX - COL_BAL_W, startY, COL_BAL_W, h, COLOR_NAVY_DARK, isBold = true, isMonospace = true)
 
         return startY + h

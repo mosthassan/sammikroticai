@@ -9,14 +9,17 @@ import java.math.BigInteger
 import java.time.LocalDate
 
 enum class MonthClosingStatus(val title: String) {
-    FINAL("مقفلة نهائياً"),
+    FINAL("نهائي"),
+    PROVISIONAL("مؤقت"),
     IN_PROGRESS("قيد التشغيل"),
-    DRAFT("مسودة / بانتظار الإجراء")
+    @Deprecated("Use PROVISIONAL instead")
+    DRAFT("مسودة")
 }
 
 data class MonthlyProfitStatus(
     val status: MonthClosingStatus,
-    val reason: String
+    val reason: String,
+    val reasonsList: List<String> = emptyList()
 )
 
 data class MonthlyProfitItem(
@@ -290,13 +293,16 @@ suspend fun generateMonthlyProfitReport(
     fiscalYear: Int,
     partners: List<PartyEntity> = emptyList()
 ): MonthlyProfitReport {
-    val today = LocalDate.now()
+    val today = com.example.core.time.AppClock.todayLocalDate()
     val todayEpoch = today.toEpochDay()
     val currentYear = today.year
     val currentMonth = today.monthValue
 
     val monthItems = mutableListOf<MonthlyProfitItem>()
     var runningCumulative = 0L
+
+    val allTreasuries = db.treasuryDao().getAllTreasuriesSync()
+    val foreignTreasuries = allTreasuries.filter { it.currency != "YER" }
 
     for (m in 1..12) {
         val monthStart = LocalDate.of(fiscalYear, m, 1)
@@ -307,17 +313,72 @@ suspend fun generateMonthlyProfitReport(
         // Scoped query for month nominal entries (excluding closing entries)
         val rows = db.journalDao().getIncomeStatementLines(fromEpoch, toEpoch)
 
-        // Status check
-        val periodEntity = db.fiscalPeriodDao().getPeriod(fiscalYear, m)
-        val isClosed = periodEntity?.isClosed == true
-
-        val status = when {
-            isClosed -> MonthlyProfitStatus(MonthClosingStatus.FINAL, "الفترة مقفلة ومعتمدة محاسبياً")
-            fiscalYear == currentYear && m == currentMonth -> MonthlyProfitStatus(MonthClosingStatus.IN_PROGRESS, "الشهر الجاري قيد النشاط والتشغيل")
-            toEpoch > todayEpoch -> MonthlyProfitStatus(MonthClosingStatus.DRAFT, "فترة مستقبلية غير مبدوءة")
+        val status: MonthlyProfitStatus = when {
+            // (d) current month = IN_PROGRESS
+            fiscalYear == currentYear && m == currentMonth -> {
+                MonthlyProfitStatus(
+                    status = MonthClosingStatus.IN_PROGRESS,
+                    reason = "الشهر الجاري قيد النشاط والتشغيل",
+                    reasonsList = listOf("الشهر الجاري قيد النشاط والتشغيل")
+                )
+            }
+            // Future period
+            toEpoch > todayEpoch -> {
+                MonthlyProfitStatus(
+                    status = MonthClosingStatus.IN_PROGRESS,
+                    reason = "فترة مستقبلية غير مبدوءة",
+                    reasonsList = listOf("فترة مستقبلية غير مبدوءة")
+                )
+            }
             else -> {
-                // Past period not closed
-                MonthlyProfitStatus(MonthClosingStatus.DRAFT, "الفترة منتهية وبانتظار الإقفال الدوري")
+                // Past period: evaluate (a), (b), (c)
+                val reasons = mutableListOf<String>()
+
+                // (a) depreciable assets exist but no depreciation run for that month
+                val assets = db.assetDao().getActiveAssetsUpTo(toEpoch)
+                val depreciableAssets = assets.filter { it.accumulatedDepreciationMinor < (it.purchaseCostMinor - it.salvageValueMinor) }
+                if (depreciableAssets.isNotEmpty()) {
+                    val depRunsCount = db.assetDao().countDepreciationRunsForPeriod(fiscalYear, m)
+                    if (depRunsCount < depreciableAssets.size) {
+                        reasons.add("توجد أصول قابلة للإهلاك لم يتم إثبات قسط إهلاكها لهذا الشهر")
+                    }
+                }
+
+                // (b) foreign-currency balances at month end with no revaluation entry
+                var hasForeignBalance = false
+                for (ft in foreignTreasuries) {
+                    val bal = db.journalDao().getNetOrigBalanceForTreasury(ft.id, toEpoch)
+                    if (bal != 0L) {
+                        hasForeignBalance = true
+                        break
+                    }
+                }
+                if (hasForeignBalance) {
+                    val revalCount = db.documentDao().getPostedRevaluationsCountInDateRange(fromEpoch, toEpoch)
+                    if (revalCount == 0) {
+                        reasons.add("توجد أرصدة بالعملة الأجنبية لم تخضع لإعادة تقييم فروق العملة بنهاية الشهر")
+                    }
+                }
+
+                // (c) any DRAFT document dated in the month
+                val draftCount = db.documentDao().getDraftDocumentsCountInDateRange(fromEpoch, toEpoch)
+                if (draftCount > 0) {
+                    reasons.add("توجد وثائق ومستندات مسودة (DRAFT) غير مرحلة خلال الشهر ($draftCount مستند)")
+                }
+
+                if (reasons.isNotEmpty()) {
+                    MonthlyProfitStatus(
+                        status = MonthClosingStatus.PROVISIONAL,
+                        reason = reasons.joinToString(" • "),
+                        reasonsList = reasons
+                    )
+                } else {
+                    MonthlyProfitStatus(
+                        status = MonthClosingStatus.FINAL,
+                        reason = "الفترة مقفلة ومعتمدة محاسبياً",
+                        reasonsList = listOf("جميع المتطلبات مكتملة: تم ترحيل المستندات، وإثبات أقساط الإهلاك، وإعادة التقييم الدوري")
+                    )
+                }
             }
         }
 

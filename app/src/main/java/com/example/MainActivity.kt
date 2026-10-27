@@ -320,8 +320,7 @@ class MainActivity : ComponentActivity() {
 
                 // Prompt to restore if remote cloud backup exists on empty/fresh app
                 val pendingRestore by appViewModel.pendingCloudRestorePrompt.collectAsState()
-                if (pendingRestore != null) {
-                    val backup = pendingRestore!!
+                pendingRestore?.let { backup ->
                     val dateStr = if (backup.timestamp > 0L) {
                         com.example.util.TransactionDateUtils.formatDateTime(backup.timestamp)
                     } else "غير محدد"

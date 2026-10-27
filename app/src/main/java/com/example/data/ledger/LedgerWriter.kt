@@ -827,8 +827,9 @@ class LedgerWriter(
             val invDoc = if (invoiceAllocations.isNotEmpty()) db.documentDao().getDocumentById(invoiceAllocations.first().invoiceDocId) else null
             val invCurrency = if (invDoc != null) CurrencyCode.fromString(invDoc.currency) else currency
             val invRate = if (invDoc != null) ExchangeRate(invCurrency, CurrencyCode.FUNCTIONAL, invDoc.exchangeRateMicros) else exchangeRate
+            val payingPartnerId = payingPartnerPartyId ?: throw IllegalArgumentException("payingPartnerPartyId is required for PARTNER_PERSONAL")
             PostingRules.createPartnerPersonalPaymentDraft(
-                payingPartnerPartyId = payingPartnerPartyId!!,
+                payingPartnerPartyId = payingPartnerId,
                 vendorPartyId = recipientPartyId,
                 paidAmountOrigMinor = amountOrigMinor,
                 paymentCurrency = currency,
@@ -840,12 +841,14 @@ class LedgerWriter(
                 memo = if (notes.isNotBlank()) notes else "سداد مورد من حساب الشريك الشخصي #$docNumber"
             )
         } else {
-            val t = treasury!!
+            val t = treasury ?: throw IllegalArgumentException("treasury is required")
+            val activeTreasuryId = treasuryId ?: t.id
             when (paymentType) {
                 PaymentVoucherType.VENDOR_SETTLEMENT -> {
                     if (invoiceAllocations.isNotEmpty()) {
                         val firstAlloc = invoiceAllocations.first()
-                        val invDoc = db.documentDao().getDocumentById(firstAlloc.invoiceDocId)!!
+                        val invDoc = db.documentDao().getDocumentById(firstAlloc.invoiceDocId)
+                            ?: throw IllegalStateException("Invoice document not found: ${firstAlloc.invoiceDocId}")
                         val invCurrency = CurrencyCode.fromString(invDoc.currency)
                         val invRate = ExchangeRate(invCurrency, CurrencyCode.FUNCTIONAL, invDoc.exchangeRateMicros)
                         val totalRelievedOrig = invoiceAllocations.sumOf { it.allocatedOrigMinor }
@@ -854,7 +857,7 @@ class LedgerWriter(
                         if (cashPaidBase != payableRelievedBase || invCurrency != currency) {
                             PostingRules.createVendorPaymentWithFxDraft(
                                 treasuryGlCode = t.glAccountCode,
-                                treasuryId = treasuryId!!,
+                                treasuryId = activeTreasuryId,
                                 vendorPartyId = recipientPartyId,
                                 paidAmountOrigMinor = amountOrigMinor,
                                 paymentCurrency = currency,
@@ -868,7 +871,7 @@ class LedgerWriter(
                         } else {
                             PostingRules.createVendorPaymentDraft(
                                 treasuryGlCode = t.glAccountCode,
-                                treasuryId = treasuryId!!,
+                                treasuryId = activeTreasuryId,
                                 vendorPartyId = recipientPartyId,
                                 amountOrigMinor = amountOrigMinor,
                                 currency = currency,
@@ -880,7 +883,7 @@ class LedgerWriter(
                     } else {
                         PostingRules.createVendorPaymentDraft(
                             treasuryGlCode = t.glAccountCode,
-                            treasuryId = treasuryId!!,
+                            treasuryId = activeTreasuryId,
                             vendorPartyId = recipientPartyId,
                             amountOrigMinor = amountOrigMinor,
                             currency = currency,
@@ -892,7 +895,7 @@ class LedgerWriter(
                 }
                 PaymentVoucherType.DIRECT_ISP_SERVICE -> PostingRules.createDirectExpensePaymentDraft(
                     treasuryGlCode = t.glAccountCode,
-                    treasuryId = treasuryId!!,
+                    treasuryId = activeTreasuryId,
                     expenseAccountCode = AccountConstants.DIRECT_ISP_SERVICE_COST,
                     amountOrigMinor = amountOrigMinor,
                     currency = currency,
@@ -902,7 +905,7 @@ class LedgerWriter(
                 )
                 PaymentVoucherType.OPERATING_EXPENSE -> PostingRules.createDirectExpensePaymentDraft(
                     treasuryGlCode = t.glAccountCode,
-                    treasuryId = treasuryId!!,
+                    treasuryId = activeTreasuryId,
                     expenseAccountCode = customExpenseCode ?: AccountConstants.OPERATING_EXPENSES,
                     amountOrigMinor = amountOrigMinor,
                     currency = currency,
@@ -912,7 +915,7 @@ class LedgerWriter(
                 )
                 PaymentVoucherType.PARTNER_DRAWINGS -> PostingRules.createPartnerDrawingsDraft(
                     treasuryGlCode = t.glAccountCode,
-                    treasuryId = treasuryId!!,
+                    treasuryId = activeTreasuryId,
                     partnerPartyId = recipientPartyId,
                     amountOrigMinor = amountOrigMinor,
                     currency = currency,

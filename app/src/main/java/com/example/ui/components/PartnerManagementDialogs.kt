@@ -1004,7 +1004,7 @@ fun NewCapitalContributionDialog(
                             }
 
                             if (contributionType == 0) {
-                                val amtMinor = parsedCashMoney!!.minor
+                                val amtMinor = parsedCashMoney?.minor ?: 0L
                                 val finalNotes = if (notesText.isBlank()) "مساهمة نقدية برأس المال" else notesText
                                 if (onSubmitCashWithZone != null) {
                                     onSubmitCashWithZone(selectedTreasuryId, amtMinor, selectedCurrency, rate, finalNotes, selectedZone)

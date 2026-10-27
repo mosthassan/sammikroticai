@@ -1694,8 +1694,7 @@ private fun UpdateRateDialog(
         ExchangeRate.parseRateFromUserInput(rateInputText)
     }
 
-    if (significantChangeEx != null) {
-        val ex = significantChangeEx!!
+    significantChangeEx?.let { ex ->
         AlertDialog(
             onDismissRequest = { significantChangeEx = null },
             title = {
@@ -1849,9 +1848,9 @@ private fun UpdateRateDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (errorMessage != null) {
+                errorMessage?.let { err ->
                     Text(
-                        text = errorMessage!!,
+                        text = err,
                         color = SemanticExpenseRed,
                         fontSize = 11.sp
                     )

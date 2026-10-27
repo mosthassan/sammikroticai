@@ -64,3 +64,27 @@
 - Added `ReportExportManager`: Secure native Android share chooser and external viewer wrapper leveraging Jetpack `FileProvider`.
 - Added interactive export buttons to all 4 report screens (`ReportExportButtons`).
 
+## [Hardening Pass - Stage 1, 2 & 3] - 2026-10-27
+
+### Stage 1: Report Crash Safety & Display Bugs
+- Wrapped all report loaders in `AppViewModel.kt` with `try/catch` emitting to `_userMessage` rather than crashing.
+- Corrected difference printing in `DailyCashRegisterView.kt` and `PdfDocumentGenerator.kt` using `Money(...).format()`.
+- Replaced non-deterministic `LocalDate.now()` with `AppClock.todayLocalDate()` (`Asia/Aden`, UTC+3).
+- Eliminated `Double` in equity shares and percentages, enforcing integer basis points and largest-remainder distributions.
+- Added per-month closing status badges (`FINAL / PROVISIONAL / IN_PROGRESS`) with interactive diagnostic reasons.
+
+### Stage 2: Cloud Paths & Firestore Rules Hardening
+- Replaced permissive rules in `firestore.rules` with strict zero-trust user isolation (`users/{userId}/{document=**}` restricted to `request.auth.uid == userId`; root deny all; purged `/tenants/**`).
+- Unified `FirestoreSyncManager.kt` solely under `users/{uid}/...` with an interceptable `FirestoreAdapter`.
+- Added 900 KB single-document size guardrail to prevent silent Firestore document overflow.
+- Excluded `.aistudio/` in `.gitignore`.
+
+### Stage 3: Release Build & ProGuard / R8 Hardening
+- Configured dynamic, safe keystore resolution in `app/build.gradle.kts`:
+  - `release`: dynamically reads `KEYSTORE_PATH` and env vars, safely falling back to local debug keystore for development and CI/CD without build failures.
+  - `debugConfig`: verifies file existence before binding, preventing build failures on clean checkouts or developer environments.
+- Enabled `isMinifyEnabled = true` in `buildTypes.release` for Google Play production readiness.
+- Implemented comprehensive ProGuard/R8 rules in `app/proguard-rules.pro` protecting Room entities, DAOs, OpenDelegate, Domain models, Moshi serialization, Firebase, Credentials Manager, Coroutines, and Jetpack Compose.
+- Verified release build compilation via `assembleRelease` and debug compilation via `assembleDebug`.
+
+

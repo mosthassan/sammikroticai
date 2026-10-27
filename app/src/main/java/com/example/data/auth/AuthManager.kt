@@ -73,9 +73,10 @@ class AuthManager(private val context: Context) {
     private fun loadPersistedSession() {
         val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (e: Exception) { null }
         if (fbUser != null && !fbUser.email.isNullOrBlank()) {
+            val email = fbUser.email ?: ""
             val session = UserSession(
-                email = fbUser.email!!,
-                displayName = fbUser.displayName ?: fbUser.email!!.substringBefore("@"),
+                email = email,
+                displayName = fbUser.displayName ?: email.substringBefore("@"),
                 photoUrl = fbUser.photoUrl?.toString(),
                 uid = fbUser.uid,
                 isSignedIn = true

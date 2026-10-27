@@ -12,7 +12,9 @@ import com.example.data.local.entity.DocumentEntity
 import com.example.data.local.entity.OrganizationEntity
 import com.example.data.local.entity.PartyEntity
 import com.example.data.network.NetworkConfig
+import java.math.BigDecimal
 import java.math.BigInteger
+import java.math.RoundingMode
 
 data class PartnerEquityReportItem(
     val partnerId: String,
@@ -69,6 +71,13 @@ class PartnerEquityUseCase(
         }
     }
 
+    companion object {
+        fun formatBasisPoints(bps: Int): String {
+            val bd = BigDecimal(bps).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
+            return "${bd.toPlainString()}%"
+        }
+    }
+
     /**
      * Validates that fixed agreed partner equity shares equal 100.00% (10,000 basis points).
      * Throws IllegalStateException if invalid.
@@ -79,9 +88,9 @@ class PartnerEquityUseCase(
 
         val totalBps = activePartners.sumOf { it.equityPercentageBasisPoints }
         if (totalBps != 10000) {
-            val totalPct = totalBps / 100.0
+            val totalPctStr = formatBasisPoints(totalBps)
             throw IllegalStateException(
-                "مجموع نسب الشركاء المتفق عليها يجب أن يساوي 100.00% (10,000 نقطة أساس) بالضبط. المجموع الحالي: $totalPct% ($totalBps نقطة أساس)"
+                "مجموع نسب الشركاء المتفق عليها يجب أن يساوي 100.00% (10,000 نقطة أساس) بالضبط. المجموع الحالي: $totalPctStr ($totalBps نقطة أساس)"
             )
         }
     }
@@ -102,8 +111,8 @@ class PartnerEquityUseCase(
             val totalBps = allPartners.sumOf { it.equityPercentageBasisPoints }
             if (totalBps != 10000) {
                 isFixedValid = false
-                val totalPct = totalBps / 100.0
-                validationMsg = "مجموع نسب الشركاء الحالية هو $totalPct% ويجب أن يكون 100.00%"
+                val totalPctStr = formatBasisPoints(totalBps)
+                validationMsg = "مجموع نسب الشركاء الحالية هو $totalPctStr ويجب أن يكون 100.00%"
             }
         }
 
@@ -122,8 +131,7 @@ class PartnerEquityUseCase(
                 }
             }
 
-            val pct = bps / 100.0
-            val pctFormatted = String.format(java.util.Locale.US, "%.2f%%", pct)
+            val pctFormatted = formatBasisPoints(bps)
 
             PartnerEquityReportItem(
                 partnerId = partner.id,

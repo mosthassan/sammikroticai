@@ -173,10 +173,10 @@ fun HealthCheckScreen(
                         Text("اختبار منع التعديل المباشر")
                     }
 
-                    if (triggerResult != null) {
+                    triggerResult?.let { res ->
                         Text(
-                            text = triggerResult!!,
-                            color = if (triggerResult!!.startsWith("نجاح")) SemanticIncomeGreen else SemanticExpenseRed,
+                            text = res,
+                            color = if (res.startsWith("نجاح")) SemanticIncomeGreen else SemanticExpenseRed,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )

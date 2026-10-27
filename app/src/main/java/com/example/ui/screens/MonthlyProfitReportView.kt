@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -43,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -88,6 +90,7 @@ import com.example.ui.theme.TextMutedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.viewmodel.AppViewModel
+import com.example.core.time.AppClock
 import java.time.LocalDate
 
 @Composable
@@ -95,9 +98,10 @@ fun MonthlyProfitReportView(
     viewModel: AppViewModel,
     modifier: Modifier = Modifier
 ) {
-    val currentYear = remember { LocalDate.now().year }
+    val currentYear = remember { AppClock.todayLocalDate().year }
     var selectedFiscalYear by remember { mutableIntStateOf(currentYear) }
-    var selectedMonthIndex by remember { mutableIntStateOf(LocalDate.now().monthValue) }
+    var selectedMonthIndex by remember { mutableIntStateOf(AppClock.todayLocalDate().monthValue) }
+    var statusDialogMonth by remember { mutableStateOf<MonthlyProfitItem?>(null) }
 
     val reportState by viewModel.monthlyProfitReport.collectAsState()
 
@@ -232,7 +236,8 @@ fun MonthlyProfitReportView(
                     selectedMonth = selectedItem,
                     previousMonth = prevMonthItem,
                     allMonths = report.months,
-                    onSelectMonth = { selectedMonthIndex = it }
+                    onSelectMonth = { selectedMonthIndex = it },
+                    onStatusClick = { statusDialogMonth = selectedItem }
                 )
             }
 
@@ -241,7 +246,8 @@ fun MonthlyProfitReportView(
                 TwelveMonthMatrixSection(
                     months = report.months,
                     selectedMonthIndex = selectedMonthIndex,
-                    onMonthClicked = { selectedMonthIndex = it }
+                    onMonthClicked = { selectedMonthIndex = it },
+                    onStatusClicked = { statusDialogMonth = it }
                 )
             }
 
@@ -255,6 +261,13 @@ fun MonthlyProfitReportView(
                 )
             }
         }
+    }
+
+    statusDialogMonth?.let { item ->
+        MonthStatusDetailsDialog(
+            item = item,
+            onDismiss = { statusDialogMonth = null }
+        )
     }
 }
 
@@ -348,7 +361,8 @@ private fun MonthComparisonSection(
     selectedMonth: MonthlyProfitItem,
     previousMonth: MonthlyProfitItem?,
     allMonths: List<MonthlyProfitItem>,
-    onSelectMonth: (Int) -> Unit
+    onSelectMonth: (Int) -> Unit,
+    onStatusClick: (() -> Unit)? = null
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -373,7 +387,7 @@ private fun MonthComparisonSection(
                     )
                 }
 
-                MonthStatusChip(status = selectedMonth.status)
+                MonthStatusChip(status = selectedMonth.status, onClick = onStatusClick)
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -498,7 +512,8 @@ private fun MonthComparisonSection(
 private fun TwelveMonthMatrixSection(
     months: List<MonthlyProfitItem>,
     selectedMonthIndex: Int,
-    onMonthClicked: (Int) -> Unit
+    onMonthClicked: (Int) -> Unit,
+    onStatusClicked: (MonthlyProfitItem) -> Unit = {}
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -514,7 +529,7 @@ private fun TwelveMonthMatrixSection(
                 color = TextPrimaryDark
             )
             Text(
-                text = "اضغط على أي شهر لعرض تحليله المقارن وتفاصيله",
+                text = "اضغط على أي شهر لعرض تحليله المقارن وتفاصيله، أو على شارة الحالة لعرض أسبابها",
                 fontSize = 11.sp,
                 color = TextSecondaryDark
             )
@@ -525,7 +540,8 @@ private fun TwelveMonthMatrixSection(
                 MonthlyRowItem(
                     item = month,
                     isSelected = month.monthIndex == selectedMonthIndex,
-                    onClick = { onMonthClicked(month.monthIndex) }
+                    onClick = { onMonthClicked(month.monthIndex) },
+                    onStatusClick = { onStatusClicked(month) }
                 )
                 HorizontalDivider(color = CyberBorder.copy(alpha = 0.5f), thickness = 0.5.dp)
             }
@@ -537,7 +553,8 @@ private fun TwelveMonthMatrixSection(
 private fun MonthlyRowItem(
     item: MonthlyProfitItem,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onStatusClick: (() -> Unit)? = null
 ) {
     val isProfit = item.netProfitMinor >= 0L
     val bgColor = if (isSelected) MikroTikCyan.copy(alpha = 0.10f) else Color.Transparent
@@ -562,7 +579,7 @@ private fun MonthlyRowItem(
                     color = if (isSelected) MikroTikCyan else TextPrimaryDark
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                MonthStatusBadgeMini(status = item.status.status)
+                MonthStatusBadgeMini(status = item.status.status, onClick = onStatusClick)
             }
             Text(
                 text = "إيراد: ${Money(item.netRevenueMinor, CurrencyCode.FUNCTIONAL).format()} • تكلفة: ${Money(item.directIspCostMinor, CurrencyCode.FUNCTIONAL).format()}",
@@ -679,39 +696,62 @@ private fun PartnerShareEstimationCard(
 }
 
 @Composable
-private fun MonthStatusChip(status: MonthlyProfitStatus) {
+private fun MonthStatusChip(
+    status: MonthlyProfitStatus,
+    onClick: (() -> Unit)? = null
+) {
     val (text, color) = when (status.status) {
-        MonthClosingStatus.FINAL -> "معتمد ✓" to SemanticIncomeGreen
-        MonthClosingStatus.IN_PROGRESS -> "قيد النشاط ⚡" to BrandCyanPrimary
-        MonthClosingStatus.DRAFT -> "مسودة / غير مقفل" to SemanticWarningAmber
+        MonthClosingStatus.FINAL -> "نهائي ✓" to SemanticIncomeGreen
+        MonthClosingStatus.PROVISIONAL -> "مؤقت ⚠️" to SemanticWarningAmber
+        MonthClosingStatus.IN_PROGRESS -> "قيد التشغيل ⚡" to BrandCyanPrimary
+        MonthClosingStatus.DRAFT -> "مؤقت ⚠️" to SemanticWarningAmber
     }
 
     Surface(
         shape = RoundedCornerShape(6.dp),
         color = color.copy(alpha = 0.15f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.4f))
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.4f)),
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     ) {
-        Text(
-            text = text,
-            color = color,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-        )
+        ) {
+            Text(
+                text = text,
+                color = color,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            if (onClick != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "عرض أسباب الحالة",
+                    tint = color,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun MonthStatusBadgeMini(status: MonthClosingStatus) {
+private fun MonthStatusBadgeMini(
+    status: MonthClosingStatus,
+    onClick: (() -> Unit)? = null
+) {
     val (text, color) = when (status) {
         MonthClosingStatus.FINAL -> "✓" to SemanticIncomeGreen
+        MonthClosingStatus.PROVISIONAL -> "!" to SemanticWarningAmber
         MonthClosingStatus.IN_PROGRESS -> "•" to BrandCyanPrimary
         MonthClosingStatus.DRAFT -> "!" to SemanticWarningAmber
     }
 
     Surface(
         shape = RoundedCornerShape(4.dp),
-        color = color.copy(alpha = 0.2f)
+        color = color.copy(alpha = 0.2f),
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     ) {
         Text(
             text = text,
@@ -721,6 +761,77 @@ private fun MonthStatusBadgeMini(status: MonthClosingStatus) {
             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
         )
     }
+}
+
+@Composable
+private fun MonthStatusDetailsDialog(
+    item: MonthlyProfitItem,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MikroTikCyan,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "حالة إقفال ${item.monthName} ${item.fiscalYear}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("التصنيف:", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    MonthStatusChip(status = item.status)
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                Text(
+                    text = "الأسباب ومحددات الاعتماد المحاسبي:",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                val reasons = item.status.reasonsList.ifEmpty { listOf(item.status.reason) }
+                reasons.forEach { r ->
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = if (item.status.status == MonthClosingStatus.FINAL) "✓" else "⚠️",
+                            color = if (item.status.status == MonthClosingStatus.FINAL) SemanticIncomeGreen else SemanticWarningAmber,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = r,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("إغلاق", fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }
 
 private fun formatBps(bps: Int): String {

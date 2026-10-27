@@ -262,9 +262,8 @@ class FinancialStatementsUseCase(private val db: AppDatabase) {
     }
 
     suspend fun generateAgingReport(asOfDateEpochDay: Long): AgingReport {
-        val docs = db.documentDao().getAllDocumentsSync()
-            .filter { it.type == "SALES_INVOICE" && it.status == "POSTED" && it.dateEpochDay <= asOfDateEpochDay }
-        val allocations = db.allocationDao().getAllActiveAllocationsSync()
+        val docs = db.documentDao().getPostedSalesInvoicesUpTo(asOfDateEpochDay)
+        val allocations = db.allocationDao().getActiveAllocationsForInvoicesUpTo(asOfDateEpochDay)
         val allocByInvoice = allocations.groupBy { it.invoiceDocId }
 
         var b0to30Amt = 0L

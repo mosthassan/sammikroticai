@@ -113,7 +113,7 @@ fun CashFlowStatementView(
 
     // Auto-load statement on period change
     LaunchedEffect(periodMode) {
-        val now = LocalDate.now()
+        val now = com.example.core.time.AppClock.todayLocalDate()
         val (start, end) = when (periodMode) {
             0 -> Pair(todayEpoch, todayEpoch)
             1 -> {
@@ -210,9 +210,7 @@ fun CashFlowStatementView(
                     )
                 }
             }
-        } else {
-            val rep = statement!!
-
+        } else statement?.let { rep ->
             // Hero Summary Card: Opening, Net Change, Closing Cash
             item {
                 CashFlowHeroCard(statement = rep)

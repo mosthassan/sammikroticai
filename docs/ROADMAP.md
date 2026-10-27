@@ -57,7 +57,9 @@
 - [ ] Role-Based Access Control (Owner, Accountant, Cashier, Auditor).
 - [ ] Encrypted Automated Backups (Local storage & Google Drive).
 
-## Future Enhancements & Advanced Audit Roadmap
+- [ ] **Chunked Cloud Backup for Large Firestore Databases (النسخ السحابي المقسم للبيانات الكبيرة):**
+  - Implement multi-document chunking and manifest indexing for backups exceeding the 900 KB guardrail (Firestore 1 MiB single document limit).
+  - Split large collections (`journal_lines`, `documents`, `audit_log`) across sequential chunk documents (`users/{uid}/backup_chunks/part_N`) with a master manifest and aggregated SHA-256 verification.
 - [ ] **Historical Partner Equity Ratio Table (سجل النسب التاريخية للشركاء):**
   - Implement dynamic time-slice versioning for partner equity ownership percentages (`partner_equity_ratios` table).
   - Support mid-year ownership transfers, capital restructurings, and new partner admissions with time-bounded validity periods (`effectiveFromEpochDay`, `effectiveToEpochDay`).

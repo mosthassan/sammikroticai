@@ -252,7 +252,7 @@ fun SalesInvoicesContent(
 
     val cardCountByDocId = remember(stockMovements) {
         stockMovements.filter { it.type == "SELL" && it.docId != null }
-            .groupBy { it.docId!! }
+            .groupBy { it.docId ?: "" }
             .mapValues { (_, mvts) -> mvts.sumOf { it.quantity } }
     }
 
