@@ -122,6 +122,7 @@ class FirestoreSyncManager(
 
     private val firestore: FirebaseFirestore?
         get() = try {
+            com.example.core.firebase.FirebaseInitializer.ensureInitialized(context)
             if (FirebaseApp.getApps(context).isNotEmpty()) {
                 val dbIdRes = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
                 val dbId = if (dbIdRes != 0) runCatching { context.getString(dbIdRes) }.getOrNull() else null
@@ -166,7 +167,9 @@ class FirestoreSyncManager(
     }
 
     private fun resolveEffectiveUid(uid: String, userEmail: String): String {
-        val authUid = runCatching { FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        val authUid = runCatching {
+            if (FirebaseApp.getApps(context).isNotEmpty()) FirebaseAuth.getInstance().currentUser?.uid else null
+        }.getOrNull()
         return authUid?.takeIf { it.isNotBlank() } ?: uid.takeIf { it.isNotBlank() } ?: ""
     }
 
@@ -244,7 +247,9 @@ class FirestoreSyncManager(
             return@withContext Result.failure(IllegalStateException(err))
         }
 
-        val fbAuthUser = runCatching { FirebaseAuth.getInstance().currentUser }.getOrNull()
+        val fbAuthUser = runCatching {
+            if (FirebaseApp.getApps(context).isNotEmpty()) FirebaseAuth.getInstance().currentUser else null
+        }.getOrNull()
         val hasFirebaseApp = runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
         if (hasFirebaseApp && fbAuthUser == null && firestoreAdapter == null) {
             val err = "يرجى تسجيل الدخول بحساب Google أولاً عبر زر 'دخول Google بنقرة' لتوثيق صلاحيات السحابة في Firebase وتجنب رفض الصلاحيات (PERMISSION_DENIED)"
@@ -608,7 +613,9 @@ class FirestoreSyncManager(
             return@withContext Result.failure(IllegalStateException(err))
         }
 
-        val fbAuthUser = runCatching { FirebaseAuth.getInstance().currentUser }.getOrNull()
+        val fbAuthUser = runCatching {
+            if (FirebaseApp.getApps(context).isNotEmpty()) FirebaseAuth.getInstance().currentUser else null
+        }.getOrNull()
         val hasFirebaseApp = runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
         if (hasFirebaseApp && fbAuthUser == null && firestoreAdapter == null) {
             val err = "يرجى تسجيل الدخول بحساب Google أولاً عبر زر 'دخول Google بنقرة' لتوثيق صلاحيات السحابة في Firebase وتجنب رفض الصلاحيات (PERMISSION_DENIED)"

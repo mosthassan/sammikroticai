@@ -45,6 +45,7 @@ class GoogleAuthManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("google_auth_prefs", Context.MODE_PRIVATE)
     private val auth: FirebaseAuth? by lazy {
         runCatching {
+            com.example.core.firebase.FirebaseInitializer.ensureInitialized(context)
             if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) {
                 FirebaseAuth.getInstance()
             } else {

@@ -211,7 +211,9 @@ fun CloudSyncSheet(
                         }
 
                         // Connection Status Tag
-                        val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                        val fbAuthUser = runCatching {
+                            if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) com.google.firebase.auth.FirebaseAuth.getInstance().currentUser else null
+                        }.getOrNull()
                         val isOnline = fbAuthUser != null
                         val hasLocalEmail = currentUser != null
                         Surface(
@@ -461,7 +463,9 @@ fun CloudSyncSheet(
             ) {
                 Button(
                     onClick = {
-                        val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                        val fbAuthUser = runCatching {
+                            if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) com.google.firebase.auth.FirebaseAuth.getInstance().currentUser else null
+                        }.getOrNull()
                         if (fbAuthUser == null) {
                             viewModel.signInWithGoogle(activity ?: context)
                         } else {

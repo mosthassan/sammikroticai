@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.network.NetworkRepository
 import com.example.domain.ai.AiChatTurn
+import com.example.domain.ai.AiProvider
+import com.example.domain.ai.AiSettings
 import com.example.domain.ai.AiToolExecutor
 import com.example.domain.ai.GeminiApiClient
 import com.example.domain.usecase.StatementOfAccountUseCase
@@ -18,14 +20,11 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 enum class MessageRole {
-    USER,
-    ASSISTANT
+    USER, ASSISTANT
 }
 
 enum class MessageStatus {
-    SENDING,
-    SENT,
-    ERROR
+    SENT, ERROR
 }
 
 data class ChatMessage(
@@ -36,6 +35,13 @@ data class ChatMessage(
     val status: MessageStatus = MessageStatus.SENT,
     val toolExecutionNote: String? = null
 )
+
+sealed interface ConnectionTestState {
+    object Idle : ConnectionTestState
+    object Loading : ConnectionTestState
+    data class Success(val message: String) : ConnectionTestState
+    data class Error(val errorMessage: String) : ConnectionTestState
+}
 
 class AIAssistantViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -53,8 +59,14 @@ class AIAssistantViewModel(application: Application) : AndroidViewModel(applicat
 
     private val prefs = application.getSharedPreferences("ai_assistant_prefs", Context.MODE_PRIVATE)
 
-    private val _apiKey = MutableStateFlow(loadApiKey())
+    private val _settings = MutableStateFlow(loadSettings())
+    val settings: StateFlow<AiSettings> = _settings.asStateFlow()
+
+    private val _apiKey = MutableStateFlow(loadSettings().apiKey)
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
+
+    private val _connectionTestState = MutableStateFlow<ConnectionTestState>(ConnectionTestState.Idle)
+    val connectionTestState: StateFlow<ConnectionTestState> = _connectionTestState.asStateFlow()
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(getInitialWelcomeMessages())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -72,6 +84,7 @@ class AIAssistantViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun loadApiKey(): String {
         val saved = prefs.getString("custom_gemini_api_key", null)
+            ?: prefs.getString("ai_api_key", null)
         if (!saved.isNullOrBlank()) return saved
 
         return runCatching {
@@ -81,10 +94,103 @@ class AIAssistantViewModel(application: Application) : AndroidViewModel(applicat
         }.getOrDefault("")
     }
 
-    fun saveApiKey(newKey: String) {
-        prefs.edit().putString("custom_gemini_api_key", newKey.trim()).apply()
-        _apiKey.value = newKey.trim()
+    private fun loadSettings(): AiSettings {
+        val providerId = prefs.getString("ai_provider", AiProvider.GEMINI.id)
+        val provider = AiProvider.fromId(providerId)
+        val key = loadApiKey()
+        val rawModel = prefs.getString("ai_model", null)?.ifBlank { null }
+        val rawFallback = prefs.getString("ai_fallback_model", null)?.ifBlank { null }
+        var model = AiSettings.sanitizeModel(rawModel).ifBlank { provider.defaultModel }
+        var fallbackModel = AiSettings.sanitizeModel(rawFallback).ifBlank { provider.defaultFallbackModel }
+
+        // Sanitize broken/unsupported legacy identifiers if present
+        if (provider == AiProvider.GEMINI) {
+            if (model == "gemini-3.8-flash" || model == "gemini-2.0-flash") {
+                model = provider.defaultModel
+            }
+            if (fallbackModel == "gemini-3.8-flash" || fallbackModel == "gemini-2.0-flash") {
+                fallbackModel = provider.defaultFallbackModel
+            }
+        }
+
+        val customBaseUrl = prefs.getString("ai_custom_base_url", "") ?: ""
+
+        return AiSettings(
+            provider = provider,
+            apiKey = key.trim(),
+            model = model,
+            fallbackModel = fallbackModel,
+            customBaseUrl = customBaseUrl.trim()
+        )
+    }
+
+    fun saveSettings(newSettings: AiSettings) {
+        val cleanModel = newSettings.cleanModel
+        val cleanFallback = newSettings.cleanFallbackModel
+        val cleanKey = newSettings.cleanApiKey
+        val cleanBaseUrl = newSettings.customBaseUrl.trim()
+
+        val sanitized = newSettings.copy(
+            apiKey = cleanKey,
+            model = cleanModel,
+            fallbackModel = cleanFallback,
+            customBaseUrl = cleanBaseUrl
+        )
+
+        prefs.edit()
+            .putString("ai_provider", sanitized.provider.id)
+            .putString("custom_gemini_api_key", cleanKey)
+            .putString("ai_api_key", cleanKey)
+            .putString("ai_model", cleanModel)
+            .putString("ai_fallback_model", cleanFallback)
+            .putString("ai_custom_base_url", cleanBaseUrl)
+            .apply()
+
+        _settings.value = sanitized
+        _apiKey.value = cleanKey
         _errorMessage.value = null
+    }
+
+    fun resetToDefaults() {
+        val currentKey = _settings.value.apiKey.ifBlank { loadApiKey() }
+        val defaultSettings = AiSettings(
+            provider = AiProvider.GEMINI,
+            apiKey = currentKey,
+            model = AiProvider.GEMINI.defaultModel,
+            fallbackModel = AiProvider.GEMINI.defaultFallbackModel,
+            customBaseUrl = ""
+        )
+
+        prefs.edit()
+            .remove("ai_provider")
+            .remove("ai_model")
+            .remove("ai_fallback_model")
+            .remove("ai_custom_base_url")
+            .apply()
+
+        _settings.value = defaultSettings
+        _errorMessage.value = null
+        _connectionTestState.value = ConnectionTestState.Idle
+    }
+
+    fun saveApiKey(newKey: String) {
+        saveSettings(_settings.value.copy(apiKey = newKey.trim()))
+    }
+
+    fun testConnection(settingsToTest: AiSettings) {
+        viewModelScope.launch {
+            _connectionTestState.value = ConnectionTestState.Loading
+            val res = geminiApiClient.testConnection(settingsToTest)
+            res.onSuccess { msg ->
+                _connectionTestState.value = ConnectionTestState.Success(msg)
+            }.onFailure { err ->
+                _connectionTestState.value = ConnectionTestState.Error(err.localizedMessage ?: "فشل الاتصال بالخادم")
+            }
+        }
+    }
+
+    fun resetConnectionTestState() {
+        _connectionTestState.value = ConnectionTestState.Idle
     }
 
     fun clearChat() {
@@ -108,12 +214,15 @@ class AIAssistantViewModel(application: Application) : AndroidViewModel(applicat
         _messages.value = _messages.value + userMessage
         _isLoading.value = true
 
-        val currentKey = _apiKey.value.ifBlank { loadApiKey() }
-        if (currentKey.isBlank()) {
+        val currentSettings = _settings.value.let {
+            if (it.apiKey.isBlank()) it.copy(apiKey = loadApiKey()) else it
+        }
+
+        if (currentSettings.apiKey.isBlank()) {
             _isLoading.value = false
             _messages.value = _messages.value + ChatMessage(
                 role = MessageRole.ASSISTANT,
-                content = "⚠️ **مفتاح Gemini API غير مضبوط.**\n\nيرجى إدخال مفتاحك عبر النقر على أيقونة الإعدادات (⚙️) في الأعلى، أو إضافته في لوحة الأسرار (Secrets Panel) تحت اسم `GEMINI_API_KEY`.",
+                content = "⚠️ **مفتاح API غير مضبوط.**\n\nيرجى إدخال مفتاحك عبر النقر على أيقونة الإعدادات (⚙️) في الأعلى، أو إضافته في لوحة الأسرار (Secrets Panel) تحت اسم `GEMINI_API_KEY`.",
                 status = MessageStatus.ERROR
             )
             return
@@ -134,9 +243,10 @@ class AIAssistantViewModel(application: Application) : AndroidViewModel(applicat
                 var executedToolName: String? = null
 
                 val result = geminiApiClient.sendChatMessage(
-                    apiKey = currentKey,
+                    apiKey = currentSettings.apiKey,
                     history = history,
                     latestUserMessage = prompt,
+                    settings = currentSettings,
                     onToolExecuting = { toolName ->
                         executedToolName = toolName
                         _activeToolStatus.value = formatToolNameForUser(toolName)
@@ -181,11 +291,9 @@ class AIAssistantViewModel(application: Application) : AndroidViewModel(applicat
 
     fun retryLastMessage() {
         val prompt = lastUserPrompt ?: return
-        // Remove the last failed assistant message if any
         if (_messages.value.isNotEmpty() && _messages.value.last().status == MessageStatus.ERROR) {
             _messages.value = _messages.value.dropLast(1)
         }
-        // Remove the user message duplicate so it doesn't appear twice
         if (_messages.value.isNotEmpty() && _messages.value.last().role == MessageRole.USER) {
             _messages.value = _messages.value.dropLast(1)
         }
@@ -199,7 +307,7 @@ class AIAssistantViewModel(application: Application) : AndroidViewModel(applicat
             "get_party_ledger" -> "جاري جرد كشوفات وأرصدة العملاء والموردين..."
             "get_assets_summary" -> "جاري استعلام وحصر الأصول الثابتة والإهلاك..."
             "get_network_devices_status" -> "جاري فحص حالة أجهزة وشبكة الميكروتك..."
-            else -> "جاري استعلام البيانات بدقة..."
+            else -> if (toolName.startsWith("التحويل")) toolName else "جاري استعلام البيانات بدقة..."
         }
     }
 

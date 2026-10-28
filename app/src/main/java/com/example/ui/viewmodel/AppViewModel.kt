@@ -221,7 +221,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val safeUid = user.uid.ifBlank {
-                    runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull() ?: ""
+                    runCatching {
+                        if (com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty()) {
+                            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                        } else null
+                    }.getOrNull() ?: ""
                 }
                 if (safeUid.isBlank()) return@launch
                 val docCount = db.documentDao().getAllDocumentsSync().size
@@ -1430,9 +1434,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
                 val idToken = account?.idToken
                 if (!idToken.isNullOrBlank()) {
+                    com.example.core.firebase.FirebaseInitializer.ensureInitialized(getApplication())
                     val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(idToken, null)
-                    val authResult = com.google.firebase.auth.FirebaseAuth.getInstance().signInWithCredential(credential).await()
-                    val fbUser = authResult.user
+                    val authResult = runCatching {
+                        if (com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty()) {
+                            com.google.firebase.auth.FirebaseAuth.getInstance().signInWithCredential(credential).await()
+                        } else null
+                    }.getOrNull()
+                    val fbUser = authResult?.user
                     val email = account.email ?: fbUser?.email ?: ""
                     val displayName = account.displayName ?: fbUser?.displayName ?: email.substringBefore("@")
                     val photoUrl = account.photoUrl?.toString() ?: fbUser?.photoUrl?.toString()
@@ -1497,7 +1506,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restoreFromCloud(targetUid: String? = null, targetEmail: String? = null) {
         val user = currentUser.value
-        val fbUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+        val fbUser = runCatching {
+            if (com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty()) {
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            } else null
+        }.getOrNull()
         val uid = targetUid ?: fbUser?.uid ?: user?.uid ?: ""
         val email = targetEmail ?: fbUser?.email ?: user?.email ?: ""
         if (fbUser == null && uid.isBlank() && email.isBlank()) {
@@ -1527,7 +1540,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncPushToFirebase() {
-        val fbUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+        val fbUser = runCatching {
+            if (com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty()) {
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            } else null
+        }.getOrNull()
         val user = currentUser.value
         val uid = fbUser?.uid ?: user?.uid ?: ""
         val email = fbUser?.email ?: user?.email ?: ""

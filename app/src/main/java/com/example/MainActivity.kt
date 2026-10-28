@@ -136,6 +136,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.core.firebase.FirebaseInitializer.ensureInitialized(this)
         enableEdgeToEdge()
         setContent {
             SamMikrotikTheme {

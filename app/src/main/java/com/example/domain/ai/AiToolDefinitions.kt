@@ -174,4 +174,36 @@ object AiToolDefinitions {
         })
         return tools
     }
+
+    /**
+     * Converts tools to the standard OpenAI-compatible format:
+     * [{ "type": "function", "function": { "name": "...", "description": "...", "parameters": { ... } } }]
+     */
+    fun getOpenAiToolsJsonArray(): JSONArray {
+        val geminiTools = getToolsJsonArray().getJSONObject(0).getJSONArray("functionDeclarations")
+        val openAiTools = JSONArray()
+        for (i in 0 until geminiTools.length()) {
+            val fn = geminiTools.getJSONObject(i)
+            val name = fn.getString("name")
+            val desc = fn.getString("description")
+            val params = fn.getJSONObject("parameters")
+
+            // Adjust parameter casing for OpenAI standard (object, string, integer)
+            val paramsStr = params.toString()
+                .replace("\"OBJECT\"", "\"object\"")
+                .replace("\"STRING\"", "\"string\"")
+                .replace("\"INTEGER\"", "\"integer\"")
+
+            val openAiTool = JSONObject().apply {
+                put("type", "function")
+                put("function", JSONObject().apply {
+                    put("name", name)
+                    put("description", desc)
+                    put("parameters", JSONObject(paramsStr))
+                })
+            }
+            openAiTools.put(openAiTool)
+        }
+        return openAiTools
+    }
 }

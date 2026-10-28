@@ -207,4 +207,159 @@ class AiAssistantIntegrationTest {
         val alerts = result.getJSONArray("offlineOrWarningAlerts")
         assertTrue(alerts.length() >= 1)
     }
+
+    @Test
+    fun testOpenAiToolsFormatMatchesSpecification() {
+        val openAiTools = AiToolDefinitions.getOpenAiToolsJsonArray()
+        assertEquals(5, openAiTools.length())
+
+        for (i in 0 until openAiTools.length()) {
+            val tool = openAiTools.getJSONObject(i)
+            assertEquals("function", tool.getString("type"))
+            val fn = tool.getJSONObject("function")
+            assertTrue(fn.has("name"))
+            assertTrue(fn.has("description"))
+            assertTrue(fn.has("parameters"))
+            assertEquals("object", fn.getJSONObject("parameters").getString("type"))
+        }
+    }
+
+    @Test
+    fun testAiSettingsDefaultsAndCustomResolution() {
+        // 1. Default Gemini settings
+        val geminiSettings = AiSettings(provider = AiProvider.GEMINI)
+        assertEquals("gemini-2.5-flash", geminiSettings.model)
+        assertEquals("gemini-1.5-flash", geminiSettings.fallbackModel)
+        assertEquals(AiProvider.GEMINI.defaultBaseUrl, geminiSettings.effectiveBaseUrl)
+
+        // 2. Custom OpenAI settings with custom URL
+        val openAiSettings = AiSettings(
+            provider = AiProvider.OPENAI_COMPATIBLE,
+            model = "gpt-4o-mini",
+            fallbackModel = "gpt-3.5-turbo",
+            customBaseUrl = "https://api.groq.com/openai/v1/"
+        )
+        assertEquals("https://api.groq.com/openai/v1", openAiSettings.effectiveBaseUrl)
+        assertEquals("gpt-4o-mini", openAiSettings.model)
+        assertEquals("gpt-3.5-turbo", openAiSettings.fallbackModel)
+    }
+
+    @Test
+    fun testModelSanitizationStripsQuotesAndPrefixes() {
+        assertEquals("gemini-1.5-flash", AiSettings.sanitizeModel("\"gemini-1.5-flash\""))
+        assertEquals("gemini-2.5-flash", AiSettings.sanitizeModel("'models/gemini-2.5-flash'"))
+        assertEquals("gemini-2.5-flash", AiSettings.sanitizeModel("  models/gemini-2.5-flash  "))
+        assertEquals("gpt-4o-mini", AiSettings.sanitizeModel(" `gpt-4o-mini` "))
+
+        val settingsWithMessyInputs = AiSettings(
+            apiKey = "  AIzaSyTestKey  ",
+            model = " \"models/gemini-2.5-flash\" ",
+            fallbackModel = " 'gemini-1.5-flash' "
+        )
+        assertEquals("gemini-2.5-flash", settingsWithMessyInputs.cleanModel)
+        assertEquals("gemini-1.5-flash", settingsWithMessyInputs.cleanFallbackModel)
+        assertEquals("AIzaSyTestKey", settingsWithMessyInputs.cleanApiKey)
+    }
+
+    @Test
+    fun testNativeGeminiGenerateContentUrlFormatting() {
+        val settings = AiSettings(
+            provider = AiProvider.GEMINI,
+            apiKey = "AIzaSySecret",
+            model = "gemini-2.5-flash"
+        )
+        val expectedUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSySecret"
+        assertEquals(expectedUrl, settings.getGeminiGenerateContentUrl())
+    }
+
+    @Test
+    fun testOpenAiChatCompletionsUrlDynamicAppend() {
+        // Standard OpenRouter base URL without trailing slash
+        val openRouterSettings = AiSettings(
+            provider = AiProvider.OPENAI_COMPATIBLE,
+            customBaseUrl = "https://openrouter.ai/api/v1"
+        )
+        assertEquals(
+            "https://openrouter.ai/api/v1/chat/completions",
+            openRouterSettings.getOpenAiChatCompletionsUrl()
+        )
+
+        // Base URL with trailing slash
+        val withTrailingSlash = AiSettings(
+            provider = AiProvider.OPENAI_COMPATIBLE,
+            customBaseUrl = "https://openrouter.ai/api/v1/"
+        )
+        assertEquals(
+            "https://openrouter.ai/api/v1/chat/completions",
+            withTrailingSlash.getOpenAiChatCompletionsUrl()
+        )
+
+        // Base URL that already specifies /chat/completions (avoid duplicate)
+        val alreadyHasEndpoint = AiSettings(
+            provider = AiProvider.OPENAI_COMPATIBLE,
+            customBaseUrl = "https://openrouter.ai/api/v1/chat/completions"
+        )
+        assertEquals(
+            "https://openrouter.ai/api/v1/chat/completions",
+            alreadyHasEndpoint.getOpenAiChatCompletionsUrl()
+        )
+    }
+
+    @Test
+    fun testTestConnectionWithoutApiKeyFailsGracefully(): Unit = runBlocking {
+        val settings = AiSettings(apiKey = "", model = "gemini-2.5-flash")
+        val client = GeminiApiClient(toolExecutor = toolExecutor)
+        val res = client.testConnection(settings)
+        assertTrue(res.isFailure)
+        assertTrue(res.exceptionOrNull()?.message?.contains("مفتاح API") == true)
+    }
+
+    @Test
+    fun testTestConnectionWithBlankModelFailsGracefully(): Unit = runBlocking {
+        val settings = AiSettings(apiKey = "dummy_key", model = "")
+        val client = GeminiApiClient(toolExecutor = toolExecutor)
+        val res = client.testConnection(settings)
+        assertTrue(res.isFailure)
+        assertTrue(res.exceptionOrNull()?.message?.contains("اسم النموذج") == true)
+    }
+
+    @Test
+    fun testGeminiPresetsContainOnlyStableEndpoints() {
+        val geminiPresets = AiProvider.GEMINI.popularModels
+        assertTrue(geminiPresets.contains("gemini-2.5-flash"))
+        assertTrue(geminiPresets.contains("gemini-1.5-flash"))
+        assertTrue(geminiPresets.contains("gemini-1.5-pro"))
+        // Ensure obsolete or broken identifiers are NOT in the presets
+        assertTrue(!geminiPresets.contains("gemini-3.8-flash"))
+        assertTrue(!geminiPresets.contains("gemini-2.0-flash"))
+    }
+
+    @Test
+    fun testViewModelResetToDefaultsRestoresSafeConfiguration() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val viewModel = com.example.ui.ai.AIAssistantViewModel(app)
+
+        // 1. Apply a non-default/custom configuration
+        val customConfig = AiSettings(
+            provider = AiProvider.OPENAI_COMPATIBLE,
+            apiKey = "test_custom_key_123",
+            model = "custom-unstable-model",
+            fallbackModel = "custom-fallback",
+            customBaseUrl = "https://custom.endpoint.com/v1"
+        )
+        viewModel.saveSettings(customConfig)
+        assertEquals(AiProvider.OPENAI_COMPATIBLE, viewModel.settings.value.provider)
+        assertEquals("custom-unstable-model", viewModel.settings.value.model)
+
+        // 2. Perform Reset to Defaults
+        viewModel.resetToDefaults()
+
+        // 3. Verify stable defaults restored while maintaining API key
+        val restored = viewModel.settings.value
+        assertEquals(AiProvider.GEMINI, restored.provider)
+        assertEquals("gemini-2.5-flash", restored.model)
+        assertEquals("gemini-1.5-flash", restored.fallbackModel)
+        assertEquals("", restored.customBaseUrl)
+        assertEquals("test_custom_key_123", restored.apiKey)
+    }
 }

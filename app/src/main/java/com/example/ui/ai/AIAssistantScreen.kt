@@ -6,7 +6,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +39,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
+import com.example.domain.ai.AiProvider
+import com.example.domain.ai.AiSettings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -102,10 +107,11 @@ fun AIAssistantScreen(
     val messages by viewModel.messages.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val activeToolStatus by viewModel.activeToolStatus.collectAsState()
-    val apiKey by viewModel.apiKey.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val connectionTestState by viewModel.connectionTestState.collectAsState()
 
     var inputPrompt by rememberSaveable { mutableStateOf("") }
-    var showApiKeyDialog by rememberSaveable { mutableStateOf(false) }
+    var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
     var showClearChatDialog by rememberSaveable { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
@@ -147,11 +153,17 @@ fun AIAssistantScreen(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    text = "ذكاء أعمال واستعلام فوري (Sammi ERP)",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = BrandCyanPrimary
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { showSettingsDialog = true }
+                                ) {
+                                    Text(
+                                        text = "${settings.provider.displayName} • ${settings.model}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = BrandCyanPrimary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
                     },
@@ -168,13 +180,13 @@ fun AIAssistantScreen(
                     },
                     actions = {
                         IconButton(
-                            onClick = { showApiKeyDialog = true },
+                            onClick = { showSettingsDialog = true },
                             modifier = Modifier.testTag("ai_assistant_settings_btn")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
-                                contentDescription = "إعدادات المفتاح",
-                                tint = if (apiKey.isNotBlank()) BrandCyanPrimary else SemanticExpenseRed
+                                contentDescription = "إعدادات محرك الذكاء الاصطناعي",
+                                tint = if (settings.apiKey.isNotBlank()) BrandCyanPrimary else SemanticExpenseRed
                             )
                         }
                         IconButton(
@@ -324,13 +336,21 @@ fun AIAssistantScreen(
             }
         }
 
-        if (showApiKeyDialog) {
-            ApiKeySettingsDialog(
-                currentKey = apiKey,
-                onDismiss = { showApiKeyDialog = false },
-                onSave = { newKey ->
-                    viewModel.saveApiKey(newKey)
-                    showApiKeyDialog = false
+        if (showSettingsDialog) {
+            AiSettingsDialog(
+                currentSettings = settings,
+                connectionTestState = connectionTestState,
+                onTestConnection = { viewModel.testConnection(it) },
+                onResetTestState = { viewModel.resetConnectionTestState() },
+                onResetToDefaults = { viewModel.resetToDefaults() },
+                onDismiss = {
+                    viewModel.resetConnectionTestState()
+                    showSettingsDialog = false
+                },
+                onSave = { newSettings ->
+                    viewModel.saveSettings(newSettings)
+                    viewModel.resetConnectionTestState()
+                    showSettingsDialog = false
                 }
             )
         }
@@ -744,73 +764,396 @@ fun parseBoldMarkdown(text: String): AnnotatedString {
 }
 
 @Composable
-fun ApiKeySettingsDialog(
-    currentKey: String,
+fun AiSettingsDialog(
+    currentSettings: AiSettings,
+    connectionTestState: ConnectionTestState,
+    onTestConnection: (AiSettings) -> Unit,
+    onResetTestState: () -> Unit,
+    onResetToDefaults: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit
+    onSave: (AiSettings) -> Unit
 ) {
-    var keyInput by rememberSaveable { mutableStateOf(currentKey) }
+    var selectedProvider by rememberSaveable { mutableStateOf(currentSettings.provider) }
+    var apiKeyInput by rememberSaveable { mutableStateOf(currentSettings.apiKey) }
+    var modelInput by rememberSaveable { mutableStateOf(currentSettings.model) }
+    var fallbackModelInput by rememberSaveable { mutableStateOf(currentSettings.fallbackModel) }
+    var customBaseUrlInput by rememberSaveable { mutableStateOf(currentSettings.customBaseUrl) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
+
+    val currentWorkingSettings = remember(selectedProvider, apiKeyInput, modelInput, fallbackModelInput, customBaseUrlInput) {
+        AiSettings(
+            provider = selectedProvider,
+            apiKey = apiKeyInput,
+            model = modelInput,
+            fallbackModel = fallbackModelInput,
+            customBaseUrl = customBaseUrlInput
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Key,
-                    contentDescription = null,
-                    tint = BrandCyanPrimary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("إعدادات مفتاح Gemini API", fontWeight = FontWeight.Bold)
+                Surface(
+                    shape = CircleShape,
+                    color = BrandCyanPrimary.copy(alpha = 0.15f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = BrandCyanPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "إعدادات محرك الذكاء الاصطناعي",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "تخصيص المزود والمفتاح والنماذج البديلة",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         text = {
-            Column {
-                Text(
-                    text = "يتصل المساعد بنموذج Gemini 2.0 Flash لاستخراج التقارير وقراءة مؤشرات النظام المحاسبي وشبكة الميكروتك بصورة آمنة للقراءة فقط.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = keyInput,
-                    onValueChange = { keyInput = it },
-                    label = { Text("مفتاح API Key") },
-                    placeholder = { Text("AIzaSy...") },
-                    singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Icon(
-                                imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                contentDescription = if (passwordVisible) "إخفاء" else "إظهار"
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // 1. API Provider Selection
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "مزود الخدمة (API Provider)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AiProvider.entries.forEach { prov ->
+                            val isSelected = selectedProvider == prov
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    if (selectedProvider != prov) {
+                                        selectedProvider = prov
+                                        modelInput = prov.defaultModel
+                                        fallbackModelInput = prov.defaultFallbackModel
+                                        onResetTestState()
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = prov.displayName,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 12.sp
+                                    )
+                                },
+                                leadingIcon = if (isSelected) {
+                                    {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = BrandCyanPrimary
+                                        )
+                                    }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = BrandCyanPrimary.copy(alpha = 0.15f),
+                                    selectedLabelColor = BrandCyanPrimary
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ai_provider_chip_${prov.id.lowercase()}")
                             )
                         }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("api_key_input_field"),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "💡 يمكنك أيضاً وضع المفتاح في لوحة الأسرار (Secrets Panel) تحت اسم GEMINI_API_KEY ليتم حفظه تلقائياً في بيئة التطوير.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = BrandCyanPrimary
-                )
+                    }
+                }
+
+                // 2. Custom Base URL (shown when OpenAI-Compatible selected)
+                if (selectedProvider == AiProvider.OPENAI_COMPATIBLE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "عنوان الخادم الأساسي (Base URL)",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        OutlinedTextField(
+                            value = customBaseUrlInput,
+                            onValueChange = {
+                                customBaseUrlInput = it
+                                onResetTestState()
+                            },
+                            placeholder = { Text(selectedProvider.defaultBaseUrl) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("api_custom_base_url_field"),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        Text(
+                            text = "يدعم OpenAI, Groq, OpenRouter, DeepSeek أو خوادم محلية (Ollama)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // 3. API Key Field
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "مفتاح الوصول (API Key)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = {
+                            apiKeyInput = it
+                            onResetTestState()
+                        },
+                        placeholder = {
+                            Text(if (selectedProvider == AiProvider.GEMINI) "AIzaSy..." else "sk-...")
+                        },
+                        singleLine = true,
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = if (passwordVisible) "إخفاء" else "إظهار"
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("api_key_input_field"),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+
+                // 4. Model Selection & Custom Input
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "النموذج الأساسي (Primary Model)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    // Quick-pick chips
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        selectedProvider.popularModels.forEach { popularModel ->
+                            val isCurrent = modelInput == popularModel
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isCurrent) BrandCyanPrimary else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        modelInput = popularModel
+                                        onResetTestState()
+                                    }
+                            ) {
+                                Text(
+                                    text = popularModel,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isCurrent) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = modelInput,
+                        onValueChange = {
+                            modelInput = it
+                            onResetTestState()
+                        },
+                        placeholder = { Text(selectedProvider.defaultModel) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("api_model_input_field"),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+
+                // 5. Fallback Model Input
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "النموذج البديل عند التوقف (Fallback Model on 429 / 404)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedTextField(
+                        value = fallbackModelInput,
+                        onValueChange = {
+                            fallbackModelInput = it
+                            onResetTestState()
+                        },
+                        placeholder = { Text(selectedProvider.defaultFallbackModel) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("api_fallback_model_input_field"),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    Text(
+                        text = "يتحول المساعد إليه تلقائياً وبسلاسة في حال تعذر توفر النموذج الأساسي (HTTP 404) أو تجاوز حد الطلبات (HTTP 429).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // 6. Test Connection Button & Status Card
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { onTestConnection(currentWorkingSettings) },
+                        enabled = apiKeyInput.isNotBlank() && modelInput.isNotBlank() && connectionTestState !is ConnectionTestState.Loading,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_test_ai_connection")
+                    ) {
+                        if (connectionTestState is ConnectionTestState.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = BrandCyanPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("جاري اختبار الاتصال بالخادم...", fontSize = 12.sp)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("اختبار الاتصال بالخادم (Test Connection)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+
+                    when (connectionTestState) {
+                        is ConnectionTestState.Success -> {
+                            Card(
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = SemanticIncomeGreen.copy(alpha = 0.12f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = SemanticIncomeGreen,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = connectionTestState.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SemanticIncomeGreen,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                        is ConnectionTestState.Error -> {
+                            Card(
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = SemanticExpenseRed.copy(alpha = 0.12f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = SemanticExpenseRed,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = connectionTestState.errorMessage,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SemanticExpenseRed,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                        else -> Unit
+                    }
+
+                    // 7. Reset to Defaults Action
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(top = 4.dp))
+                    OutlinedButton(
+                        onClick = {
+                            selectedProvider = AiProvider.GEMINI
+                            modelInput = AiProvider.GEMINI.defaultModel
+                            fallbackModelInput = AiProvider.GEMINI.defaultFallbackModel
+                            customBaseUrlInput = ""
+                            onResetTestState()
+                            onResetToDefaults()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_reset_ai_defaults")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "إعادة الإعدادات الافتراضية (Reset to Defaults)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onSave(keyInput) },
-                colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary)
+                onClick = { onSave(currentWorkingSettings) },
+                colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.testTag("btn_save_ai_settings")
             ) {
-                Text("حفظ المفتاح", color = Color.White)
+                Text("حفظ الإعدادات", color = Color.White, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("btn_cancel_ai_settings")
+            ) {
                 Text("إلغاء")
             }
         }

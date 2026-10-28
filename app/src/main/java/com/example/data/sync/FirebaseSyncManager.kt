@@ -47,6 +47,7 @@ class FirebaseSyncManager(
 
     private val firestore: FirebaseFirestore? by lazy {
         try {
+            com.example.core.firebase.FirebaseInitializer.ensureInitialized(context)
             if (FirebaseApp.getApps(context).isNotEmpty()) {
                 FirebaseFirestore.getInstance()
             } else {

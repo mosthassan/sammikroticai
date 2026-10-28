@@ -230,7 +230,9 @@ fun DashboardScreen(
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
-                                val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                                val fbAuthUser = runCatching {
+                                    if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) com.google.firebase.auth.FirebaseAuth.getInstance().currentUser else null
+                                }.getOrNull()
                                 Text(
                                     text = if (fbAuthUser != null) (fbAuthUser.email ?: currentUser?.email ?: "حساب Google موثق")
                                            else if (currentUser != null) "${currentUser?.email} (بانتظار توثيق Google)"
@@ -243,7 +245,9 @@ fun DashboardScreen(
                         }
 
                         val isSyncing = syncState is SyncState.InProgress
-                        val fbAuthUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                        val fbAuthUser = runCatching {
+                            if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) com.google.firebase.auth.FirebaseAuth.getInstance().currentUser else null
+                        }.getOrNull()
                         val isOnline = fbAuthUser != null
                         val hasLocalEmail = currentUser != null
                         Surface(
@@ -277,7 +281,9 @@ fun DashboardScreen(
                     ) {
                         Button(
                             onClick = {
-                                val fbUser = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }.getOrNull()
+                                val fbUser = runCatching {
+                                    if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) com.google.firebase.auth.FirebaseAuth.getInstance().currentUser else null
+                                }.getOrNull()
                                 if (fbUser == null) {
                                     viewModel.signInWithGoogle(activity ?: context)
                                 } else {
@@ -481,7 +487,7 @@ fun DashboardScreen(
                                 color = BrandCyanPrimary.copy(alpha = 0.15f)
                             ) {
                                 Text(
-                                    text = "Gemini 2.0",
+                                    text = "Gemini 3.8",
                                     fontSize = 9.sp,
                                     color = BrandCyanPrimary,
                                     fontWeight = FontWeight.Bold,

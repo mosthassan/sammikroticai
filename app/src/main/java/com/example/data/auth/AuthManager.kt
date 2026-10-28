@@ -56,22 +56,13 @@ class AuthManager(private val context: Context) {
     }
 
     private fun ensureFirebaseInitialized() {
-        try {
-            if (FirebaseApp.getApps(context).isEmpty()) {
-                val options = FirebaseOptions.fromResource(context)
-                if (options != null) {
-                    FirebaseApp.initializeApp(context, options)
-                } else {
-                    FirebaseApp.initializeApp(context)
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("AuthManager", "FirebaseApp initialization fallback: ${e.message}")
-        }
+        com.example.core.firebase.FirebaseInitializer.ensureInitialized(context)
     }
 
     private fun loadPersistedSession() {
-        val fbUser = try { FirebaseAuth.getInstance().currentUser } catch (e: Exception) { null }
+        val fbUser = try {
+            if (FirebaseApp.getApps(context).isNotEmpty()) FirebaseAuth.getInstance().currentUser else null
+        } catch (e: Exception) { null }
         if (fbUser != null && !fbUser.email.isNullOrBlank()) {
             val email = fbUser.email ?: ""
             val session = UserSession(
@@ -148,10 +139,15 @@ class AuthManager(private val context: Context) {
                 val idToken = googleIdTokenCredential.idToken
 
                 // Exchange Google idToken with Firebase Auth
-                val firebaseAuth = FirebaseAuth.getInstance()
-                val authCredential = GoogleAuthProvider.getCredential(idToken, null)
-                val authResult = firebaseAuth.signInWithCredential(authCredential).await()
-                val firebaseUser = authResult.user
+                ensureFirebaseInitialized()
+                val firebaseUser = runCatching {
+                    if (FirebaseApp.getApps(context).isNotEmpty()) {
+                        val firebaseAuth = FirebaseAuth.getInstance()
+                        val authCredential = GoogleAuthProvider.getCredential(idToken, null)
+                        val authResult = firebaseAuth.signInWithCredential(authCredential).await()
+                        authResult.user
+                    } else null
+                }.getOrNull()
                 val uid = firebaseUser?.uid ?: idToken.hashCode().toString()
 
                 val session = UserSession(
@@ -253,7 +249,9 @@ class AuthManager(private val context: Context) {
     suspend fun signOut() = withContext(Dispatchers.IO) {
         try {
             credentialManager.clearCredentialState(ClearCredentialStateRequest())
-            FirebaseAuth.getInstance().signOut()
+            if (FirebaseApp.getApps(context).isNotEmpty()) {
+                FirebaseAuth.getInstance().signOut()
+            }
         } catch (e: Exception) {
             Log.w("AuthManager", "Error clearing credentials: ${e.message}")
         }
