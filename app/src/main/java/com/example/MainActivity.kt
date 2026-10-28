@@ -96,6 +96,8 @@ import com.example.ui.theme.BrandCyanPrimary
 import com.example.ui.theme.SamMikrotikTheme
 import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
+import androidx.compose.material.icons.filled.AutoAwesome
+import com.example.ui.ai.AIAssistantScreen
 import com.example.ui.viewmodel.AppViewModel
 
 object AppBrand {
@@ -149,6 +151,7 @@ class MainActivity : ComponentActivity() {
                 val currentUser by appViewModel.currentUser.collectAsState()
 
                 var showCloudSyncSheet by rememberSaveable { mutableStateOf(false) }
+                var showAiAssistant by rememberSaveable { mutableStateOf(false) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
                 // Listen for business feedback messages
@@ -165,43 +168,60 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    snackbarHost = { SnackbarHost(snackbarHostState) },
-                    topBar = {
-                        CenterAlignedTopAppBar(
-                            title = {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = if (selectedTabIndex == 0) AppBrand.DASHBOARD_TITLE else AppBrand.NAME,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = MainTab.all[selectedTabIndex].title,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = BrandCyanPrimary
-                                    )
-                                }
-                            },
-                            actions = {
-                                IconButton(
-                                    onClick = { showCloudSyncSheet = true },
-                                    modifier = Modifier.testTag("top_bar_cloud_sync_btn")
-                                ) {
-                                    Icon(
-                                        imageVector = when (syncState) {
-                                            is SyncState.InProgress -> Icons.Default.Sync
-                                            is SyncState.Success -> Icons.Default.CloudDone
-                                            is SyncState.Error -> Icons.Default.CloudOff
-                                            else -> Icons.Default.Cloud
-                                        },
-                                        contentDescription = "المزامنة السحابية",
-                                        tint = BrandCyanPrimary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
+                if (showAiAssistant) {
+                    AIAssistantScreen(
+                        onNavigateBack = { showAiAssistant = false }
+                    )
+                } else {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        snackbarHost = { SnackbarHost(snackbarHostState) },
+                        topBar = {
+                            CenterAlignedTopAppBar(
+                                title = {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = if (selectedTabIndex == 0) AppBrand.DASHBOARD_TITLE else AppBrand.NAME,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = MainTab.all[selectedTabIndex].title,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = BrandCyanPrimary
+                                        )
+                                    }
+                                },
+                                actions = {
+                                    IconButton(
+                                        onClick = { showAiAssistant = true },
+                                        modifier = Modifier.testTag("top_bar_ai_assistant_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = "مساعد سامي الذكي (ERP AI)",
+                                            tint = BrandCyanPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { showCloudSyncSheet = true },
+                                        modifier = Modifier.testTag("top_bar_cloud_sync_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = when (syncState) {
+                                                is SyncState.InProgress -> Icons.Default.Sync
+                                                is SyncState.Success -> Icons.Default.CloudDone
+                                                is SyncState.Error -> Icons.Default.CloudOff
+                                                else -> Icons.Default.Cloud
+                                            },
+                                            contentDescription = "المزامنة السحابية",
+                                            tint = BrandCyanPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
 
                                 val isBalanced = invariantResult?.isValid ?: true
                                 val badgeColor = if (isBalanced) SemanticIncomeGreen else SemanticExpenseRed
@@ -293,6 +313,7 @@ class MainActivity : ComponentActivity() {
                                 networkHubInitialTab = 5
                                 selectedTabIndex = 5
                             },
+                            onNavigateToAiAssistant = { showAiAssistant = true },
                             modifier = modifier
                         )
                         1 -> SalesScreen(viewModel = appViewModel, modifier = modifier)
@@ -309,6 +330,7 @@ class MainActivity : ComponentActivity() {
                         7 -> AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
                     }
                 }
+            }
 
                 if (showCloudSyncSheet) {
                     CloudSyncSheet(

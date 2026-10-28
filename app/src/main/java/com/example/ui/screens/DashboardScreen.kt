@@ -86,6 +86,9 @@ import com.example.ui.theme.SemanticWarningAmber
 import com.example.ui.viewmodel.AppViewModel
 import com.example.ui.viewmodel.PeriodFilter
 
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.SmartToy
+
 @Composable
 fun DashboardScreen(
     viewModel: AppViewModel,
@@ -95,6 +98,7 @@ fun DashboardScreen(
     onNavigateToPayments: () -> Unit,
     onNavigateToReports: () -> Unit,
     onNavigateToWifiSpectrum: () -> Unit = {},
+    onNavigateToAiAssistant: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val summary by viewModel.dashboardSummary.collectAsState()
@@ -414,6 +418,79 @@ fun DashboardScreen(
                         }
                         Text(
                             text = "تحليل الازدحام الراديوي، تحديد القنوات الأنظف، ومقياس توجيه الهوائيات اللحظي.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        contentDescription = null,
+                        tint = BrandCyanPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        // AI Assistant (Copilot) Card
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToAiAssistant() }
+                    .testTag("dashboard_ai_assistant_card"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    BrandCyanPrimary.copy(alpha = 0.5f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(BrandCyanPrimary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = BrandCyanPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "مساعد سامي الذكي (ERP AI Copilot)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = BrandCyanPrimary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "Gemini 2.0",
+                                    fontSize = 9.sp,
+                                    color = BrandCyanPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "استعلام فوري عن الأرباح، موقف الصندوق، أرصدة العملاء، وحالة أجهزة الميكروتك.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp
