@@ -124,14 +124,12 @@ class PeriodicRevaluationUseCase(
 
     private suspend fun resolveDefaultRateZone(): RateZone {
         val org = db.organizationDao().getOrganizationSync()
-        return if (!org?.primaryRateZone.isNullOrBlank()) {
+        return org?.primaryRateZone?.let { zoneStr ->
             try {
-                RateZone.valueOf(org!!.primaryRateZone)
+                RateZone.valueOf(zoneStr)
             } catch (e: Exception) {
                 RateZone.SANAA
             }
-        } else {
-            RateZone.SANAA
-        }
+        } ?: RateZone.SANAA
     }
 }

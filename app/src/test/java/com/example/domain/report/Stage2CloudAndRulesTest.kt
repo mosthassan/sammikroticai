@@ -239,7 +239,7 @@ class Stage2CloudAndRulesTest {
     }
 
     @Test
-    fun testOversizePayloadRejectedWithMessage() = runBlocking {
+    fun testOversizePayloadHandledWithChunkedBackup() = runBlocking {
         // Construct an entity with oversized payload (> 900,000 bytes)
         val oversizedText = "X".repeat(920_000)
         val oversizedDoc = DocumentEntity(
@@ -274,16 +274,10 @@ class Stage2CloudAndRulesTest {
         )
 
         val pushRes = syncManager.syncPush("user_oversize_s2", "user@test.com")
-        assertTrue("Oversize push must fail", pushRes.isFailure)
-        val ex = pushRes.exceptionOrNull()
-        assertNotNull("Exception must not be null", ex)
-        assertTrue(
-            "Exception message must contain 'backup too large, chunked backup required': '${ex?.message}'",
-            ex?.message?.contains("backup too large, chunked backup required") == true
-        )
+        assertTrue("Oversize push must succeed with chunked backup: ${pushRes.exceptionOrNull()?.message}", pushRes.isSuccess)
 
-        // Verify that NO write was dispatched to Firestore
-        assertEquals("Zero writes must occur when payload is oversized", 0, fakeAdapter.writes.size)
+        // Verify that writes were dispatched as chunks and manifest
+        assertTrue("Writes must occur when payload is chunked", fakeAdapter.writes.isNotEmpty())
     }
 
     @Test

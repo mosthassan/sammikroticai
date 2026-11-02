@@ -1568,8 +1568,9 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
         )
     }
 
-    if (showFileRestoreConfirmDialog && selectedFileRestoreUri != null) {
-        val uri = selectedFileRestoreUri!!
+    val currentFileRestoreUri = selectedFileRestoreUri
+    if (showFileRestoreConfirmDialog && currentFileRestoreUri != null) {
+        val uri = currentFileRestoreUri
         AlertDialog(
             onDismissRequest = {
                 showFileRestoreConfirmDialog = false

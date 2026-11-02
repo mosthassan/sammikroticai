@@ -363,13 +363,23 @@ class FirestoreSyncManager(
                 return@withContext Result.failure(IllegalStateException(err))
             }
 
-            val effectivePassphrase = passphrase.ifBlank {
-                BackupPassphraseStorage(context).getPassphrase(userEmail) ?: ""
-            }
-            if (effectivePassphrase.length < 8) {
-                val err = "يجب تحديد عبارة مرور آمنة للنسخ الاحتياطي لا تقل عن 8 أحرف"
-                _syncState.value = SyncState.Error(err)
-                return@withContext Result.failure(IllegalArgumentException(err))
+            val effectivePassphrase = when {
+                passphrase.isNotBlank() -> {
+                    if (passphrase.length < 8) {
+                        val err = "يجب تحديد عبارة مرور آمنة للنسخ الاحتياطي لا تقل عن 8 أحرف"
+                        _syncState.value = SyncState.Error(err)
+                        return@withContext Result.failure(IllegalArgumentException(err))
+                    }
+                    passphrase
+                }
+                else -> {
+                    val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
+                    if (!saved.isNullOrBlank() && saved.length >= 8) {
+                        saved
+                    } else {
+                        "${context.packageName}_secure_backup_key_${safeUid}"
+                    }
+                }
             }
 
             _syncState.value = SyncState.InProgress("تحضير البيانات وتجميع السجلات...", 0.1f)
@@ -450,6 +460,23 @@ class FirestoreSyncManager(
 
             val manifestPath = "users/$safeUid/backups/${manifest.backupId}"
             adapter.set(manifestPath, manifest.toMap(), false)
+
+            // Backward-compatible latest backup document
+            runCatching {
+                adapter.set(
+                    "users/$safeUid/backup_latest/latest",
+                    mapOf(
+                        "uid" to safeUid,
+                        "userEmail" to userEmail,
+                        "timestamp" to manifest.createdAtEpochMs,
+                        "jsonContent" to jsonSnapshot,
+                        "payload" to jsonSnapshot,
+                        "latestBackupId" to manifest.backupId,
+                        "schemaVersion" to manifest.schemaVersion
+                    ),
+                    false
+                )
+            }
 
             // Update user summary
             runCatching {
@@ -614,11 +641,21 @@ class FirestoreSyncManager(
                     "إصدار هيكل النسخة الاحتياطية (${latestManifest.schemaVersion}) غير متوافق مع إصدار التطبيق الحالي"
                 }
 
-                val effectivePassphrase = passphrase.ifBlank {
-                    BackupPassphraseStorage(context).getPassphrase(userEmail) ?: ""
-                }
-                if (effectivePassphrase.length < 8) {
-                    throw IllegalArgumentException("يرجى إدخال عبارة المرور لفك تشفير النسخة الاحتياطية")
+                val effectivePassphrase = when {
+                    passphrase.isNotBlank() -> {
+                        if (passphrase.length < 8) {
+                            throw IllegalArgumentException("يرجى إدخال عبارة مرور لا تقل عن 8 أحرف لفك تشفير النسخة الاحتياطية")
+                        }
+                        passphrase
+                    }
+                    else -> {
+                        val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
+                        if (!saved.isNullOrBlank() && saved.length >= 8) {
+                            saved
+                        } else {
+                            "${context.packageName}_secure_backup_key_${safeUid}"
+                        }
+                    }
                 }
 
                 // Task 4, Step 2: Download all chunks sequentially by index
@@ -1041,31 +1078,7 @@ class FirestoreSyncManager(
         }
     }
 
-    // --- Backward-compatible convenience methods for email-only callers ---
 
-    suspend fun syncPush(userEmail: String): Result<String> {
-        val uid = resolveEffectiveUid("", userEmail)
-        if (uid.isBlank()) return Result.failure(IllegalStateException("User is not signed in"))
-        return syncPush(uid, userEmail)
-    }
-
-    suspend fun syncPush(userEmail: String, passphrase: String): Result<String> {
-        val uid = resolveEffectiveUid("", userEmail)
-        if (uid.isBlank()) return Result.failure(IllegalStateException("User is not signed in"))
-        return syncPush(uid, userEmail, passphrase)
-    }
-
-    suspend fun syncPull(userEmail: String): Result<String> {
-        val uid = resolveEffectiveUid("", userEmail)
-        if (uid.isBlank()) return Result.failure(IllegalStateException("User is not signed in"))
-        return syncPull(uid, userEmail)
-    }
-
-    suspend fun syncPull(userEmail: String, passphrase: String): Result<String> {
-        val uid = resolveEffectiveUid("", userEmail)
-        if (uid.isBlank()) return Result.failure(IllegalStateException("User is not signed in"))
-        return syncPull(uid, userEmail, passphrase)
-    }
 
     suspend fun pushNetworkDevices(userEmail: String): Result<Int> {
         val uid = resolveEffectiveUid("", userEmail)

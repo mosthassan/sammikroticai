@@ -213,7 +213,8 @@ class CashFlowStatementTest {
                     accountCode = AccountConstants.FIXED_ASSETS_NETWORK,
                     quantity = 2,
                     unitPriceMinor = 30_000_000L,
-                    isAsset = true
+                    isAsset = true,
+                    usefulLifeMonths = 36
                 ),
                 PurchaseItemSpec(
                     description = "أجور صيانة وكوابل فايبر",
