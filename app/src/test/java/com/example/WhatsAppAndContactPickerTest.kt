@@ -1,23 +1,33 @@
 package com.example
 
+import android.content.ContentProvider
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.database.Cursor
+import android.database.MatrixCursor
+import android.net.Uri
+import android.provider.ContactsContract
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.model.UuidUtils
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.PartyEntity
 import com.example.data.repository.AccountingRepository
+import com.example.ui.viewmodel.PartyViewModel
 import com.example.util.WhatsAppDispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -179,5 +189,67 @@ class WhatsAppAndContactPickerTest {
         assertEquals(10000000L, reloaded?.creditLimitMinor)
 
         db.close()
+    }
+
+    @Test
+    fun testAndroidManifestDoesNotDeclareReadContactsPermission() {
+        val manifestFile = File("src/main/AndroidManifest.xml").takeIf { it.exists() }
+            ?: File("app/src/main/AndroidManifest.xml").takeIf { it.exists() }
+            ?: File("/app/applet/app/src/main/AndroidManifest.xml").takeIf { it.exists() }
+            ?: File("/app/src/main/AndroidManifest.xml")
+        assertTrue("AndroidManifest.xml should exist", manifestFile.exists())
+        val content = manifestFile.readText()
+        assertFalse(
+            "AndroidManifest.xml must not declare READ_CONTACTS permission",
+            content.contains("android.permission.READ_CONTACTS")
+        )
+
+        val packageInfo = context.packageManager.getPackageInfo(
+            context.packageName,
+            android.content.pm.PackageManager.GET_PERMISSIONS
+        )
+        val permissions = packageInfo.requestedPermissions ?: emptyArray()
+        assertFalse(
+            "Package requested permissions must not contain READ_CONTACTS",
+            permissions.contains("android.permission.READ_CONTACTS")
+        )
+    }
+
+    @Test
+    fun testResolveContactInfoResolvesWithoutRuntimePermissions() {
+        Robolectric.buildContentProvider(MockContactsProvider::class.java)
+            .create("com.android.contacts")
+            .get()
+
+        val contactUri = Uri.parse("content://com.android.contacts/data/123")
+        val contactInfo = PartyViewModel.resolveContactInfo(context, contactUri)
+
+        assertNotNull("ContactInfo should be resolved successfully", contactInfo)
+        assertEquals("سالم محمد", contactInfo?.name)
+        assertEquals("+967771234567", contactInfo?.phone)
+    }
+
+    class MockContactsProvider : ContentProvider() {
+        override fun onCreate(): Boolean = true
+        override fun query(
+            uri: Uri,
+            projection: Array<out String>?,
+            selection: String?,
+            selectionArgs: Array<out String>?,
+            sortOrder: String?
+        ): Cursor {
+            val cursor = MatrixCursor(
+                arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.NUMBER,
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
+                )
+            )
+            cursor.addRow(arrayOf("771234567", "سالم محمد"))
+            return cursor
+        }
+        override fun getType(uri: Uri): String? = null
+        override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
+        override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
     }
 }

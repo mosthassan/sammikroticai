@@ -16,6 +16,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -268,8 +269,36 @@ class AiAssistantIntegrationTest {
             apiKey = "AIzaSySecret",
             model = "gemini-2.5-flash"
         )
-        val expectedUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSySecret"
-        assertEquals(expectedUrl, settings.getGeminiGenerateContentUrl())
+        val expectedUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        val actualUrl = settings.getGeminiGenerateContentUrl()
+        assertEquals(expectedUrl, actualUrl)
+        assertFalse("Gemini URL must not leak apiKey query parameter", actualUrl.contains("key="))
+        assertFalse("Gemini URL must not contain the raw secret key", actualUrl.contains("AIzaSySecret"))
+    }
+
+    @Test
+    fun testRedactRemovesSensitiveTokensAndKeys() {
+        val sample1 = "Request to https://example.com/api?key=AIzaSyTest123456789012345678901234567890 failed"
+        val redacted1 = GeminiApiClient.redact(sample1)
+        assertFalse(redacted1.contains("AIzaSyTest123456789012345678901234567890"))
+        assertTrue(redacted1.contains("key=[REDACTED]"))
+
+        val sample2 = "Authorization: Bearer sk-test1234567890abcdef1234567890"
+        val redacted2 = GeminiApiClient.redact(sample2)
+        assertFalse(redacted2.contains("sk-test1234567890abcdef1234567890"))
+        assertTrue(redacted2.contains("Bearer [REDACTED]"))
+
+        val sample3 = "Header x-goog-api-key: AIzaSyTestKey12345678901234567890123456"
+        val redacted3 = GeminiApiClient.redact(sample3)
+        assertFalse(redacted3.contains("AIzaSyTestKey12345678901234567890123456"))
+        assertTrue(redacted3.contains("x-goog-api-key: [REDACTED]"))
+
+        val sample4 = "Raw key is AIzaSyDirectValue123456789012345678901 and OpenAI is sk-99887766554433221100"
+        val redacted4 = GeminiApiClient.redact(sample4)
+        assertFalse(redacted4.contains("AIzaSyDirectValue123456789012345678901"))
+        assertFalse(redacted4.contains("sk-99887766554433221100"))
+        assertTrue(redacted4.contains("AIza...[REDACTED]"))
+        assertTrue(redacted4.contains("sk-...[REDACTED]"))
     }
 
     @Test

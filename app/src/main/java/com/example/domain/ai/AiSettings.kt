@@ -61,7 +61,8 @@ data class AiSettings(
 
     /**
      * Resolves the full URL for native Google Gemini endpoint:
-     * https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={API_KEY}
+     * https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent
+     * Note: The API key is sent securely via the x-goog-api-key HTTP header.
      */
     fun getGeminiGenerateContentUrl(targetModel: String = cleanModel): String {
         val sanitized = sanitizeModel(targetModel).ifBlank { provider.defaultModel }
@@ -71,7 +72,7 @@ data class AiSettings(
         } else {
             "https://generativelanguage.googleapis.com/v1beta/models"
         }
-        return "$base/$sanitized:generateContent?key=$cleanApiKey"
+        return "$base/$sanitized:generateContent"
     }
 
     /**

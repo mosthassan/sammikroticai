@@ -74,82 +74,34 @@ class PartyViewModel(
         private const val TAG = "PartyContactPicker"
 
         /**
-         * Resolves contact name and phone number from a contact Uri returned by PickContact().
-         * Extracts ContactsContract.CommonDataKinds.Phone.NUMBER and DISPLAY_NAME.
-         * Sanitizes and intelligently normalizes the extracted phone number.
+         * Resolves contact name and phone number directly from the single CommonDataKinds.Phone record Uri
+         * returned by the contact picker (Intent.ACTION_PICK with CommonDataKinds.Phone.CONTENT_URI).
+         * Utilizes the transient read permission granted by the Android OS picker without broad READ_CONTACTS.
          */
-        fun extractContact(context: Context, contactUri: Uri): ContactInfo? {
+        fun resolveContactInfo(context: Context, contactUri: Uri): ContactInfo? {
             var displayName = ""
             var rawPhoneNumber = ""
-            var contactId: String? = null
 
             try {
-                // 1. Query contactUri for basic info and ID
                 context.contentResolver.query(
                     contactUri,
                     arrayOf(
-                        ContactsContract.Contacts._ID,
-                        ContactsContract.Contacts.DISPLAY_NAME,
-                        ContactsContract.Contacts.HAS_PHONE_NUMBER
+                        ContactsContract.CommonDataKinds.Phone.NUMBER,
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
                     ),
                     null,
                     null,
                     null
                 )?.use { cursor ->
                     if (cursor.moveToFirst()) {
-                        val idIdx = cursor.getColumnIndex(ContactsContract.Contacts._ID)
-                        val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
-                        if (idIdx != -1) contactId = cursor.getString(idIdx)
+                        val numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                        val nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                        if (numIdx != -1) rawPhoneNumber = cursor.getString(numIdx).orEmpty()
                         if (nameIdx != -1) displayName = cursor.getString(nameIdx).orEmpty()
                     }
                 }
-
-                // 2. Query CommonDataKinds.Phone for the phone number
-                if (!contactId.isNullOrBlank()) {
-                    context.contentResolver.query(
-                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                        arrayOf(
-                            ContactsContract.CommonDataKinds.Phone.NUMBER,
-                            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
-                        ),
-                        "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
-                        arrayOf(contactId),
-                        null
-                    )?.use { phoneCursor ->
-                        if (phoneCursor.moveToFirst()) {
-                            val numIdx = phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                            val pNameIdx = phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                            if (numIdx != -1) rawPhoneNumber = phoneCursor.getString(numIdx).orEmpty()
-                            if (displayName.isBlank() && pNameIdx != -1) {
-                                displayName = phoneCursor.getString(pNameIdx).orEmpty()
-                            }
-                        }
-                    }
-                } else {
-                    // Fallback: If contactUri is a direct Phone URI
-                    context.contentResolver.query(
-                        contactUri,
-                        arrayOf(
-                            ContactsContract.CommonDataKinds.Phone.NUMBER,
-                            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
-                        ),
-                        null,
-                        null,
-                        null
-                    )?.use { directCursor ->
-                        if (directCursor.moveToFirst()) {
-                            val numIdx = directCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                            val nameIdx = directCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                            if (numIdx != -1) rawPhoneNumber = directCursor.getString(numIdx).orEmpty()
-                            if (displayName.isBlank() && nameIdx != -1) displayName = directCursor.getString(nameIdx).orEmpty()
-                        }
-                    }
-                }
-            } catch (e: SecurityException) {
-                Log.w(TAG, "READ_CONTACTS permission denied or missing: ${e.message}")
-                return null
             } catch (e: Exception) {
-                Log.e(TAG, "Error resolving contact: ${e.message}", e)
+                Log.e(TAG, "Error resolving contact from picker uri: ${e.message}", e)
                 return null
             }
 
@@ -159,5 +111,10 @@ class PartyViewModel(
                 phone = sanitizedPhone
             )
         }
+
+        /**
+         * Backward compatibility alias for resolveContactInfo.
+         */
+        fun extractContact(context: Context, contactUri: Uri): ContactInfo? = resolveContactInfo(context, contactUri)
     }
 }

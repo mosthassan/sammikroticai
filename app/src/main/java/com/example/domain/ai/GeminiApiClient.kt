@@ -112,7 +112,7 @@ class GeminiApiClient(
 
             Log.w(
                 TAG,
-                "Primary model '$primaryModel' failed ($reason). URL was: $requestUrl. Response: $responseBody. " +
+                "Primary model '$primaryModel' failed ($reason). URL was: ${redact(requestUrl)}. Response: ${redact(responseBody)}. " +
                         "Smoothly falling back to secondary model: '$fallbackModel'"
             )
 
@@ -133,9 +133,9 @@ class GeminiApiClient(
                 return@withContext Result.success(fallbackResult.getOrThrow() + note)
             } else {
                 val fallbackEx = fallbackResult.exceptionOrNull()
-                Log.e(TAG, "Fallback model '$fallbackModel' also failed: ${fallbackEx?.message}")
+                Log.e(TAG, "Fallback model '$fallbackModel' also failed: ${redact(fallbackEx?.message.orEmpty())}")
                 return@withContext Result.failure(
-                    Exception("تعذر استجابة النموذج الأساسي ($primaryModel) والنموذج البديل ($fallbackModel):\n${fallbackEx?.localizedMessage ?: errorMsg}")
+                    Exception("تعذر استجابة النموذج الأساسي ($primaryModel) والنموذج البديل ($fallbackModel):\n${redact(fallbackEx?.localizedMessage ?: errorMsg)}")
                 )
             }
         }
@@ -169,7 +169,7 @@ class GeminiApiClient(
         val cleanKey = settings.cleanApiKey
         val requestUrl = settings.getGeminiGenerateContentUrl(cleanModel)
 
-        Log.d(TAG, "Executing Gemini chat request. URL=$requestUrl, Model=$cleanModel")
+        Log.d(TAG, "Executing Gemini chat request. URL=${redact(requestUrl)}, Model=$cleanModel")
 
         // Build contents array starting with conversation history
         val contentsArray = JSONArray()
@@ -227,22 +227,22 @@ class GeminiApiClient(
             val response = try {
                 client.newCall(request).execute()
             } catch (e: Exception) {
-                Log.e(TAG, "Gemini network call failed for URL: $requestUrl", e)
+                Log.e(TAG, "Gemini network call failed for URL: ${redact(requestUrl)}", e)
                 return@withContext Result.failure(
-                    Exception("فشل الاتصال بخادم Gemini ($requestUrl): ${e.localizedMessage ?: "تأكد من الاتصال بالإنترنت"}")
+                    Exception("فشل الاتصال بخادم Gemini (${redact(requestUrl)}): ${redact(e.localizedMessage ?: "تأكد من الاتصال بالإنترنت")}")
                 )
             }
 
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                Log.e(TAG, "Gemini HTTP error ${response.code} from URL: $requestUrl. Response Body: $responseBody")
+                Log.e(TAG, "Gemini HTTP error ${response.code} from URL: ${redact(requestUrl)}. Response Body: ${redact(responseBody)}")
                 val errorMsg = parseHttpErrorMessage(response.code, responseBody, cleanModel, requestUrl)
                 return@withContext Result.failure(
                     AiApiException(
                         statusCode = response.code,
-                        responseBody = responseBody,
-                        requestUrl = requestUrl,
-                        message = errorMsg
+                        responseBody = redact(responseBody),
+                        requestUrl = redact(requestUrl),
+                        message = redact(errorMsg)
                     )
                 )
             }
@@ -250,7 +250,7 @@ class GeminiApiClient(
             val parsedResponse = try {
                 JSONObject(responseBody)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to parse Gemini JSON response from $requestUrl: $responseBody", e)
+                Log.e(TAG, "Failed to parse Gemini JSON response from ${redact(requestUrl)}: ${redact(responseBody)}", e)
                 return@withContext Result.failure(Exception("تعذر قراءة رد الخادم"))
             }
 
@@ -347,7 +347,7 @@ class GeminiApiClient(
         val cleanKey = settings.cleanApiKey
         val requestUrl = settings.getOpenAiChatCompletionsUrl()
 
-        Log.d(TAG, "Executing OpenAI-compatible chat request. URL=$requestUrl, Model=$cleanModel")
+        Log.d(TAG, "Executing OpenAI-compatible chat request. URL=${redact(requestUrl)}, Model=$cleanModel")
 
         val messagesArray = JSONArray()
         // Add system message
@@ -403,22 +403,22 @@ class GeminiApiClient(
             val response = try {
                 client.newCall(request).execute()
             } catch (e: Exception) {
-                Log.e(TAG, "OpenAI network call failed for URL: $requestUrl", e)
+                Log.e(TAG, "OpenAI network call failed for URL: ${redact(requestUrl)}", e)
                 return@withContext Result.failure(
-                    Exception("فشل الاتصال بمزود OpenAI ($requestUrl): ${e.localizedMessage ?: "تأكد من الرابط والاتصال"}")
+                    Exception("فشل الاتصال بمزود OpenAI (${redact(requestUrl)}): ${redact(e.localizedMessage ?: "تأكد من الرابط والاتصال")}")
                 )
             }
 
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                Log.e(TAG, "OpenAI HTTP error ${response.code} from URL: $requestUrl. Response Body: $responseBody")
+                Log.e(TAG, "OpenAI HTTP error ${response.code} from URL: ${redact(requestUrl)}. Response Body: ${redact(responseBody)}")
                 val errorMsg = parseHttpErrorMessage(response.code, responseBody, cleanModel, requestUrl)
                 return@withContext Result.failure(
                     AiApiException(
                         statusCode = response.code,
-                        responseBody = responseBody,
-                        requestUrl = requestUrl,
-                        message = errorMsg
+                        responseBody = redact(responseBody),
+                        requestUrl = redact(requestUrl),
+                        message = redact(errorMsg)
                     )
                 )
             }
@@ -426,7 +426,7 @@ class GeminiApiClient(
             val parsedResponse = try {
                 JSONObject(responseBody)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to parse OpenAI JSON response from $requestUrl: $responseBody", e)
+                Log.e(TAG, "Failed to parse OpenAI JSON response from ${redact(requestUrl)}: ${redact(responseBody)}", e)
                 return@withContext Result.failure(Exception("تعذر قراءة رد الخادم"))
             }
 
@@ -502,7 +502,7 @@ class GeminiApiClient(
             when (settings.provider) {
                 AiProvider.GEMINI -> {
                     val requestUrl = settings.getGeminiGenerateContentUrl(cleanModel)
-                    Log.d(TAG, "Testing Gemini Connection: URL=$requestUrl, Model=$cleanModel")
+                    Log.d(TAG, "Testing Gemini Connection: URL=${redact(requestUrl)}, Model=$cleanModel")
 
                     val bodyJson = JSONObject().apply {
                         put("contents", JSONArray().put(JSONObject().apply {
@@ -526,17 +526,17 @@ class GeminiApiClient(
                     val respBody = response.body?.string().orEmpty()
 
                     if (response.isSuccessful) {
-                        Log.i(TAG, "Gemini Test Connection successful from $requestUrl")
+                        Log.i(TAG, "Gemini Test Connection successful from ${redact(requestUrl)}")
                         Result.success("تم الاتصال بنجاح بنموذج $cleanModel على منصة ${settings.provider.displayName} ✓")
                     } else {
-                        Log.e(TAG, "Gemini Test Connection failed HTTP ${response.code} from URL: $requestUrl. Body: $respBody")
+                        Log.e(TAG, "Gemini Test Connection failed HTTP ${response.code} from URL: ${redact(requestUrl)}. Body: ${redact(respBody)}")
                         val errMsg = parseHttpErrorMessage(response.code, respBody, cleanModel, requestUrl)
                         Result.failure(Exception(errMsg))
                     }
                 }
                 AiProvider.OPENAI_COMPATIBLE -> {
                     val requestUrl = settings.getOpenAiChatCompletionsUrl()
-                    Log.d(TAG, "Testing OpenAI-Compatible Connection: URL=$requestUrl, Model=$cleanModel")
+                    Log.d(TAG, "Testing OpenAI-Compatible Connection: URL=${redact(requestUrl)}, Model=$cleanModel")
 
                     val bodyJson = JSONObject().apply {
                         put("model", cleanModel)
@@ -561,18 +561,18 @@ class GeminiApiClient(
                     val respBody = response.body?.string().orEmpty()
 
                     if (response.isSuccessful) {
-                        Log.i(TAG, "OpenAI-Compatible Test Connection successful from $requestUrl")
+                        Log.i(TAG, "OpenAI-Compatible Test Connection successful from ${redact(requestUrl)}")
                         Result.success("تم الاتصال بنجاح بنموذج $cleanModel على ${settings.provider.displayName} ✓")
                     } else {
-                        Log.e(TAG, "OpenAI-Compatible Test Connection failed HTTP ${response.code} from URL: $requestUrl. Body: $respBody")
+                        Log.e(TAG, "OpenAI-Compatible Test Connection failed HTTP ${response.code} from URL: ${redact(requestUrl)}. Body: ${redact(respBody)}")
                         val errMsg = parseHttpErrorMessage(response.code, respBody, cleanModel, requestUrl)
                         Result.failure(Exception(errMsg))
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Test connection error: ${e.message}", e)
-            Result.failure(Exception("تعذر الاتصال بالخادم: ${e.localizedMessage ?: "تأكد من صحة الرابط ومفتاح API والإنترنت"}"))
+            Log.e(TAG, "Test connection error: ${redact(e.message.orEmpty())}", e)
+            Result.failure(Exception("تعذر الاتصال بالخادم: ${redact(e.localizedMessage ?: "تأكد من صحة الرابط ومفتاح API والإنترنت")}"))
         }
     }
 
@@ -585,12 +585,38 @@ class GeminiApiClient(
             ""
         }
 
+        val cleanMsg = redact(serverMsg)
+        val cleanUrl = redact(requestUrl)
+
         return when (code) {
-            400 -> "طلب غير صالح ($code): ${serverMsg.ifBlank { "تأكد من صحة اسم النموذج أو معاملات الطلب" }}"
-            401, 403 -> "مفتاح API غير صالح أو غير مصرح له ($code): ${serverMsg.ifBlank { "تحقق من صحة وصلاحيات المفتاح" }}"
-            404 -> "النموذج '$model' غير متوفر أو الرابط غير صحيح ($code): ${serverMsg.ifBlank { "الرابط المطلوب: $requestUrl" }}"
-            429 -> "تم تجاوز حد الطلبات للنموذج '$model' ($code). ${serverMsg.ifBlank { "يرجى تعيين نموذج بديل." }}"
-            else -> "فشل الاستجابة ($code): ${serverMsg.ifBlank { "خطأ من الخادم" }}"
+            400 -> "طلب غير صالح ($code): ${cleanMsg.ifBlank { "تأكد من صحة اسم النموذج أو معاملات الطلب" }}"
+            401, 403 -> "مفتاح API غير صالح أو غير مصرح له ($code): ${cleanMsg.ifBlank { "تحقق من صحة وصلاحيات المفتاح" }}"
+            404 -> "النموذج '$model' غير متوفر أو الرابط غير صحيح ($code): ${cleanMsg.ifBlank { "الرابط المطلوب: $cleanUrl" }}"
+            429 -> "تم تجاوز حد الطلبات للنموذج '$model' ($code). ${cleanMsg.ifBlank { "يرجى تعيين نموذج بديل." }}"
+            else -> "فشل الاستجابة ($code): ${cleanMsg.ifBlank { "خطأ من الخادم" }}"
         }
     }
+
+    companion object {
+        /**
+         * Redacts sensitive API keys and authorization tokens from logs, error messages, and URLs.
+         * Strips:
+         * - Query parameter keys: key=...
+         * - Bearer tokens: Bearer ...
+         * - Header keys: x-goog-api-key: ... or x-goog-api-key=...
+         * - Google API keys: AIza...
+         * - OpenAI / third-party secret tokens: sk-...
+         */
+        fun redact(text: String): String {
+            if (text.isBlank()) return text
+            return text
+                .replace(Regex("""(?i)(key=)[^&\s"']+"""), "$1[REDACTED]")
+                .replace(Regex("""(?i)(Bearer\s+)[^&\s"']+"""), "$1[REDACTED]")
+                .replace(Regex("""(?i)(x-goog-api-key\s*[:=]\s*)[^&\s"']+"""), "$1[REDACTED]")
+                .replace(Regex("""AIza[0-9A-Za-z_\-]{20,}"""), "AIza...[REDACTED]")
+                .replace(Regex("""sk-[0-9A-Za-z_\-]{16,}"""), "sk-...[REDACTED]")
+        }
+    }
+
+    private fun redact(text: String): String = Companion.redact(text)
 }

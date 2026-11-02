@@ -1,8 +1,8 @@
 package com.example.ui.components
 
-import android.Manifest
-import android.content.pm.PackageManager
+import android.content.Intent
 import android.net.Uri
+import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -80,7 +80,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.ContextCompat
 import com.example.data.local.entity.PartyEntity
 import com.example.ui.screens.ModernRoleSelectionCard
 import com.example.ui.theme.CyberBorder
@@ -146,12 +145,13 @@ fun AddEditPartyDialog(
     val blueColor = Color(0xFF3B82F6)
     val amberColor = Color(0xFFF59E0B)
 
-    // Contact Picker Launcher
+    // Contact Picker Launcher: Direct ACTION_PICK targeted at CommonDataKinds.Phone.CONTENT_URI
     val contactPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickContact()
-    ) { contactUri: Uri? ->
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val contactUri: Uri? = result.data?.data
         if (contactUri != null) {
-            val contactInfo = PartyViewModel.extractContact(context, contactUri)
+            val contactInfo = PartyViewModel.resolveContactInfo(context, contactUri)
             if (contactInfo != null) {
                 // Populate name if current is blank or update requested
                 if (contactInfo.name.isNotBlank()) {
@@ -166,21 +166,9 @@ fun AddEditPartyDialog(
                     bannerIsSuccess = false
                 }
             } else {
-                bannerMessage = "تعذر قراءة بيانات جهة الاتصال. يرجى التأكد من الصلاحيات"
+                bannerMessage = "تعذر قراءة بيانات جهة الاتصال"
                 bannerIsSuccess = false
             }
-        }
-    }
-
-    // Permission Launcher for READ_CONTACTS
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            contactPickerLauncher.launch(null)
-        } else {
-            bannerMessage = "تم رفض إذن الوصول إلى جهات الاتصال"
-            bannerIsSuccess = false
         }
     }
 
@@ -357,16 +345,11 @@ fun AddEditPartyDialog(
                             // Native Contact Picker Action Button
                             FilledIconButton(
                                 onClick = {
-                                    val hasPermission = ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.READ_CONTACTS
-                                    ) == PackageManager.PERMISSION_GRANTED
-
-                                    if (hasPermission) {
-                                        contactPickerLauncher.launch(null)
-                                    } else {
-                                        permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                                    }
+                                    val pickIntent = Intent(
+                                        Intent.ACTION_PICK,
+                                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+                                    )
+                                    contactPickerLauncher.launch(pickIntent)
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(
