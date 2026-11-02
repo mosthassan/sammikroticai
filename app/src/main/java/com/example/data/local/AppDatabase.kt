@@ -221,8 +221,11 @@ abstract class AppDatabase : RoomDatabase() {
         fun seedDefaultData(db: SupportSQLiteDatabase) {
             // Seed Organization
             db.execSQL("""
-                INSERT OR IGNORE INTO organizations (id, name, taxNumber, functionalCurrency, fiscalYearStartMonth, isInitialized, primaryRateZone, equityShareMode, createdAt)
-                VALUES ('DEFAULT_ORG', 'شبكة سام اللاسلكية', '', 'YER', 1, 1, 'SANAA', 'DERIVED_FROM_CAPITAL', strftime('%s','now') * 1000)
+                INSERT OR IGNORE INTO organizations
+                (id, name, taxNumber, functionalCurrency, fiscalYearStartMonth, isInitialized,
+                 primaryRateZone, equityShareMode, allowNegativeStock, timeZone, createdAt)
+                VALUES ('DEFAULT_ORG', 'شبكة سام اللاسلكية', '', 'YER', 1, 1,
+                        'SANAA', 'DERIVED_FROM_CAPITAL', 0, 'Asia/Aden', strftime('%s','now') * 1000)
             """)
 
             // Seed Permanent Walk-in Cash Party

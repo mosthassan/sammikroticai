@@ -388,14 +388,9 @@ class AccountingCoreSecurityRefactorTest {
     fun testTask4_FiscalYearStartMonthAwareness() {
         runBlocking {
             // Set organization fiscalYearStartMonth = 7 (July)
-            db.organizationDao().insertOrganization(
-                OrganizationEntity(
-                    id = "ORG_1",
-                    name = "SamMikrotik ISP",
-                    fiscalYearStartMonth = 7, // July
-                    primaryRateZone = "SANAA"
-                )
-            )
+            val seededOrg = db.organizationDao().getOrganizationSync()
+            requireNotNull(seededOrg) { "Seeded organization must exist" }
+            db.organizationDao().updateOrganization(seededOrg.copy(fiscalYearStartMonth = 7))
 
             val report = generateMonthlyProfitReport(
                 db = db,

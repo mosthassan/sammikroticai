@@ -129,7 +129,7 @@ class DefaultFirestoreAdapter(private val firestoreProvider: () -> FirebaseFires
 
 /**
  * Production-Grade Cloud Backup & Restore Architecture.
- * Scoped strictly under the authenticated user: users/{uid}/backup_latest.
+ * Scoped strictly under the authenticated user.
  * Guarantees 100% atomic restore within a single Room transaction,
  * including accounting ledgers, vouchers, exchange rates history, network devices, and identity config.
  */
@@ -219,8 +219,7 @@ class FirestoreSyncManager(
 
     /**
      * Checks if a remote backup exists for the specified user in Firestore.
-     * First queries chunked encrypted backups at users/{uid}/backups.
-     * Falls back to legacy backup at users/{uid}/backup_latest/latest if no chunked backups exist.
+     * Queries chunked encrypted backups at users/{uid}/backups.
      */
     suspend fun checkRemoteBackup(uid: String, userEmail: String): CloudBackupMeta? = withContext(Dispatchers.IO) {
         val adapter = effectiveAdapter
@@ -268,50 +267,6 @@ class FirestoreSyncManager(
                         totalCipherBytes = latest.totalCipherBytes,
                         appVersionCode = latest.appVersionCode,
                         manifest = latest
-                    )
-                }
-            }
-
-            // 2. Legacy Read Compatibility: users/{uid}/backup_latest/latest
-            val doc = adapter.get("users/$safeUid/backup_latest/latest")
-            if (doc != null) {
-                val jsonContent = (doc["jsonContent"] ?: doc["payload"]) as? String
-                if (!jsonContent.isNullOrBlank()) {
-                    val timestamp = (doc["timestamp"] as? Number)?.toLong() ?: 0L
-                    val docs = (doc["documentsCount"] as? Number)?.toInt() ?: 0
-                    val lines = (doc["journalLinesCount"] as? Number)?.toInt() ?: 0
-                    val parties = (doc["partiesCount"] as? Number)?.toInt() ?: 0
-                    val pkgs = (doc["packagesCount"] as? Number)?.toInt() ?: 0
-                    val treasuries = (doc["treasuriesCount"] as? Number)?.toInt() ?: 0
-                    val devices = (doc["networkDevicesCount"] as? Number)?.toInt() ?: 0
-                    val rates = (doc["currencyRatesCount"] as? Number)?.toInt() ?: 0
-                    val hasProfile = (doc["hasNetworkProfile"] as? Boolean) ?: (doc["networkProfile"] != null)
-                    val profileCount = if (hasProfile) 1 else 0
-                    val netName = (doc["networkName"] as? String) ?: ""
-                    val orgName = (doc["organizationName"] as? String) ?: ""
-                    val total = (doc["totalRecords"] as? Number)?.toInt()
-                        ?: (docs + lines + parties + pkgs + treasuries + devices + rates + profileCount + (if (orgName.isNotBlank()) 1 else 0))
-                    val checksum = (doc["checksum"] as? String) ?: ""
-                    return@withContext CloudBackupMeta(
-                        uid = safeUid,
-                        userEmail = userEmail,
-                        timestamp = timestamp,
-                        documentsCount = docs,
-                        journalLinesCount = lines,
-                        partiesCount = parties,
-                        totalRecords = total,
-                        checksum = checksum,
-                        networkDevicesCount = devices,
-                        currencyRatesCount = rates,
-                        networkName = netName,
-                        organizationName = orgName,
-                        hasNetworkProfile = hasProfile,
-                        backupId = "legacy",
-                        isChunked = false,
-                        chunkCount = 1,
-                        totalCipherBytes = jsonContent.length.toLong(),
-                        appVersionCode = 1,
-                        manifest = null
                     )
                 }
             }
@@ -363,23 +318,21 @@ class FirestoreSyncManager(
                 return@withContext Result.failure(IllegalStateException(err))
             }
 
-            val effectivePassphrase = when {
-                passphrase.isNotBlank() -> {
-                    if (passphrase.length < 8) {
-                        val err = "يجب تحديد عبارة مرور آمنة للنسخ الاحتياطي لا تقل عن 8 أحرف"
-                        _syncState.value = SyncState.Error(err)
-                        return@withContext Result.failure(IllegalArgumentException(err))
-                    }
-                    passphrase
+            val effectivePassphrase = if (passphrase.isNotBlank()) {
+                if (passphrase.length < 8) {
+                    val err = "يجب تحديد عبارة مرور آمنة للنسخ الاحتياطي لا تقل عن 8 أحرف"
+                    _syncState.value = SyncState.Error(err)
+                    return@withContext Result.failure(IllegalArgumentException(err))
                 }
-                else -> {
-                    val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
-                    if (!saved.isNullOrBlank() && saved.length >= 8) {
-                        saved
-                    } else {
-                        "${context.packageName}_secure_backup_key_${safeUid}"
-                    }
+                passphrase
+            } else {
+                val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
+                if (saved.isNullOrBlank() || saved.length < 8) {
+                    val err = "عبارة مرور النسخ الاحتياطي مطلوبة. عيّنها من الإعدادات > النسخ الاحتياطي السحابي."
+                    _syncState.value = SyncState.Error(err)
+                    return@withContext Result.failure(IllegalStateException(err))
                 }
+                saved
             }
 
             _syncState.value = SyncState.InProgress("تحضير البيانات وتجميع السجلات...", 0.1f)
@@ -461,22 +414,6 @@ class FirestoreSyncManager(
             val manifestPath = "users/$safeUid/backups/${manifest.backupId}"
             adapter.set(manifestPath, manifest.toMap(), false)
 
-            // Backward-compatible latest backup document
-            runCatching {
-                adapter.set(
-                    "users/$safeUid/backup_latest/latest",
-                    mapOf(
-                        "uid" to safeUid,
-                        "userEmail" to userEmail,
-                        "timestamp" to manifest.createdAtEpochMs,
-                        "jsonContent" to jsonSnapshot,
-                        "payload" to jsonSnapshot,
-                        "latestBackupId" to manifest.backupId,
-                        "schemaVersion" to manifest.schemaVersion
-                    ),
-                    false
-                )
-            }
 
             // Update user summary
             runCatching {
@@ -641,21 +578,17 @@ class FirestoreSyncManager(
                     "إصدار هيكل النسخة الاحتياطية (${latestManifest.schemaVersion}) غير متوافق مع إصدار التطبيق الحالي"
                 }
 
-                val effectivePassphrase = when {
-                    passphrase.isNotBlank() -> {
-                        if (passphrase.length < 8) {
-                            throw IllegalArgumentException("يرجى إدخال عبارة مرور لا تقل عن 8 أحرف لفك تشفير النسخة الاحتياطية")
-                        }
-                        passphrase
+                val effectivePassphrase = if (passphrase.isNotBlank()) {
+                    if (passphrase.length < 8) {
+                        throw IllegalArgumentException("يرجى إدخال عبارة مرور لا تقل عن 8 أحرف لفك تشفير النسخة الاحتياطية")
                     }
-                    else -> {
-                        val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
-                        if (!saved.isNullOrBlank() && saved.length >= 8) {
-                            saved
-                        } else {
-                            "${context.packageName}_secure_backup_key_${safeUid}"
-                        }
+                    passphrase
+                } else {
+                    val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
+                    if (saved.isNullOrBlank() || saved.length < 8) {
+                        throw IllegalStateException("عبارة مرور النسخ الاحتياطي مطلوبة. عيّنها من الإعدادات > النسخ الاحتياطي السحابي.")
                     }
+                    saved
                 }
 
                 // Task 4, Step 2: Download all chunks sequentially by index
@@ -684,14 +617,7 @@ class FirestoreSyncManager(
                     passphrase = effectivePassphrase
                 )
             } else {
-                // Task 2, Rule 3 & Task 4: Legacy Read Compatibility: users/{uid}/backup_latest/latest
-                val legacyDoc = adapter.get("users/$safeUid/backup_latest/latest")
-                    ?: throw IllegalStateException("لا توجد نسخة سحابية سابقة مخزنة لهذا الحساب")
-                val legacyJson = (legacyDoc["jsonContent"] ?: legacyDoc["payload"]) as? String
-                if (legacyJson.isNullOrBlank()) {
-                    throw IllegalStateException("النسخة السحابية فارغة أو غير متوافقة")
-                }
-                jsonContent = legacyJson
+                throw IllegalStateException("لا توجد نسخة سحابية مشفرة لهذا الحساب. النسخ النصية القديمة غير مدعومة.")
             }
 
             // Task 4, Step 3: Safety Snapshot Creation prior to wiping local tables

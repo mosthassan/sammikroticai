@@ -45,6 +45,10 @@ import java.util.UUID
 @Config(sdk = [36])
 class Stage2CloudAndRulesTest {
 
+    private val testPassphrase = "test-passphrase-123"
+    private val testUid = "user_cloud_uid_9988"
+    private val testEmail = "mosthassan.ye@gmail.com"
+
     private lateinit var context: Context
     private lateinit var db: AppDatabase
     private lateinit var networkRepository: NetworkRepository
@@ -61,6 +65,16 @@ class Stage2CloudAndRulesTest {
         override suspend fun set(path: String, data: Map<String, Any?>, merge: Boolean) {
             writes[path] = data
             store[path] = data
+        }
+
+        override suspend fun listCollection(collectionPath: String): List<Pair<String, Map<String, Any?>>> {
+            val prefix = collectionPath.trim('/') + "/"
+            return store.filterKeys { key ->
+                if (key.startsWith(prefix)) {
+                    val sub = key.removePrefix(prefix)
+                    !sub.contains("/")
+                } else false
+            }.map { (k, v) -> k.substringAfterLast("/") to v }
         }
     }
 
@@ -212,7 +226,7 @@ class Stage2CloudAndRulesTest {
         )
         db.currencyRateDao().insertRate(rateUsd)
 
-        val pushResult = syncManager.syncPush(testUid, testEmail)
+        val pushResult = syncManager.syncPush(testUid, testEmail, testPassphrase)
         assertTrue(
             "syncPush must succeed: ${pushResult.exceptionOrNull()?.message}",
             pushResult.isSuccess
@@ -225,17 +239,6 @@ class Stage2CloudAndRulesTest {
             assertFalse("Write path '$path' must never write under tenants", path.contains("tenants"))
             assertFalse("Write path '$path' must never write emailKey", path.contains("emailKey"))
         }
-
-        // Verify primary backup document
-        assertTrue(
-            "Primary backup must be stored under users/$testUid/backup_latest/latest",
-            fakeAdapter.writes.containsKey("users/$testUid/backup_latest/latest")
-        )
-        val primaryData = fakeAdapter.writes["users/$testUid/backup_latest/latest"]
-        assertNotNull(primaryData)
-        assertEquals(testUid, primaryData?.get("uid"))
-        assertEquals(testEmail, primaryData?.get("userEmail"))
-        assertNotNull(primaryData?.get("jsonContent"))
     }
 
     @Test
@@ -273,7 +276,7 @@ class Stage2CloudAndRulesTest {
             firestoreAdapter = fakeAdapter
         )
 
-        val pushRes = syncManager.syncPush("user_oversize_s2", "user@test.com")
+        val pushRes = syncManager.syncPush("user_oversize_s2", "user@test.com", testPassphrase)
         assertTrue("Oversize push must succeed with chunked backup: ${pushRes.exceptionOrNull()?.message}", pushRes.isSuccess)
 
         // Verify that writes were dispatched as chunks and manifest
@@ -296,7 +299,11 @@ class Stage2CloudAndRulesTest {
             equityShareMode = "DERIVED_FROM_CAPITAL",
             createdAt = System.currentTimeMillis()
         )
-        db.organizationDao().insertOrganization(orgEntity)
+        if (existingOrg != null) {
+            db.organizationDao().updateOrganization(orgEntity)
+        } else {
+            db.organizationDao().insertOrganization(orgEntity)
+        }
 
         // Party
         val testParty = PartyEntity(
@@ -568,9 +575,8 @@ class Stage2CloudAndRulesTest {
         db.currencyRateDao().insertRate(testRate)
 
         // Push to cloud
-        val pushRes = syncManager.syncPush(testUid, testEmail)
+        val pushRes = syncManager.syncPush(testUid, testEmail, testPassphrase)
         assertTrue("Push must succeed: ${pushRes.exceptionOrNull()?.message}", pushRes.isSuccess)
-        assertTrue(fakeAdapter.writes.containsKey("users/$testUid/backup_latest/latest"))
 
         // Create empty destination
         val targetDb = AppDatabase.createInMemory(context)
@@ -593,7 +599,7 @@ class Stage2CloudAndRulesTest {
         )
 
         // Pull from cloud
-        val pullRes = targetSyncManager.syncPull(testUid, testEmail)
+        val pullRes = targetSyncManager.syncPull(testUid, testEmail, testPassphrase)
         assertTrue("Pull must succeed: ${pullRes.exceptionOrNull()?.message}", pullRes.isSuccess)
 
         // Verify currency rate was restored in target DB
@@ -601,5 +607,25 @@ class Stage2CloudAndRulesTest {
         assertTrue("Restored rates must contain USD rate", targetRates.any { it.id == "RATE_E2E_USD" })
 
         targetDb.close()
+    }
+
+    @Test
+    fun testTwoArgPushWithoutStoredPassphraseFailsAndWritesNothing() = runBlocking {
+        val adapter = FakeFirestoreAdapter()
+        val syncManager = FirestoreSyncManager(
+            context = context,
+            db = db,
+            backupRestoreUseCase = backupRestoreUseCase,
+            networkRepository = networkRepository,
+            deviceDao = networkRepository,
+            firestoreAdapter = adapter
+        )
+        val result = syncManager.syncPush(testUid, testEmail)
+        assertTrue("Push must fail without a passphrase", result.isFailure)
+        assertTrue(
+            "Failure must request a passphrase: ${result.exceptionOrNull()?.message}",
+            result.exceptionOrNull()?.message?.contains("عبارة مرور") == true
+        )
+        assertTrue("No data may be written without a passphrase", adapter.writes.isEmpty())
     }
 }

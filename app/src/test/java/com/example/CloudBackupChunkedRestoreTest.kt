@@ -368,18 +368,19 @@ class CloudBackupChunkedRestoreTest {
             firestoreAdapter = adapter
         )
 
-        // Check remote backup detects legacy backup
+        // Check remote backup does not detect unencrypted legacy backup
         val meta = syncManager.checkRemoteBackup(testUid, testEmail)
-        assertNotNull("Should detect legacy backup", meta)
-        assertFalse("Legacy backup is not chunked", meta!!.isChunked)
+        assertNull("Legacy backup should not be detected as chunked encrypted backup", meta)
 
-        // Pull and restore without passphrase (empty string for legacy backup)
-        val pullResult = syncManager.syncPull(testUid, testEmail, "")
-        assertTrue("Legacy pull should succeed: ${pullResult.exceptionOrNull()?.message}", pullResult.isSuccess)
+        // Pull and restore with passphrase should be rejected
+        val pullResult = syncManager.syncPull(testUid, testEmail, "test-passphrase-123")
+        assertTrue("Legacy pull must fail: ${pullResult.exceptionOrNull()?.message}", pullResult.isFailure)
+        val errorMsg = pullResult.exceptionOrNull()?.message.orEmpty()
+        assertTrue("Message must mention missing encrypted backup: $errorMsg", errorMsg.contains("مشفرة"))
 
-        // Verify restored network device
+        // Verify legacy network device was NOT restored
         val devices = networkRepository.getAllDevices()
-        assertTrue("Restored legacy network device should exist", devices.any { it.name == "ميكروتك البرج الرئيسي" })
+        assertFalse("Legacy network device must not be restored", devices.any { it.name == "ميكروتك البرج الرئيسي" })
     }
 
     // 6. Trigger & Invariants Integrity: successful restore leaves triggers functional and passes invariants.verifyAll()
