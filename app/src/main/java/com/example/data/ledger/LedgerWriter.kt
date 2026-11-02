@@ -45,6 +45,32 @@ class LedgerWriter(
 ) {
     val invariants = LedgerInvariants(db)
 
+    fun requirePositiveQuantity(qty: Int, label: String = "الكمية") {
+        require(qty > 0) { "$label يجب أن تكون أكبر من الصفر" }
+    }
+
+    fun requirePositiveQuantity(qty: Long, label: String = "الكمية") {
+        require(qty > 0L) { "$label يجب أن تكون أكبر من الصفر" }
+    }
+
+    fun requirePositiveUnitPrice(price: Long, label: String = "سعر الوحدة") {
+        require(price > 0L) { "$label يجب أن يكون أكبر من الصفر" }
+    }
+
+    fun requirePositiveTotal(total: Long, label: String = "المبلغ الإجمالي") {
+        require(total > 0L) { "$label يجب أن يكون أكبر من الصفر" }
+    }
+
+    fun requireValidUsefulLife(months: Int?, label: String = "العمر الإنتاجي") {
+        require(months != null && months in 1..600) {
+            "$label غير صالح (${months ?: 0} شهراً). يجب أن يكون بين شهر واحد و 600 شهر (50 سنة)."
+        }
+    }
+
+    fun requireNonNegative(amount: Long, label: String) {
+        require(amount >= 0L) { "$label لا يمكن أن يكون سالباً" }
+    }
+
     /**
      * Enforces the Zero-Overdraft Invariant (B.1):
      * Calculates the treasury's net balance in its original currency prior to any disbursement.
@@ -89,6 +115,15 @@ class LedgerWriter(
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
 
+        cardItems.forEach { item ->
+            requirePositiveQuantity(item.quantity)
+            requirePositiveUnitPrice(item.unitPriceMinor)
+        }
+        serviceItems.forEach { item ->
+            requirePositiveQuantity(item.quantity)
+            requirePositiveUnitPrice(item.unitPriceMinor)
+        }
+
         // Stock inventory protection check: reject selling quantities exceeding available inventory (unless explicitly allowed)
         val org = db.organizationDao().getOrganizationSync()
         val allowNegative = org?.allowNegativeStock ?: false
@@ -106,6 +141,7 @@ class LedgerWriter(
         val cardTotalOrig = cardItems.sumOf { it.quantity * it.unitPriceMinor }
         val serviceTotalOrig = serviceItems.sumOf { it.quantity * it.unitPriceMinor }
         val totalOrig = cardTotalOrig + serviceTotalOrig
+        requirePositiveTotal(totalOrig, "إجمالي فاتورة المبيعات")
         val totalBase = exchangeRate.convert(totalOrig)
 
         val docNumber = allocateNextDocNumber(DocumentType.SALES_INVOICE.name, fiscalYear)
@@ -230,6 +266,7 @@ class LedgerWriter(
 
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
+        requirePositiveTotal(amountOrigMinor, "مبلغ سند القبض")
         val treasury = db.treasuryDao().getTreasuryById(treasuryId)
             ?: error("Treasury account $treasuryId not found")
 
@@ -240,6 +277,7 @@ class LedgerWriter(
                 "Total allocated amount ($totalAllocated) exceeds receipt amount ($amountOrigMinor)"
             }
             allocations.forEach { alloc ->
+                requirePositiveTotal(alloc.allocatedOrigMinor, "مبلغ التخصيص للفاتورة")
                 val invDoc = db.documentDao().getDocumentById(alloc.invoiceDocId)
                     ?: error("Allocated invoice ${alloc.invoiceDocId} not found")
                 require(invDoc.status == DocumentStatus.POSTED.name) {
@@ -394,6 +432,7 @@ class LedgerWriter(
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
+        requirePositiveTotal(amountOrigMinor, "مبلغ المساهمة الرأسمالية النقدية")
         val treasury = db.treasuryDao().getTreasuryById(treasuryId)
             ?: error("Treasury account $treasuryId not found")
         require(treasury.currency == currency.name) {
@@ -465,6 +504,8 @@ class LedgerWriter(
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
+        requirePositiveTotal(amountOrigMinor, "قيمة الأصل العيني")
+        requireValidUsefulLife(usefulLifeMonths)
         val docNumber = allocateNextDocNumber(DocumentType.RECEIPT_VOUCHER.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
         val totalBase = exchangeRate.convert(amountOrigMinor)
@@ -543,10 +584,16 @@ class LedgerWriter(
         require(assets.isNotEmpty()) { "يجب إضافة أصل واحد على الأقل" }
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
+        assets.forEach { item ->
+            requirePositiveQuantity(item.quantity, "كمية الأصل (${item.name})")
+            requirePositiveUnitPrice(item.unitValueMinor, "قيمة وحدة الأصل (${item.name})")
+            requireValidUsefulLife(item.usefulLifeMonths, "العمر الإنتاجي للأصل (${item.name})")
+        }
+        val totalAmountOrigMinor = assets.sumOf { it.totalMinor }
+        requirePositiveTotal(totalAmountOrigMinor, "إجمالي مساهمة الأصول العينية")
         val docNumber = allocateNextDocNumber(DocumentType.RECEIPT_VOUCHER.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
 
-        val totalAmountOrigMinor = assets.sumOf { it.totalMinor }
         val totalBase = exchangeRate.convert(totalAmountOrigMinor)
         val assetSummary = assets.joinToString("، ") { "${it.name} (عدد ${it.quantity})" }
 
@@ -642,8 +689,17 @@ class LedgerWriter(
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
+        require(items.isNotEmpty()) { "يجب أن تحتوي فاتورة المشتريات على بنود" }
+        items.forEach { itm ->
+            requirePositiveQuantity(itm.quantity, "كمية بند الشراء (${itm.description})")
+            requirePositiveUnitPrice(itm.unitPriceMinor, "سعر وحدة بند الشراء (${itm.description})")
+            if (itm.isAsset) {
+                requireValidUsefulLife(itm.usefulLifeMonths, "العمر الإنتاجي للأصل (${itm.description})")
+            }
+        }
 
         val totalOrig = items.sumOf { it.totalMinor }
+        requirePositiveTotal(totalOrig, "إجمالي فاتورة المشتريات")
         val totalBase = exchangeRate.convert(totalOrig)
         val docNumber = allocateNextDocNumber(DocumentType.PURCHASE_INVOICE.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
@@ -756,6 +812,7 @@ class LedgerWriter(
 
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
+        requirePositiveTotal(amountOrigMinor, "مبلغ سند الصرف")
 
         val treasury = if (paymentSource == PaymentSource.TREASURY) {
             require(!treasuryId.isNullOrBlank()) { "Treasury account ID is required for treasury disbursement" }
@@ -782,6 +839,7 @@ class LedgerWriter(
                 }
             }
             invoiceAllocations.forEach { alloc ->
+                requirePositiveTotal(alloc.allocatedOrigMinor, "مبلغ التخصيص لسداد الفاتورة")
                 val invDoc = db.documentDao().getDocumentById(alloc.invoiceDocId)
                     ?: error("Allocated purchase invoice ${alloc.invoiceDocId} not found")
                 require(invDoc.status == DocumentStatus.POSTED.name) {
@@ -975,6 +1033,8 @@ class LedgerWriter(
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(sourceCurrency, sourceRate)
         validateExchangeRateGuardrail(destCurrency, destRate)
+        requirePositiveTotal(sourceAmountOrigMinor, "مبلغ التحويل من الصندوق المصدر")
+        requirePositiveTotal(destAmountOrigMinor, "مبلغ التحويل إلى الصندوق المستلم")
 
         require(sourceCurrency == destCurrency) {
             "Treasury transfer only supports single-currency transfers between accounts of the same currency. Use CURRENCY_EXCHANGE for cross-currency transfers."
@@ -1062,8 +1122,8 @@ class LedgerWriter(
         }
 
         validatePeriodIsOpen(dateEpochDay)
-        require(sourceAmountOrigMinor > 0L) { "Source amount must be positive" }
-        require(destAmountOrigMinor > 0L) { "Destination amount must be positive" }
+        requirePositiveTotal(sourceAmountOrigMinor, "مبلغ العملة المصروفة")
+        requirePositiveTotal(destAmountOrigMinor, "مبلغ العملة المستلمة")
         require(sourceTreasuryId != destTreasuryId) { "Source and destination treasuries must be different" }
 
         val sourceTreasury = db.treasuryDao().getTreasuryById(sourceTreasuryId)
@@ -1089,6 +1149,7 @@ class LedgerWriter(
                 val rateEntity = db.currencyRateDao().getLatestRate(sourceCurrency.name, rateZone.name, dateEpochDay)
                     ?: throw MissingExchangeRateException(sourceCurrency, rateZone, dateEpochDay)
                 val rate = ExchangeRate(sourceCurrency, CurrencyCode.FUNCTIONAL, rateEntity.rateMicros)
+                validateExchangeRateGuardrail(sourceCurrency, rate)
                 rate.convert(sourceAmountOrigMinor)
             }
         }
@@ -1156,6 +1217,7 @@ class LedgerWriter(
         dateEpochDay: Long
     ): Boolean = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(CurrencyCode.FUNCTIONAL, ExchangeRate.parity(CurrencyCode.FUNCTIONAL))
 
         // Idempotency check: unique run per asset and period
         val count = db.assetDao().countDepreciationRun(periodYear, periodMonth, assetId)
@@ -1173,6 +1235,12 @@ class LedgerWriter(
         val remaining = depreciableBase - asset.accumulatedDepreciationMinor
         val amountToDepreciate = minOf(monthlyAmount, remaining)
         if (amountToDepreciate <= 0L) return@withTransaction false
+
+        val remainingNetBookValue = asset.purchaseCostMinor - asset.accumulatedDepreciationMinor
+        require(amountToDepreciate <= remainingNetBookValue) {
+            "مبلغ الإهلاك ($amountToDepreciate) يتجاوز صافي القيمة الدفترية المتبقية للأصل ($remainingNetBookValue)"
+        }
+        requirePositiveTotal(amountToDepreciate, "مبلغ الإهلاك الشهري")
 
         val docNumber = allocateNextDocNumber(DocumentType.DEPRECIATION_RUN.name, periodYear)
         val docId = UuidUtils.newTimeOrderedId()
@@ -1282,22 +1350,22 @@ class LedgerWriter(
                 require(treasury.currency == foreignCurrency.name) {
                     "Treasury currency (${treasury.currency}) does not match revaluation currency (${foreignCurrency.name})"
                 }
-                foreignBalance = db.journalDao().getNetOrigBalanceForTreasury(treasuryId)
-                bookYerBalance = db.journalDao().getNetDebitBalanceForTreasury(treasuryId)
+                foreignBalance = db.journalDao().getNetOrigBalanceForTreasury(treasuryId, dateEpochDay)
+                bookYerBalance = db.journalDao().getNetDebitBalanceForTreasury(treasuryId, dateEpochDay)
                 val currentMarketYer = exchangeRate.convert(foreignBalance)
                 deltaMinor = currentMarketYer - bookYerBalance
             }
             AccountConstants.ACCOUNTS_RECEIVABLE -> {
                 require(!partyId.isNullOrBlank()) { "Accounts Receivable requires an explicit partyId" }
-                foreignBalance = db.journalDao().getPartyReceivableOrigBalance(partyId, foreignCurrency.name)
-                bookYerBalance = db.journalDao().getPartyReceivableBaseBalanceByCurrency(partyId, foreignCurrency.name)
+                foreignBalance = db.journalDao().getPartyReceivableOrigBalance(partyId, foreignCurrency.name, dateEpochDay)
+                bookYerBalance = db.journalDao().getPartyReceivableBaseBalanceByCurrency(partyId, foreignCurrency.name, dateEpochDay)
                 val currentMarketYer = exchangeRate.convert(foreignBalance)
                 deltaMinor = currentMarketYer - bookYerBalance
             }
             AccountConstants.ACCOUNTS_PAYABLE -> {
                 require(!partyId.isNullOrBlank()) { "Accounts Payable requires an explicit partyId" }
-                foreignBalance = db.journalDao().getPartyPayableOrigBalance(partyId, foreignCurrency.name)
-                bookYerBalance = db.journalDao().getPartyPayableBaseBalanceByCurrency(partyId, foreignCurrency.name)
+                foreignBalance = db.journalDao().getPartyPayableOrigBalance(partyId, foreignCurrency.name, dateEpochDay)
+                bookYerBalance = db.journalDao().getPartyPayableBaseBalanceByCurrency(partyId, foreignCurrency.name, dateEpochDay)
                 val currentMarketYer = exchangeRate.convert(foreignBalance)
                 // For liabilities: gain if book > market, loss if market > book
                 deltaMinor = bookYerBalance - currentMarketYer
@@ -1553,9 +1621,19 @@ class LedgerWriter(
             }
         }
 
+        newCardItems.forEach { item ->
+            requirePositiveQuantity(item.quantity, "كمية الكروت المباعة في الفاتورة المعدلة")
+            requirePositiveUnitPrice(item.unitPriceMinor, "سعر بيع الكرت في الفاتورة المعدلة")
+        }
+        newServiceItems.forEach { item ->
+            requirePositiveQuantity(item.quantity, "كمية الخدمة المباعة في الفاتورة المعدلة")
+            requirePositiveUnitPrice(item.unitPriceMinor, "سعر بيع الخدمة في الفاتورة المعدلة")
+        }
+
         val cardTotalOrig = newCardItems.sumOf { it.quantity * it.unitPriceMinor }
         val serviceTotalOrig = newServiceItems.sumOf { it.quantity * it.unitPriceMinor }
         val totalOrig = cardTotalOrig + serviceTotalOrig
+        requirePositiveTotal(totalOrig, "إجمالي الفاتورة المعدلة")
         val totalBase = newExchangeRate.convert(totalOrig)
 
         val fiscalYear = com.example.core.time.FiscalCalendar.DEFAULT.fiscalYearOf(newDateEpochDay)
@@ -1677,6 +1755,12 @@ class LedgerWriter(
         notes: String = "",
         idempotencyKey: String? = null
     ): QuickSaleResult = db.withTransaction {
+        validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(currency, exchangeRate)
+        requirePositiveQuantity(quantity, "كمية البيع السريع")
+        requirePositiveUnitPrice(unitPriceMinor, "سعر الوحدة في البيع السريع")
+        requireNonNegative(cashPaidMinor, "المبلغ المدفوع نقداً في البيع السريع")
+
         // 1. Post Sales Invoice
         val invoice = postSalesInvoice(
             partyId = partyId,
@@ -1732,6 +1816,10 @@ class LedgerWriter(
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
         validateExchangeRateGuardrail(currency, exchangeRate)
+        requirePositiveTotal(amountOrigMinor, "مبلغ الإشعار الدائن")
+        if (returnPackageId != null) {
+            requirePositiveQuantity(returnQty, "كمية الكروت المرتجعة")
+        }
         val docNumber = allocateNextDocNumber(DocumentType.CREDIT_NOTE.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
         val baseMinor = exchangeRate.convert(amountOrigMinor)
@@ -1795,6 +1883,15 @@ class LedgerWriter(
         notes: String = ""
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(CurrencyCode.FUNCTIONAL, ExchangeRate.parity(CurrencyCode.FUNCTIONAL))
+        lines.forEach { line ->
+            require(line.debitMinor >= 0L && line.creditMinor >= 0L) {
+                "لا يمكن أن تكون قيمة المدين أو الدائن سالبة في القيد الافتتاحي (${line.accountCode})"
+            }
+            require(line.debitMinor > 0L || line.creditMinor > 0L) {
+                "يجب أن يحتوي بند القيد الافتتاحي على قيمة موجبة للمدين أو الدائن (${line.accountCode})"
+            }
+        }
         val docNumber = allocateNextDocNumber(DocumentType.OPENING_BALANCE.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
 
@@ -1840,8 +1937,11 @@ class LedgerWriter(
         notes: String = ""
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(disposalDateEpochDay)
+        validateExchangeRateGuardrail(CurrencyCode.FUNCTIONAL, ExchangeRate.parity(CurrencyCode.FUNCTIONAL))
+        requireNonNegative(salvageProceedsMinor, "عائدات بيع/استبعاد الأصل")
         val asset = db.assetDao().getAssetById(assetId) ?: error("Asset $assetId not found")
         require(!asset.isDisposed) { "Asset $assetId is already disposed" }
+        requireNonNegative(asset.salvageValueMinor, "القيمة التخريدية للأصل")
 
         val treasury = treasuryId?.let { db.treasuryDao().getTreasuryById(it) }
         val fiscalYear = java.time.LocalDate.ofEpochDay(disposalDateEpochDay).year
@@ -1895,6 +1995,7 @@ class LedgerWriter(
         rateZone: RateZone = RateZone.DEFAULT
     ): DocumentEntity? = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        requireNonNegative(actualCountMinor, "العد الفعلي للنقدية")
         val treasury = db.treasuryDao().getTreasuryById(treasuryId) ?: error("Treasury $treasuryId not found")
         val bookDebitBalance = db.journalDao().getNetOrigBalanceForTreasury(treasuryId)
         val discrepancyMinor = actualCountMinor - bookDebitBalance
@@ -1909,6 +2010,7 @@ class LedgerWriter(
             rateEntity?.let { ExchangeRate(currency, CurrencyCode.FUNCTIONAL, it.rateMicros) }
                 ?: throw MissingExchangeRateException(currency, rateZone, dateEpochDay)
         }
+        validateExchangeRateGuardrail(currency, rate)
 
         val docNumber = allocateNextDocNumber("CASH_RECONCILIATION", fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
@@ -1960,6 +2062,12 @@ class LedgerWriter(
         notes: String = ""
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(dateEpochDay)
+        validateExchangeRateGuardrail(CurrencyCode.FUNCTIONAL, ExchangeRate.parity(CurrencyCode.FUNCTIONAL))
+        requirePositiveTotal(totalDividendMinor, "إجمالي الأرباح الموزعة")
+        require(partnerShares.isNotEmpty()) { "يجب تحديد حصص الشركاء لتوزيع الأرباح" }
+        partnerShares.forEach { share ->
+            requirePositiveTotal(share.amountMinor, "حصة الشريك من الأرباح (${share.partnerPartyId})")
+        }
         val docNumber = allocateNextDocNumber(DocumentType.DIVIDEND_DISTRIBUTION.name, fiscalYear)
         val docId = UuidUtils.newTimeOrderedId()
 
@@ -2005,6 +2113,7 @@ class LedgerWriter(
         memo: String = ""
     ): DocumentEntity = db.withTransaction {
         validatePeriodIsOpen(closingDateEpochDay)
+        validateExchangeRateGuardrail(CurrencyCode.FUNCTIONAL, ExchangeRate.parity(CurrencyCode.FUNCTIONAL))
 
         // Read all 4xxx and 5xxx net balances
         val accounts = db.accountDao().getAllAccountsSync()
@@ -2088,7 +2197,8 @@ class LedgerWriter(
         dateEpochDay: Long,
         notes: String = ""
     ) = db.withTransaction {
-        require(quantity > 0) { "Received quantity must be positive" }
+        validatePeriodIsOpen(dateEpochDay)
+        requirePositiveQuantity(quantity, "كمية الكروت المستلمة")
         db.cardPackageDao().insertStockMovement(
             StockMovementEntity(
                 id = UuidUtils.newTimeOrderedId(),
@@ -2112,8 +2222,9 @@ class LedgerWriter(
         dateEpochDay: Long,
         reason: String
     ) = db.withTransaction {
-        require(adjustmentQty != 0) { "Adjustment quantity cannot be zero" }
-        require(reason.isNotBlank()) { "Adjustment reason is mandatory" }
+        validatePeriodIsOpen(dateEpochDay)
+        require(adjustmentQty != 0) { "كمية تسوية المخزون لا يمكن أن تكون صفراً" }
+        require(reason.isNotBlank()) { "سبب تسوية المخزون إلزامي" }
         db.cardPackageDao().insertStockMovement(
             StockMovementEntity(
                 id = UuidUtils.newTimeOrderedId(),

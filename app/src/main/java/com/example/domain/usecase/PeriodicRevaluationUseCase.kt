@@ -31,9 +31,10 @@ class PeriodicRevaluationUseCase(
         dateEpochDay: Long,
         foreignCurrency: CurrencyCode,
         exchangeRate: ExchangeRate,
-        rateZone: RateZone = RateZone.SANAA,
+        rateZone: RateZone? = null,
         notes: String? = null
     ): DocumentEntity? {
+        val effectiveZone = rateZone ?: resolveDefaultRateZone()
         return writer.postPeriodicRevaluation(
             accountCode = accountCode,
             partyId = partyId,
@@ -42,7 +43,7 @@ class PeriodicRevaluationUseCase(
             dateEpochDay = dateEpochDay,
             foreignCurrency = foreignCurrency,
             exchangeRate = exchangeRate,
-            rateZone = rateZone,
+            rateZone = effectiveZone,
             notes = notes
         )
     }
@@ -50,9 +51,10 @@ class PeriodicRevaluationUseCase(
     suspend fun executePeriodicRevaluationRun(
         fiscalYear: Int,
         dateEpochDay: Long,
-        rateZone: RateZone = RateZone.SANAA,
+        rateZone: RateZone? = null,
         notes: String? = null
     ): List<DocumentEntity> {
+        val effectiveZone = rateZone ?: resolveDefaultRateZone()
         val postedDocs = mutableListOf<DocumentEntity>()
 
         // 1. Revalue all foreign treasuries (1101 / 1102)
@@ -60,7 +62,7 @@ class PeriodicRevaluationUseCase(
         for (tr in treasuries) {
             if (tr.currency != CurrencyCode.FUNCTIONAL.name) {
                 val curr = CurrencyCode.fromString(tr.currency)
-                val rate = resolver.resolve(curr, dateEpochDay, rateZone)
+                val rate = resolver.resolve(curr, dateEpochDay, effectiveZone)
                 val doc = writer.postPeriodicRevaluation(
                     accountCode = tr.glAccountCode,
                     treasuryId = tr.id,
@@ -68,7 +70,7 @@ class PeriodicRevaluationUseCase(
                     dateEpochDay = dateEpochDay,
                     foreignCurrency = curr,
                     exchangeRate = rate,
-                    rateZone = rateZone,
+                    rateZone = effectiveZone,
                     notes = notes ?: "إعادة تقييم دوري - ${tr.name}"
                 )
                 if (doc != null) {
@@ -78,10 +80,10 @@ class PeriodicRevaluationUseCase(
         }
 
         // 2. Revalue all foreign receivables (1201)
-        val foreignReceivableParties = db.journalDao().getPartiesWithForeignBalance(AccountConstants.ACCOUNTS_RECEIVABLE)
+        val foreignReceivableParties = db.journalDao().getPartiesWithForeignBalance(AccountConstants.ACCOUNTS_RECEIVABLE, dateEpochDay)
         for (item in foreignReceivableParties) {
             val curr = CurrencyCode.fromString(item.currency)
-            val rate = resolver.resolve(curr, dateEpochDay, rateZone)
+            val rate = resolver.resolve(curr, dateEpochDay, effectiveZone)
             val doc = writer.postPeriodicRevaluation(
                 accountCode = AccountConstants.ACCOUNTS_RECEIVABLE,
                 partyId = item.partyId,
@@ -89,7 +91,7 @@ class PeriodicRevaluationUseCase(
                 dateEpochDay = dateEpochDay,
                 foreignCurrency = curr,
                 exchangeRate = rate,
-                rateZone = rateZone,
+                rateZone = effectiveZone,
                 notes = notes ?: "إعادة تقييم دوري لذمم مدينة - العميل ${item.partyId}"
             )
             if (doc != null) {
@@ -98,10 +100,10 @@ class PeriodicRevaluationUseCase(
         }
 
         // 3. Revalue all foreign payables (2101)
-        val foreignPayableParties = db.journalDao().getPartiesWithForeignBalance(AccountConstants.ACCOUNTS_PAYABLE)
+        val foreignPayableParties = db.journalDao().getPartiesWithForeignBalance(AccountConstants.ACCOUNTS_PAYABLE, dateEpochDay)
         for (item in foreignPayableParties) {
             val curr = CurrencyCode.fromString(item.currency)
-            val rate = resolver.resolve(curr, dateEpochDay, rateZone)
+            val rate = resolver.resolve(curr, dateEpochDay, effectiveZone)
             val doc = writer.postPeriodicRevaluation(
                 accountCode = AccountConstants.ACCOUNTS_PAYABLE,
                 partyId = item.partyId,
@@ -109,7 +111,7 @@ class PeriodicRevaluationUseCase(
                 dateEpochDay = dateEpochDay,
                 foreignCurrency = curr,
                 exchangeRate = rate,
-                rateZone = rateZone,
+                rateZone = effectiveZone,
                 notes = notes ?: "إعادة تقييم دوري لذمم دائنة - المورد ${item.partyId}"
             )
             if (doc != null) {
@@ -118,5 +120,18 @@ class PeriodicRevaluationUseCase(
         }
 
         return postedDocs
+    }
+
+    private suspend fun resolveDefaultRateZone(): RateZone {
+        val org = db.organizationDao().getOrganizationSync()
+        return if (!org?.primaryRateZone.isNullOrBlank()) {
+            try {
+                RateZone.valueOf(org!!.primaryRateZone)
+            } catch (e: Exception) {
+                RateZone.SANAA
+            }
+        } else {
+            RateZone.SANAA
+        }
     }
 }

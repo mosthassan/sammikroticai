@@ -106,6 +106,8 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE organizations ADD COLUMN timeZone TEXT NOT NULL DEFAULT 'Asia/Aden'")
                 db.execSQL("ALTER TABLE documents ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE journal_entries ADD COLUMN reversalOfEntryId TEXT")
+                // Temporarily drop update trigger to allow deduplicating entry numbers
+                db.execSQL("DROP TRIGGER IF EXISTS prevent_journal_entries_update")
                 // Resolve any duplicated entryNumber values across entries before creating unique index
                 db.execSQL("""
                     UPDATE journal_entries
@@ -117,6 +119,14 @@ abstract class AppDatabase : RoomDatabase() {
                     WHERE entryNumber IN (
                         SELECT entryNumber FROM journal_entries GROUP BY entryNumber HAVING COUNT(*) > 1
                     )
+                """)
+                // Re-install the immutable update trigger immediately after deduplication
+                db.execSQL("""
+                    CREATE TRIGGER IF NOT EXISTS prevent_journal_entries_update
+                    BEFORE UPDATE ON journal_entries
+                    BEGIN
+                        SELECT RAISE(ABORT, 'Journal entries are immutable and cannot be updated');
+                    END;
                 """)
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_journal_entries_entryNumber ON journal_entries(entryNumber)")
                 db.execSQL("INSERT OR REPLACE INTO number_sequences (docType, fiscalYear, nextVal) VALUES ('JOURNAL_ENTRY', 0, (SELECT COALESCE(MAX(entryNumber), 0) + 1 FROM journal_entries))")

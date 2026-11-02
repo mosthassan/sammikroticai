@@ -81,7 +81,8 @@ data class MonthlyProfitReport(
     val yearTotalUnrealizedFxNetMinor: Long,
     val yearTotalNetProfitMinor: Long,
     val partnerShares: List<PartnerProfitShare>,
-    val reconciliation: ReconciliationSummary
+    val reconciliation: ReconciliationSummary,
+    val annualSummaryLabel: String = "السنة المالية $fiscalYear"
 )
 
 val ARABIC_MONTH_NAMES = listOf(
@@ -298,14 +299,21 @@ suspend fun generateMonthlyProfitReport(
     val currentYear = today.year
     val currentMonth = today.monthValue
 
+    val org = db.organizationDao().getOrganizationSync()
+    val fiscalYearStartMonth = org?.fiscalYearStartMonth ?: 1
+    val fiscalCalendar = FiscalCalendar(fiscalYearStartMonth)
+
     val monthItems = mutableListOf<MonthlyProfitItem>()
     var runningCumulative = 0L
 
     val allTreasuries = db.treasuryDao().getAllTreasuriesSync()
     val foreignTreasuries = allTreasuries.filter { it.currency != "YER" }
 
-    for (m in 1..12) {
-        val monthStart = LocalDate.of(fiscalYear, m, 1)
+    val startOfFiscalYear = LocalDate.of(fiscalYear, fiscalYearStartMonth, 1)
+
+    for (idx in 0 until 12) {
+        val periodIndex = idx + 1
+        val monthStart = startOfFiscalYear.plusMonths(idx.toLong())
         val monthEnd = monthStart.plusMonths(1).minusDays(1)
         val fromEpoch = monthStart.toEpochDay()
         val toEpoch = monthEnd.toEpochDay()
@@ -315,7 +323,7 @@ suspend fun generateMonthlyProfitReport(
 
         val status: MonthlyProfitStatus = when {
             // (d) current month = IN_PROGRESS
-            fiscalYear == currentYear && m == currentMonth -> {
+            monthStart.year == currentYear && monthStart.monthValue == currentMonth -> {
                 MonthlyProfitStatus(
                     status = MonthClosingStatus.IN_PROGRESS,
                     reason = "الشهر الجاري قيد النشاط والتشغيل",
@@ -338,7 +346,7 @@ suspend fun generateMonthlyProfitReport(
                 val assets = db.assetDao().getActiveAssetsUpTo(toEpoch)
                 val depreciableAssets = assets.filter { it.accumulatedDepreciationMinor < (it.purchaseCostMinor - it.salvageValueMinor) }
                 if (depreciableAssets.isNotEmpty()) {
-                    val depRunsCount = db.assetDao().countDepreciationRunsForPeriod(fiscalYear, m)
+                    val depRunsCount = db.assetDao().countDepreciationRunsForPeriod(monthStart.year, monthStart.monthValue)
                     if (depRunsCount < depreciableAssets.size) {
                         reasons.add("توجد أصول قابلة للإهلاك لم يتم إثبات قسط إهلاكها لهذا الشهر")
                     }
@@ -382,11 +390,11 @@ suspend fun generateMonthlyProfitReport(
             }
         }
 
-        val monthName = ARABIC_MONTH_NAMES.getOrElse(m - 1) { "شهر $m" }
+        val monthName = ARABIC_MONTH_NAMES.getOrElse(monthStart.monthValue - 1) { "شهر ${monthStart.monthValue}" }
 
         val item = calculateSingleMonthProfit(
             fiscalYear = fiscalYear,
-            monthIndex = m,
+            monthIndex = periodIndex,
             monthName = monthName,
             fromEpochDay = fromEpoch,
             toEpochDay = toEpoch,
@@ -400,8 +408,8 @@ suspend fun generateMonthlyProfitReport(
     }
 
     // Full year nominal query for Income Statement Net Profit reconciliation check
-    val yearStartEpoch = LocalDate.of(fiscalYear, 1, 1).toEpochDay()
-    val yearEndEpoch = LocalDate.of(fiscalYear, 12, 31).toEpochDay()
+    val yearStartEpoch = fiscalCalendar.yearStart(fiscalYear)
+    val yearEndEpoch = fiscalCalendar.yearEnd(fiscalYear)
     val yearRows = db.journalDao().getIncomeStatementLines(yearStartEpoch, yearEndEpoch)
     val yearBreakdown = calculateProfitBreakdown(yearRows, yearStartEpoch, yearEndEpoch)
 
@@ -439,7 +447,7 @@ suspend fun generateMonthlyProfitReport(
             expectedMinor = yearNetProfit,
             actualMinor = monthItems.last().cumulativeProfitMinor,
             passed = cumulativeEndCheckPassed,
-            note = "الرصيد التراكمي لنهاية شهر ديسمبر يطابق تماماً صافي الربح السنوي"
+            note = "الرصيد التراكمي لنهاية السنة المالية يطابق تماماً صافي الربح السنوي"
         )
     )
 

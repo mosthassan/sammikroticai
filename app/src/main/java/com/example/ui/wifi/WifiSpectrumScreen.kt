@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiFind
+import com.example.data.wifi.ScanState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -121,7 +122,7 @@ fun WifiSpectrumScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // 1. Permission Warning Banner if missing
-        if (!uiState.hasPermissions) {
+        if (!uiState.hasPermissions || uiState.scanState is ScanState.NoPermission) {
             item {
                 Card(
                     modifier = Modifier
@@ -174,6 +175,81 @@ fun WifiSpectrumScreen(
                         ) {
                             Text("منح الصلاحية", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
+                    }
+                }
+            }
+        }
+
+        // 1.5. WiFi Disabled Banner
+        if (uiState.scanState is ScanState.WifiDisabled || !uiState.isWifiEnabled) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("wifi_disabled_banner"),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E1A05)),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFB300))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFFFB300),
+                            modifier = Modifier.size(26.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "محول Wi-Fi غير مفعل",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFFB300)
+                            )
+                            Text(
+                                text = "يرجى تشغيل Wi-Fi من إعدادات الجهاز لتمكين الماسح اللاسلكي من التقاط الإشارات الحقيقية.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1.6. Error Banner if ScanState.Error
+        val errorState = uiState.scanState as? ScanState.Error
+        if (errorState != null) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("wifi_error_banner"),
+                    colors = CardDefaults.cardColors(containerColor = SemanticExpenseRed.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SemanticExpenseRed)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = SemanticExpenseRed,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "خطأ فحص الترددات: ${errorState.message}",
+                            color = SemanticExpenseRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -533,16 +609,70 @@ fun WifiSpectrumScreen(
             }
         }
 
-        // Items: Detected Access Points
-        items(
-            items = uiState.filteredAccessPoints,
-            key = { it.bssid }
-        ) { ap ->
-            AccessPointCard(
-                ap = ap,
-                isSelected = uiState.selectedApForMeter?.bssid == ap.bssid,
-                onSelectForMeter = { viewModel.selectApForMeter(ap) }
-            )
+        // Items: Detected Access Points or Explicit Empty State
+        if (uiState.filteredAccessPoints.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("wifi_empty_state_card"),
+                    colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.2f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WifiFind,
+                            contentDescription = null,
+                            tint = BrandCyanPrimary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(42.dp)
+                        )
+                        Text(
+                            text = if (uiState.searchQuery.isNotBlank())
+                                "لا توجد شبكات مطابقة لعبارة البحث \"${uiState.searchQuery}\""
+                            else
+                                "لم يتم العثور على أي شبكات لاسلكية محيطة في نطاق ${uiState.selectedBand.title}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "لا يتم توليد أي شبكات وهمية أو مصطنعة. تظهر الشبكات فقط عند التقاطها فعلياً من عتاد الجهاز.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Button(
+                            onClick = { viewModel.performScan() },
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.testTag("btn_empty_rescan")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("إعادة الفحص المباشر", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        } else {
+            items(
+                items = uiState.filteredAccessPoints,
+                key = { it.bssid }
+            ) { ap ->
+                AccessPointCard(
+                    ap = ap,
+                    isSelected = uiState.selectedApForMeter?.bssid == ap.bssid,
+                    onSelectForMeter = { viewModel.selectApForMeter(ap) }
+                )
+            }
         }
 
         item {

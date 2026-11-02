@@ -436,11 +436,13 @@ internal interface JournalDao {
     fun getPartnerCurrentBalanceFlow(partyId: String): Flow<Long>
 
     @Query("""
-        SELECT COALESCE(SUM(baseDebitMinor) - SUM(baseCreditMinor), 0)
-        FROM journal_lines
-        WHERE treasuryId = :treasuryId
+        SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.treasuryId = :treasuryId
+          AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
-    suspend fun getNetDebitBalanceForTreasury(treasuryId: String): Long
+    suspend fun getNetDebitBalanceForTreasury(treasuryId: String, asOfEpochDay: Long? = null): Long
 
     @Query("""
         SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
@@ -476,9 +478,9 @@ internal interface JournalDao {
         FROM journal_lines jl
         INNER JOIN journal_entries je ON jl.entryId = je.id
         WHERE jl.treasuryId = :treasuryId
-          AND (:asOfDateEpochDay IS NULL OR je.entryDateEpochDay <= :asOfDateEpochDay)
+          AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
-    suspend fun getNetOrigBalanceForTreasury(treasuryId: String, asOfDateEpochDay: Long? = null): Long
+    suspend fun getNetOrigBalanceForTreasury(treasuryId: String, asOfEpochDay: Long? = null): Long
 
     @Query("""
         SELECT p.id AS partyId, p.name AS partyName, jl.accountCode AS accountCode,
@@ -526,21 +528,6 @@ internal interface JournalDao {
             ), 0
         )
         FROM journal_lines
-        WHERE treasuryId = :treasuryId
-    """)
-    suspend fun getNetOrigBalanceForTreasury(treasuryId: String): Long
-
-    @Query("""
-        SELECT COALESCE(
-            SUM(
-                CASE 
-                    WHEN baseDebitMinor > 0 THEN origMinor 
-                    WHEN baseCreditMinor > 0 THEN -origMinor 
-                    ELSE 0 
-                END
-            ), 0
-        )
-        FROM journal_lines
         WHERE accountCode IN ('1101', '1102') AND currency = :currency
     """)
     suspend fun getNetOrigBalanceForCashAccount(currency: String): Long
@@ -554,42 +541,52 @@ internal interface JournalDao {
 
     @Query("""
         SELECT COALESCE(
-            SUM(CASE WHEN baseDebitMinor > 0 THEN origMinor ELSE -origMinor END), 0
+            SUM(CASE WHEN jl.baseDebitMinor > 0 THEN jl.origMinor ELSE -jl.origMinor END), 0
         )
-        FROM journal_lines
-        WHERE partyId = :partyId AND accountCode = '1201' AND currency = :currency
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.partyId = :partyId AND jl.accountCode = '1201' AND jl.currency = :currency
+          AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
-    suspend fun getPartyReceivableOrigBalance(partyId: String, currency: String): Long
+    suspend fun getPartyReceivableOrigBalance(partyId: String, currency: String, asOfEpochDay: Long? = null): Long
 
     @Query("""
-        SELECT COALESCE(SUM(baseDebitMinor) - SUM(baseCreditMinor), 0)
-        FROM journal_lines
-        WHERE partyId = :partyId AND accountCode = '1201' AND currency = :currency
+        SELECT COALESCE(SUM(jl.baseDebitMinor) - SUM(jl.baseCreditMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.partyId = :partyId AND jl.accountCode = '1201' AND jl.currency = :currency
+          AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
-    suspend fun getPartyReceivableBaseBalanceByCurrency(partyId: String, currency: String): Long
+    suspend fun getPartyReceivableBaseBalanceByCurrency(partyId: String, currency: String, asOfEpochDay: Long? = null): Long
 
     @Query("""
         SELECT COALESCE(
-            SUM(CASE WHEN baseCreditMinor > 0 THEN origMinor ELSE -origMinor END), 0
+            SUM(CASE WHEN jl.baseCreditMinor > 0 THEN jl.origMinor ELSE -jl.origMinor END), 0
         )
-        FROM journal_lines
-        WHERE partyId = :partyId AND accountCode = '2101' AND currency = :currency
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.partyId = :partyId AND jl.accountCode = '2101' AND jl.currency = :currency
+          AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
-    suspend fun getPartyPayableOrigBalance(partyId: String, currency: String): Long
+    suspend fun getPartyPayableOrigBalance(partyId: String, currency: String, asOfEpochDay: Long? = null): Long
 
     @Query("""
-        SELECT COALESCE(SUM(baseCreditMinor) - SUM(baseDebitMinor), 0)
-        FROM journal_lines
-        WHERE partyId = :partyId AND accountCode = '2101' AND currency = :currency
+        SELECT COALESCE(SUM(jl.baseCreditMinor) - SUM(jl.baseDebitMinor), 0)
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.partyId = :partyId AND jl.accountCode = '2101' AND jl.currency = :currency
+          AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
-    suspend fun getPartyPayableBaseBalanceByCurrency(partyId: String, currency: String): Long
+    suspend fun getPartyPayableBaseBalanceByCurrency(partyId: String, currency: String, asOfEpochDay: Long? = null): Long
 
     @Query("""
-        SELECT DISTINCT partyId, currency
-        FROM journal_lines
-        WHERE accountCode = :accountCode AND currency != 'YER' AND partyId IS NOT NULL
+        SELECT DISTINCT jl.partyId, jl.currency
+        FROM journal_lines jl
+        INNER JOIN journal_entries je ON jl.entryId = je.id
+        WHERE jl.accountCode = :accountCode AND jl.currency != 'YER' AND jl.partyId IS NOT NULL
+          AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
-    suspend fun getPartiesWithForeignBalance(accountCode: String): List<PartyForeignBalanceItem>
+    suspend fun getPartiesWithForeignBalance(accountCode: String, asOfEpochDay: Long? = null): List<PartyForeignBalanceItem>
 
     @Query("""
         SELECT COALESCE(SUM(jl.baseCreditMinor - jl.baseDebitMinor), 0)
@@ -691,6 +688,7 @@ internal interface JournalDao {
           AND je.entryDateEpochDay >= :startDateEpochDay
           AND je.entryDateEpochDay <= :endDateEpochDay
           AND je.type != 'CLOSING'
+          AND d.status <> 'VOIDED'
         ORDER BY je.entryDateEpochDay ASC, je.entryNumber ASC, jl.lineNo ASC
     """)
     suspend fun getCashMovementLines(
@@ -714,10 +712,12 @@ internal interface JournalDao {
             SELECT DISTINCT jl2.entryId
             FROM journal_lines jl2
             INNER JOIN journal_entries je2 ON jl2.entryId = je2.id
+            INNER JOIN documents d2 ON je2.docId = d2.id
             WHERE jl2.accountCode IN ('1101', '1102')
               AND je2.entryDateEpochDay >= :startDateEpochDay
               AND je2.entryDateEpochDay <= :endDateEpochDay
               AND je2.type != 'CLOSING'
+              AND d2.status <> 'VOIDED'
         )
         ORDER BY jl.entryId ASC, jl.lineNo ASC
     """)
@@ -730,12 +730,14 @@ internal interface JournalDao {
         SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
         FROM journal_lines jl
         INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
         WHERE jl.accountCode IN ('1101', '1102')
           AND (
               je.entryDateEpochDay < :startDateEpochDay
-              OR (je.entryDateEpochDay <= :endDateEpochDay AND je.docId IN (SELECT id FROM documents WHERE type = 'OPENING_BALANCE'))
+              OR (je.entryDateEpochDay <= :endDateEpochDay AND d.type = 'OPENING_BALANCE')
           )
           AND je.type != 'CLOSING'
+          AND d.status <> 'VOIDED'
     """)
     suspend fun getCashOpeningBalance(
         startDateEpochDay: Long,
@@ -746,9 +748,11 @@ internal interface JournalDao {
         SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
         FROM journal_lines jl
         INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
         WHERE jl.accountCode IN ('1101', '1102')
           AND je.entryDateEpochDay <= :endDateEpochDay
           AND je.type != 'CLOSING'
+          AND d.status <> 'VOIDED'
     """)
     suspend fun getCashClosingBalance(
         endDateEpochDay: Long
@@ -758,11 +762,13 @@ internal interface JournalDao {
         SELECT COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0)
         FROM journal_lines jl
         INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
         WHERE jl.accountCode IN ('1101', '1102')
           AND je.entryDateEpochDay >= :startDateEpochDay
           AND je.entryDateEpochDay <= :endDateEpochDay
           AND je.type != 'CLOSING'
-          AND je.docId NOT IN (SELECT id FROM documents WHERE type = 'OPENING_BALANCE')
+          AND d.status <> 'VOIDED'
+          AND d.type <> 'OPENING_BALANCE'
     """)
     suspend fun getCashNetPeriodMovement(
         startDateEpochDay: Long,
@@ -775,9 +781,11 @@ internal interface JournalDao {
             COALESCE(SUM(jl.baseDebitMinor - jl.baseCreditMinor), 0) AS balanceMinor
         FROM journal_lines jl
         INNER JOIN journal_entries je ON jl.entryId = je.id
+        INNER JOIN documents d ON je.docId = d.id
         WHERE jl.accountCode IN ('1101', '1102')
           AND je.entryDateEpochDay <= :endDateEpochDay
           AND je.type != 'CLOSING'
+          AND d.status <> 'VOIDED'
         GROUP BY jl.accountCode
     """)
     suspend fun getCashAccountBalancesAsOf(

@@ -1,16 +1,25 @@
 package com.example
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import com.example.data.wifi.ChannelRating
 import com.example.data.wifi.ChannelRecommendationEngine
+import com.example.data.wifi.ScanState
 import com.example.data.wifi.WifiAccessPoint
 import com.example.data.wifi.WifiBand
 import com.example.data.wifi.WifiFrequencyHelper
+import com.example.data.wifi.WifiScannerManager
 import com.example.data.wifi.WifiSecurityType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class WifiSpectrumUnitTest {
 
     @Test
@@ -169,5 +178,35 @@ class WifiSpectrumUnitTest {
         )
         assertTrue(hiddenAp.displaySsid.contains("مخفية"))
         assertTrue(hiddenAp.displaySsid.contains("AA:BB:CC:11:22:33"))
+    }
+
+    @Test
+    fun testScanStateHierarchy() {
+        val readyState: ScanState = ScanState.Ready(emptyList())
+        assertTrue(readyState is ScanState.Ready)
+
+        val noPermState: ScanState = ScanState.NoPermission
+        assertEquals(ScanState.NoPermission, noPermState)
+
+        val disabledState: ScanState = ScanState.WifiDisabled
+        assertEquals(ScanState.WifiDisabled, disabledState)
+
+        val emptyState: ScanState = ScanState.Empty
+        assertEquals(ScanState.Empty, emptyState)
+
+        val errorState: ScanState = ScanState.Error("Test error")
+        assertTrue(errorState is ScanState.Error)
+        assertEquals("Test error", (errorState as ScanState.Error).message)
+    }
+
+    @Test
+    fun testScannerManagerNeverEmitsMockOrFakeTelemetries() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val scanner = WifiScannerManager(context)
+        val state = scanner.scan()
+        // Must never return 9 hardcoded fake APs
+        assertTrue(state is ScanState.Empty || state is ScanState.NoPermission || state is ScanState.WifiDisabled)
+        val aps = scanner.getScannedAccessPoints()
+        assertTrue("Scanned access points must be empty when no physical APs broadcast", aps.isEmpty())
     }
 }

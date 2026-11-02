@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.wifi.ChannelRecommendation
 import com.example.data.wifi.ChannelRecommendationEngine
 import com.example.data.wifi.ScanRefreshInterval
+import com.example.data.wifi.ScanState
 import com.example.data.wifi.SignalHistoryPoint
 import com.example.data.wifi.WifiAccessPoint
 import com.example.data.wifi.WifiBand
@@ -18,9 +19,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 data class WifiSpectrumUiState(
+    val scanState: ScanState = ScanState.Empty,
     val isScanning: Boolean = false,
     val allAccessPoints: List<WifiAccessPoint> = emptyList(),
     val filteredAccessPoints: List<WifiAccessPoint> = emptyList(),
@@ -132,9 +133,21 @@ class WifiSpectrumViewModel(application: Application) : AndroidViewModel(applica
             // Small delay for hardware scanner settling
             delay(300)
 
-            val rawAps = scannerManager.getScannedAccessPoints()
+            val state = scannerManager.scan()
+            val hasPerms = scannerManager.hasRequiredPermissions()
+            val wifiEnabled = scannerManager.isWifiEnabled()
             val currentBand = _uiState.value.selectedBand
-            val recommendation = ChannelRecommendationEngine.evaluateBand(rawAps, currentBand)
+
+            val rawAps = when (state) {
+                is ScanState.Ready -> state.accessPoints
+                else -> emptyList()
+            }
+
+            val recommendation = if (rawAps.isNotEmpty()) {
+                ChannelRecommendationEngine.evaluateBand(rawAps, currentBand)
+            } else {
+                null
+            }
             val filtered = filterAndSortAps(rawAps, currentBand, _uiState.value.searchQuery)
 
             val currentSelected = _uiState.value.selectedApForMeter
@@ -144,16 +157,11 @@ class WifiSpectrumViewModel(application: Application) : AndroidViewModel(applica
                 filtered.firstOrNull()
             }
 
-            // Update signal history for the live technician gauge
+            // Update signal history for the live technician gauge using actual measured RSSI
             val now = System.currentTimeMillis()
             val newHistory = _uiState.value.signalHistory.toMutableList()
             if (updatedSelected != null) {
-                // Introduce slight realistic RF fluctuation (+/- 1-2 dBm) if same reading
-                val jitter = if (rawAps.size <= 6) Random.nextInt(-2, 3) else 0
-                val activeRssi = (updatedSelected.rssiDbm + jitter).coerceIn(-98, -25)
-                newHistory.add(SignalHistoryPoint(now, activeRssi))
-
-                // Keep only last 25 readings (~2 minutes)
+                newHistory.add(SignalHistoryPoint(now, updatedSelected.rssiDbm))
                 while (newHistory.size > 25) {
                     newHistory.removeAt(0)
                 }
@@ -165,7 +173,10 @@ class WifiSpectrumViewModel(application: Application) : AndroidViewModel(applica
 
             _uiState.update {
                 it.copy(
+                    scanState = state,
                     isScanning = false,
+                    hasPermissions = hasPerms,
+                    isWifiEnabled = wifiEnabled,
                     allAccessPoints = rawAps,
                     filteredAccessPoints = filtered,
                     recommendation = recommendation,

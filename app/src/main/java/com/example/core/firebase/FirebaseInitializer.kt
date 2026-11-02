@@ -51,7 +51,17 @@ object FirebaseInitializer {
 
             val clientArray = root.getJSONArray("client")
             if (clientArray.length() > 0) {
-                val clientObj = clientArray.getJSONObject(0)
+                var selectedClient: JSONObject? = null
+                val targetPkg = appContext.packageName
+                for (i in 0 until clientArray.length()) {
+                    val c = clientArray.getJSONObject(i)
+                    val pkg = c.optJSONObject("client_info")?.optJSONObject("android_client_info")?.optString("package_name")
+                    if (pkg == targetPkg) {
+                        selectedClient = c
+                        break
+                    }
+                }
+                val clientObj = selectedClient ?: clientArray.getJSONObject(0)
                 val clientInfo = clientObj.getJSONObject("client_info")
                 val appId = clientInfo.getString("mobilesdk_app_id")
 
@@ -72,7 +82,7 @@ object FirebaseInitializer {
                         .build()
 
                     val app = FirebaseApp.initializeApp(appContext, options)
-                    Log.i(TAG, "FirebaseApp successfully initialized from assets/google-services.json for project: $projectId")
+                    Log.i(TAG, "FirebaseApp successfully initialized from assets/google-services.json for project: $projectId (pkg: $targetPkg)")
                     return app
                 }
             }

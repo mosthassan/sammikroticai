@@ -13,7 +13,6 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import java.util.concurrent.atomic.AtomicBoolean
 
 class WifiScannerManager(private val context: Context) {
 
@@ -49,26 +48,42 @@ class WifiScannerManager(private val context: Context) {
     }
 
     /**
+     * Scans for WiFi Access Points and returns an explicit ScanState.
+     * Strictly uses real hardware scan results with zero mock or fake telemetry.
+     */
+    fun scan(): ScanState {
+        if (!hasRequiredPermissions()) {
+            return ScanState.NoPermission
+        }
+
+        val wm = wifiManager ?: return ScanState.Error("خدمة فحص الواي فاي غير متوفرة على هذا الجهاز")
+
+        if (!wm.isWifiEnabled) {
+            return ScanState.WifiDisabled
+        }
+
+        return try {
+            val rawResults: List<ScanResult> = wm.scanResults ?: emptyList()
+            if (rawResults.isEmpty()) {
+                ScanState.Empty
+            } else {
+                val mapped = mapScanResults(rawResults)
+                if (mapped.isEmpty()) ScanState.Empty else ScanState.Ready(mapped)
+            }
+        } catch (e: SecurityException) {
+            ScanState.NoPermission
+        } catch (e: Exception) {
+            ScanState.Error(e.message ?: "فشل فحص الترددات اللاسلكية")
+        }
+    }
+
+    /**
      * Performs a scan trigger and returns raw Access Points.
      */
     fun getScannedAccessPoints(): List<WifiAccessPoint> {
-        val wm = wifiManager ?: return emptyList()
-
-        return try {
-            val rawResults: List<ScanResult> = if (hasRequiredPermissions()) {
-                wm.scanResults ?: emptyList()
-            } else {
-                emptyList()
-            }
-
-            if (rawResults.isNotEmpty()) {
-                mapScanResults(rawResults)
-            } else {
-                // If on emulator or environment without broadcast APs, provide realistic ISP telemetry
-                generateRealisticFieldTelemetry()
-            }
-        } catch (e: Exception) {
-            generateRealisticFieldTelemetry()
+        return when (val state = scan()) {
+            is ScanState.Ready -> state.accessPoints
+            else -> emptyList()
         }
     }
 
@@ -78,8 +93,31 @@ class WifiScannerManager(private val context: Context) {
     fun triggerHardwareScan(): Boolean {
         return try {
             wifiManager?.startScan() ?: false
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
+        }
+    }
+
+    /**
+     * Listens to hardware WiFi scan updates via BroadcastReceiver emitting ScanState
+     */
+    fun observeScanState(): Flow<ScanState> = callbackFlow {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                trySend(scan())
+            }
+        }
+
+        val intentFilter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
+        context.registerReceiver(receiver, intentFilter)
+
+        // Send initial state immediately
+        trySend(scan())
+
+        awaitClose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {}
         }
     }
 
@@ -89,7 +127,6 @@ class WifiScannerManager(private val context: Context) {
     fun observeScanResults(): Flow<List<WifiAccessPoint>> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
-                val success = intent?.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false) ?: false
                 val aps = getScannedAccessPoints()
                 trySend(aps)
             }
@@ -129,127 +166,5 @@ class WifiScannerManager(private val context: Context) {
                 timestamp = System.currentTimeMillis()
             )
         }.sortedByDescending { it.rssiDbm }
-    }
-
-    /**
-     * Realistic field telemetry for wireless ISP towers and field testing.
-     * Ensures spectrum graphs and recommendation algorithms can be inspected
-     * accurately in environments without physical WiFi broadcasting.
-     */
-    fun generateRealisticFieldTelemetry(): List<WifiAccessPoint> {
-        val now = System.currentTimeMillis()
-        return listOf(
-            // 2.4 GHz APs (Showing congestion around Channel 1 and 6, with 11 clean)
-            WifiAccessPoint(
-                bssid = "D4:CA:6D:E1:44:01",
-                ssid = "MikroTik-Main-AP_2G",
-                frequencyMhz = 2412,
-                channel = 1,
-                channelWidthMhz = 20,
-                rssiDbm = -45,
-                securityType = WifiSecurityType.WPA2,
-                band = WifiBand.BAND_2_4_GHZ,
-                capabilities = "[WPA2-PSK-CCMP][ESS]",
-                timestamp = now
-            ),
-            WifiAccessPoint(
-                bssid = "00:0C:42:F2:18:12",
-                ssid = "SamNet-Tower-North",
-                frequencyMhz = 2412,
-                channel = 1,
-                channelWidthMhz = 20,
-                rssiDbm = -62,
-                securityType = WifiSecurityType.WPA3,
-                band = WifiBand.BAND_2_4_GHZ,
-                capabilities = "[WPA3-SAE-CCMP][ESS]",
-                timestamp = now
-            ),
-            WifiAccessPoint(
-                bssid = "68:D7:9A:88:51:7A",
-                ssid = "TP-Link_Client_7A",
-                frequencyMhz = 2437,
-                channel = 6,
-                channelWidthMhz = 20,
-                rssiDbm = -58,
-                securityType = WifiSecurityType.WPA2,
-                band = WifiBand.BAND_2_4_GHZ,
-                capabilities = "[WPA2-PSK-CCMP][ESS]",
-                timestamp = now
-            ),
-            WifiAccessPoint(
-                bssid = "B8:69:F4:31:09:A4",
-                ssid = "ZTE-FiberHome-Guest",
-                frequencyMhz = 2437,
-                channel = 6,
-                channelWidthMhz = 40,
-                rssiDbm = -75,
-                securityType = WifiSecurityType.WPA,
-                band = WifiBand.BAND_2_4_GHZ,
-                capabilities = "[WPA-PSK-TKIP][ESS]",
-                timestamp = now
-            ),
-            WifiAccessPoint(
-                bssid = "74:83:C2:55:A1:02",
-                ssid = "Starlink-Rural-Link",
-                frequencyMhz = 2462,
-                channel = 11,
-                channelWidthMhz = 20,
-                rssiDbm = -82,
-                securityType = WifiSecurityType.WPA2,
-                band = WifiBand.BAND_2_4_GHZ,
-                capabilities = "[WPA2-PSK-CCMP][ESS]",
-                timestamp = now
-            ),
-            WifiAccessPoint(
-                bssid = "24:A4:3C:99:10:44",
-                ssid = "Ubiquiti-Nanostation-M2",
-                frequencyMhz = 2422,
-                channel = 3,
-                channelWidthMhz = 20,
-                rssiDbm = -70,
-                securityType = WifiSecurityType.WPA2,
-                band = WifiBand.BAND_2_4_GHZ,
-                capabilities = "[WPA2-PSK-CCMP][ESS]",
-                timestamp = now
-            ),
-
-            // 5.0 GHz APs
-            WifiAccessPoint(
-                bssid = "D4:CA:6D:E1:44:02",
-                ssid = "MikroTik-Backhaul-5G",
-                frequencyMhz = 5180,
-                channel = 36,
-                channelWidthMhz = 40,
-                rssiDbm = -50,
-                securityType = WifiSecurityType.WPA3,
-                band = WifiBand.BAND_5_GHZ,
-                capabilities = "[WPA3-SAE-CCMP][ESS]",
-                timestamp = now
-            ),
-            WifiAccessPoint(
-                bssid = "00:0C:42:AA:77:88",
-                ssid = "SamNet-Core-Sector_5G",
-                frequencyMhz = 5240,
-                channel = 48,
-                channelWidthMhz = 80,
-                rssiDbm = -65,
-                securityType = WifiSecurityType.WPA2,
-                band = WifiBand.BAND_5_GHZ,
-                capabilities = "[WPA2-PSK-CCMP][ESS]",
-                timestamp = now
-            ),
-            WifiAccessPoint(
-                bssid = "E0:63:DA:22:90:BB",
-                ssid = "Fiber-Bridge-Station-149",
-                frequencyMhz = 5745,
-                channel = 149,
-                channelWidthMhz = 40,
-                rssiDbm = -72,
-                securityType = WifiSecurityType.WPA2,
-                band = WifiBand.BAND_5_GHZ,
-                capabilities = "[WPA2-PSK-CCMP][ESS]",
-                timestamp = now
-            )
-        )
     }
 }

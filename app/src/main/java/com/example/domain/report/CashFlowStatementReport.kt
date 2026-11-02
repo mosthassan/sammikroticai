@@ -37,6 +37,8 @@ enum class CashFlowCategory(
     CUSTOMER_COLLECTIONS("تحصيلات من العملاء والوكلاء", CashFlowActivityType.OPERATING, false),
     QUICK_SALES("مبيعات نقدية وفورية (كروت وخدمات)", CashFlowActivityType.OPERATING, false),
     OTHER_OPERATING_INFLOWS("إيرادات تشغيلية نقدية أخرى", CashFlowActivityType.OPERATING, false),
+    REALIZED_FX_DIFFERENCES("فروق عملة محققة", CashFlowActivityType.OPERATING, false),
+    UNCLASSIFIED("غير مصنّف", CashFlowActivityType.OPERATING, false),
 
     // --- Operating Activities (Outflows) ---
     CUSTOMER_REFUNDS("استردادات ومردودات العملاء نقدياً", CashFlowActivityType.OPERATING, true),
@@ -395,9 +397,9 @@ suspend fun generateCashFlowStatement(
                 val category: CashFlowCategory = when {
                     // Financing: Capital Contribution (3101) or Partner Current Deposit (3201)
                     entryOffsets.any { it.accountCode == AccountConstants.CAPITAL } ||
-                            line.memo.contains("مساهمة رأسمالية") ||
+                            (docParty?.isPartner == true && docType == DocumentType.RECEIPT_VOUCHER.name) ||
                             (docParty?.isPartner == true && entryOffsets.any { it.accountCode == AccountConstants.PARTNER_CURRENT }) -> {
-                        if (entryOffsets.any { it.accountCode == AccountConstants.CAPITAL } || line.memo.contains("مساهمة رأسمالية")) {
+                        if (entryOffsets.any { it.accountCode == AccountConstants.CAPITAL }) {
                             CashFlowCategory.PARTNER_CAPITAL_CONTRIBUTIONS
                         } else {
                             CashFlowCategory.PARTNER_CURRENT_CONTRIBUTIONS
@@ -405,15 +407,13 @@ suspend fun generateCashFlowStatement(
                     }
 
                     // Investing: Fixed Asset Disposal / Sale Proceeds (1501, 1599)
-                    entryOffsets.any { it.accountCode == AccountConstants.FIXED_ASSETS_NETWORK || it.accountCode == AccountConstants.ACCUMULATED_DEPRECIATION } ||
-                            line.memo.contains("بيع أصل") || line.memo.contains("استبعاد أصل") -> {
+                    entryOffsets.any { it.accountCode == AccountConstants.FIXED_ASSETS_NETWORK || it.accountCode == AccountConstants.ACCUMULATED_DEPRECIATION } -> {
                         CashFlowCategory.ASSET_DISPOSAL_PROCEEDS
                     }
 
                     // Operating: Quick Sales / Cash Revenue (4101, 4201, 4xxx)
                     docType == DocumentType.SALES_INVOICE.name ||
-                            entryOffsets.any { it.accountCode in setOf(AccountConstants.CARD_SALES_REVENUE, AccountConstants.DIRECT_SERVICE_REVENUE) } ||
-                            line.memo.contains("بيع فوري") || line.memo.contains("بيع سريع") -> {
+                            entryOffsets.any { it.accountCode in setOf(AccountConstants.CARD_SALES_REVENUE, AccountConstants.DIRECT_SERVICE_REVENUE) } -> {
                         CashFlowCategory.QUICK_SALES
                     }
 
@@ -424,15 +424,21 @@ suspend fun generateCashFlowStatement(
                         CashFlowCategory.CUSTOMER_COLLECTIONS
                     }
 
-                    // Operating: Other operating revenues
-                    entryOffsets.any { it.accountCode.startsWith("4") } -> {
+                    // Operating: Realized FX Gains on cash inflows
+                    entryOffsets.any { it.accountCode == AccountConstants.REALIZED_FX_GAIN } -> {
+                        CashFlowCategory.REALIZED_FX_DIFFERENCES
+                    }
+
+                    // Operating: Other operating revenues (excluding FX gains)
+                    entryOffsets.any { it.accountCode.startsWith("4") && it.accountCode !in setOf(AccountConstants.REALIZED_FX_GAIN, AccountConstants.UNREALIZED_FX_GAIN) } -> {
                         CashFlowCategory.OTHER_OPERATING_INFLOWS
                     }
 
                     else -> {
                         // Unclassified Debit
                         unclassifiedAmountMinor += line.baseDebitMinor
-                        CashFlowCategory.OTHER_OPERATING_INFLOWS
+                        android.util.Log.w("CashFlowReport", "Unclassified cash inflow for entry ${line.entryId}, doc ${line.docNumber}, memo: ${line.memo}")
+                        CashFlowCategory.UNCLASSIFIED
                     }
                 }
 
@@ -552,40 +558,11 @@ suspend fun generateCashFlowStatement(
                         )
                     }
 
-                    // Operating: Direct Expenses (5xxx)
-                    entryOffsets.any { it.accountCode.startsWith("5") } -> {
-                        val expenseCategory = when {
-                            entryOffsets.any { it.accountCode == AccountConstants.DIRECT_ISP_SERVICE_COST } -> CashFlowCategory.DIRECT_ISP_EXPENSES
-                            entryOffsets.any { it.accountCode == AccountConstants.OPERATING_EXPENSES } -> CashFlowCategory.OPERATING_EXPENSES
-                            entryOffsets.any { it.accountCode == AccountConstants.MAINTENANCE_SPARES } -> CashFlowCategory.MAINTENANCE_EXPENSES
-                            entryOffsets.any { it.accountCode == AccountConstants.SALARIES_STAFF } -> CashFlowCategory.SALARIES_STAFF
-                            else -> CashFlowCategory.MISC_OPERATING_EXPENSES
-                        }
-
-                        classifiedItems.add(
-                            CashFlowLineItem(
-                                entryId = entryId,
-                                docId = line.docId,
-                                docNumber = line.docNumber,
-                                docType = line.docType,
-                                dateEpochDay = line.entryDateEpochDay,
-                                category = expenseCategory,
-                                partyId = line.linePartyId ?: line.docPartyId,
-                                partyName = docParty?.name,
-                                description = if (line.memo.isNotBlank()) line.memo else "${expenseCategory.titleAr} #${line.docNumber}",
-                                currency = line.currency,
-                                origMinor = line.origMinor,
-                                inflowMinor = 0L,
-                                outflowMinor = totalOutflowMinor,
-                                netCashFlowMinor = -totalOutflowMinor
-                            )
-                        )
-                    }
-
                     // Vendor Payment (2101 Payables / Vendor Party): Proportional Split via Largest Remainder
+                    // Placed BEFORE direct expenses (5xxx) to prevent vendor payments with FX loss/other lines from misclassifying
                     entryOffsets.any { it.accountCode == AccountConstants.ACCOUNTS_PAYABLE } ||
                             docParty?.isVendor == true ||
-                            docType == DocumentType.PAYMENT_VOUCHER.name -> {
+                            (docType == DocumentType.PAYMENT_VOUCHER.name && allocationsByPaymentDoc.containsKey(line.docId)) -> {
 
                         val paymentAllocations = allocationsByPaymentDoc[line.docId] ?: emptyList()
 
@@ -687,9 +664,8 @@ suspend fun generateCashFlowStatement(
                         }
                     }
 
-                    else -> {
-                        // Unclassified Credit: Track and flag
-                        unclassifiedAmountMinor += totalOutflowMinor
+                    // Operating: Realized FX Losses on cash outflows
+                    entryOffsets.any { it.accountCode == AccountConstants.REALIZED_FX_LOSS } -> {
                         classifiedItems.add(
                             CashFlowLineItem(
                                 entryId = entryId,
@@ -697,7 +673,62 @@ suspend fun generateCashFlowStatement(
                                 docNumber = line.docNumber,
                                 docType = line.docType,
                                 dateEpochDay = line.entryDateEpochDay,
-                                category = CashFlowCategory.MISC_OPERATING_EXPENSES,
+                                category = CashFlowCategory.REALIZED_FX_DIFFERENCES,
+                                partyId = line.linePartyId ?: line.docPartyId,
+                                partyName = docParty?.name,
+                                description = if (line.memo.isNotBlank()) line.memo else "فروق أسعار صرف محققة #${line.docNumber}",
+                                currency = line.currency,
+                                origMinor = line.origMinor,
+                                inflowMinor = 0L,
+                                outflowMinor = totalOutflowMinor,
+                                netCashFlowMinor = -totalOutflowMinor
+                            )
+                        )
+                    }
+
+                    // Operating: Direct Expenses (5xxx, excluding 5901 and 5902)
+                    entryOffsets.any { it.accountCode.startsWith("5") && it.accountCode !in setOf(AccountConstants.REALIZED_FX_LOSS, AccountConstants.UNREALIZED_FX_LOSS) } ||
+                            docType == DocumentType.PAYMENT_VOUCHER.name -> {
+                        val expenseCategory = when {
+                            entryOffsets.any { it.accountCode == AccountConstants.DIRECT_ISP_SERVICE_COST } -> CashFlowCategory.DIRECT_ISP_EXPENSES
+                            entryOffsets.any { it.accountCode == AccountConstants.OPERATING_EXPENSES } -> CashFlowCategory.OPERATING_EXPENSES
+                            entryOffsets.any { it.accountCode == AccountConstants.MAINTENANCE_SPARES } -> CashFlowCategory.MAINTENANCE_EXPENSES
+                            entryOffsets.any { it.accountCode == AccountConstants.SALARIES_STAFF } -> CashFlowCategory.SALARIES_STAFF
+                            else -> CashFlowCategory.MISC_OPERATING_EXPENSES
+                        }
+
+                        classifiedItems.add(
+                            CashFlowLineItem(
+                                entryId = entryId,
+                                docId = line.docId,
+                                docNumber = line.docNumber,
+                                docType = line.docType,
+                                dateEpochDay = line.entryDateEpochDay,
+                                category = expenseCategory,
+                                partyId = line.linePartyId ?: line.docPartyId,
+                                partyName = docParty?.name,
+                                description = if (line.memo.isNotBlank()) line.memo else "${expenseCategory.titleAr} #${line.docNumber}",
+                                currency = line.currency,
+                                origMinor = line.origMinor,
+                                inflowMinor = 0L,
+                                outflowMinor = totalOutflowMinor,
+                                netCashFlowMinor = -totalOutflowMinor
+                            )
+                        )
+                    }
+
+                    else -> {
+                        // Unclassified Credit: Track and flag
+                        unclassifiedAmountMinor += totalOutflowMinor
+                        android.util.Log.w("CashFlowReport", "Unclassified cash outflow for entry ${line.entryId}, doc ${line.docNumber}, memo: ${line.memo}")
+                        classifiedItems.add(
+                            CashFlowLineItem(
+                                entryId = entryId,
+                                docId = line.docId,
+                                docNumber = line.docNumber,
+                                docType = line.docType,
+                                dateEpochDay = line.entryDateEpochDay,
+                                category = CashFlowCategory.UNCLASSIFIED,
                                 partyId = line.linePartyId ?: line.docPartyId,
                                 partyName = docParty?.name,
                                 description = if (line.memo.isNotBlank()) line.memo else "مدفوعات أخرى غير مصنفة #${line.docNumber}",

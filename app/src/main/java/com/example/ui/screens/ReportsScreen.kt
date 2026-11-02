@@ -27,6 +27,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Payments
@@ -41,6 +44,8 @@ import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CloudUpload
@@ -58,6 +63,9 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -973,11 +981,24 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
     val syncStatus by viewModel.syncStatus.collectAsState()
     val lastSyncTime by viewModel.lastSyncTimestamp.collectAsState()
     val autoSync by viewModel.autoSyncEnabled.collectAsState()
+    val lastLocalBackupTime by viewModel.lastLocalBackupTime.collectAsState()
+    val isBackupExporting by viewModel.isBackupExporting.collectAsState()
 
     var backupJson by remember { mutableStateOf("") }
     var restoreJsonText by remember { mutableStateOf("") }
     var showRestoreDialog by remember { mutableStateOf(false) }
+    var showFileRestoreConfirmDialog by remember { mutableStateOf(false) }
+    var selectedFileRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            selectedFileRestoreUri = uri
+            showFileRestoreConfirmDialog = true
+        }
+    }
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1288,22 +1309,129 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
             }
         }
 
-        // 3. Local JSON Disaster Recovery Export Section
+        // 3. Local JSON Disaster Recovery Export & Share Section
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.35f)), RoundedCornerShape(16.dp))
+                    .testTag("local_backup_share_card_reports")
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SectionHeader(title = "تصدير نسخة احتياطية محلية (JSON Export)")
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(MikroTikCyan.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Security, contentDescription = null, tint = MikroTikCyan, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "النسخ الاحتياطي المحلي والمشاركة (Offline Backup)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = TextPrimaryDark
+                                )
+                                Text(
+                                    text = "تأمين شامل بدون إنترنت كبديل آمن عند تعذر السحابة",
+                                    fontSize = 11.sp,
+                                    color = TextSecondaryDark
+                                )
+                            }
+                        }
+                    }
+
+                    // Status Badge for Last Local Backup
+                    Surface(
+                        color = CyberDarkCardElevated,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("آخر نسخة محلية:", color = TextSecondaryDark, fontSize = 11.sp)
+                            val backupTime = lastLocalBackupTime
+                            if (backupTime != null && backupTime > 0) {
+                                val formattedDate = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date(backupTime))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = StatusOnline.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "مؤمّن محلياً ✓ ($formattedDate)",
+                                        color = StatusOnline,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = SemanticWarningAmber.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "يوصى بإنشاء نسخة محلية لحفظ بياناتك",
+                                        color = SemanticWarningAmber,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Text(
-                        "يشمل التصدير: دليل الحسابات، الأطراف والوكلاء، الباقات، الخزائن، الفواتير، السندات، وسجل اليومية الكامل.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "يشمل التصدير: دليل الحسابات IFRS، الأطراف والوكلاء، الباقات، الخزائن، الفواتير، السندات، الأصول الثابتة، سجل اليومية الكامل، وأجهزة الشبكة مع التوقيع الرقمي SHA-256.",
+                        fontSize = 11.sp,
+                        color = TextSecondaryDark,
+                        lineHeight = 16.sp
                     )
 
+                    // One-Tap Share Local Backup File
                     Button(
+                        onClick = {
+                            viewModel.exportAndShareLocalBackup(context) { success, msg ->
+                                statusMessage = msg
+                            }
+                        },
+                        enabled = !isBackupExporting,
+                        colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("btn_share_local_backup_reports")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isBackupExporting) "جاري إعداد النسخة والمشاركة..." else "عمل نسخة كاملة ومشاركتها (Share Backup)",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    // Secondary Action: Copy JSON Text
+                    OutlinedButton(
                         onClick = {
                             viewModel.exportBackup { json ->
                                 backupJson = json
@@ -1311,12 +1439,15 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
                                 statusMessage = "تم إنشاء النسخة ونسخها إلى الحافظة بنجاح (${json.length} حرف)"
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.fillMaxWidth()
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_copy_backup_json_reports")
                     ) {
-                        Icon(Icons.Default.Download, contentDescription = null)
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MikroTikCyan, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("تصدير الآن ونسخ إلى الحافظة")
+                        Text("نسخ كود النسخة (JSON) إلى الحافظة", color = MikroTikCyan, fontSize = 12.sp)
                     }
 
                     if (backupJson.isNotEmpty()) {
@@ -1341,33 +1472,56 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(BorderStroke(1.dp, CyberBorder), RoundedCornerShape(16.dp))
+                    .testTag("local_restore_card_reports")
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SectionHeader(title = "استعادة نسخة احتياطية محلية (JSON Restore)")
                     Text(
-                        "تنبيه: ستخضع النسخة المسترجعة لفحص التوازن الرياضي IFRS تلقائياً قبل الحفظ.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "تنبيه: ستخضع النسخة المسترجعة لفحص التوازن الرياضي IFRS والتحقق من التوقيع الرقمي تلقائياً قبل الحفظ.",
+                        fontSize = 11.sp,
+                        color = TextSecondaryDark
                     )
+
+                    // Primary Restore: File Picker
+                    Button(
+                        onClick = { filePickerLauncher.launch("*/*") },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("btn_restore_file_reports")
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("استعادة من ملف النسخة (.json)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    HorizontalDivider(color = CyberBorder, modifier = Modifier.padding(vertical = 4.dp))
+
+                    Text("أو لصق كود النسخة يدوياً:", fontSize = 11.sp, color = TextMutedDark)
 
                     OutlinedTextField(
                         value = restoreJsonText,
                         onValueChange = { restoreJsonText = it },
                         label = { Text("الصق نص النسخة الاحتياطية هنا") },
-                        maxLines = 4,
+                        maxLines = 3,
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     OutlinedButton(
                         onClick = { showRestoreDialog = true },
                         enabled = restoreJsonText.isNotBlank(),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Upload, contentDescription = null)
+                        Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("بدء استعادة النسخة")
+                        Text("بدء استعادة النسخة من النص الملصق", fontSize = 12.sp)
                     }
                 }
             }
@@ -1396,7 +1550,7 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
         AlertDialog(
             onDismissRequest = { showRestoreDialog = false },
             title = { Text("تأكيد استعادة البيانات") },
-            text = { Text("هل أنت متأكد من استعادة هذه النسخة؟ سيتم دمج أو استبدال البيانات والتحقق من صحة دفتر الأستاذ.") },
+            text = { Text("هل أنت متأكد من استعادة هذه النسخة؟ سيتم دمج أو استبدال البيانات والتحقق من صحة دفتر الأستاذ والتوقيع الرقمي.") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -1410,6 +1564,52 @@ private fun CloudSyncAndBackupView(viewModel: AppViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showRestoreDialog = false }) { Text("إلغاء") }
+            }
+        )
+    }
+
+    if (showFileRestoreConfirmDialog && selectedFileRestoreUri != null) {
+        val uri = selectedFileRestoreUri!!
+        AlertDialog(
+            onDismissRequest = {
+                showFileRestoreConfirmDialog = false
+                selectedFileRestoreUri = null
+            },
+            icon = { Icon(Icons.Default.Security, contentDescription = null, tint = MikroTikCyan) },
+            title = { Text("استعادة من ملف النسخة الاحتياطية", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("سيتم استيراد كافة السجلات وفحص مطابقة التوازن المحاسبي IFRS والتوقيع الرقمي للبيانات.")
+                    Text(
+                        text = "الملف: ${uri.lastPathSegment ?: "backup.json"}",
+                        fontSize = 11.sp,
+                        color = MikroTikCyan,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val currentUri = uri
+                        showFileRestoreConfirmDialog = false
+                        selectedFileRestoreUri = null
+                        viewModel.restoreBackupFromUri(context, currentUri) { success, msg ->
+                            statusMessage = msg
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SemanticWarningAmber)
+                ) {
+                    Text("بدء الاستعادة والتحقق")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showFileRestoreConfirmDialog = false
+                    selectedFileRestoreUri = null
+                }) {
+                    Text("إلغاء")
+                }
             }
         )
     }

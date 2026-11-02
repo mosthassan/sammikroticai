@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,11 +33,22 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -50,6 +62,7 @@ import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -97,6 +110,48 @@ fun CloudSyncSheet(
     var showEmailEditDialog by remember { mutableStateOf(false) }
     var customEmailInput by remember { mutableStateOf("") }
 
+    val lastLocalBackupTime by viewModel.lastLocalBackupTime.collectAsState()
+    val isBackupExporting by viewModel.isBackupExporting.collectAsState()
+    val clipboard = LocalClipboardManager.current
+    var showLocalRestoreConfirmDialog by remember { mutableStateOf<Uri?>(null) }
+    var localBackupMessage by remember { mutableStateOf<String?>(null) }
+
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val passphraseStorage = remember { com.example.data.sync.BackupPassphraseStorage(context) }
+
+    var showBackupPassphraseDialog by remember { mutableStateOf(false) }
+    var backupPassphrase by remember { mutableStateOf("") }
+    var backupConfirmPassphrase by remember { mutableStateOf("") }
+    var savePassphraseInKeystore by remember { mutableStateOf(false) }
+    var passphraseError by remember { mutableStateOf<String?>(null) }
+
+    var showRestoreConfirmDialog by remember { mutableStateOf(false) }
+    var restoreRemoteMeta by remember { mutableStateOf<com.example.data.sync.CloudBackupMeta?>(null) }
+    var restorePassphrase by remember { mutableStateOf("") }
+    var restorePassphraseError by remember { mutableStateOf<String?>(null) }
+    var isCheckingRemoteBackup by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(currentUser?.email) {
+        val email = currentUser?.email ?: ""
+        if (email.isNotBlank()) {
+            val saved = passphraseStorage.getPassphrase(email)
+            if (!saved.isNullOrBlank()) {
+                backupPassphrase = saved
+                backupConfirmPassphrase = saved
+                restorePassphrase = saved
+                savePassphraseInKeystore = true
+            }
+        }
+    }
+
+    val restoreFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            showLocalRestoreConfirmDialog = uri
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
@@ -106,6 +161,7 @@ fun CloudSyncSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp)
         ) {
@@ -373,28 +429,49 @@ fun CloudSyncSheet(
             when (val state = syncState) {
                 is SyncState.InProgress -> {
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("sync_progress_card"),
                         colors = CardDefaults.cardColors(containerColor = BrandCyanPrimary.copy(alpha = 0.15f)),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.3f))
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.5.dp,
-                                color = BrandCyanPrimary
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = state.message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = BrandCyanPrimary,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = BrandCyanPrimary
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = state.message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = BrandCyanPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            // Localized stages pipeline indicator
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "مراحل المعالجة: تحضير ➔ ضغط ➔ تشفير ➔ رفع الأجزاء ➔ تحقق ➔ تم",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -428,27 +505,50 @@ fun CloudSyncSheet(
                 }
                 is SyncState.Error -> {
                     Surface(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("sync_error_surface"),
                         color = SemanticExpenseRed.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.35f))
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Error,
-                                contentDescription = null,
-                                tint = SemanticExpenseRed,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = state.message,
-                                color = SemanticExpenseRed,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Error,
+                                    contentDescription = null,
+                                    tint = SemanticExpenseRed,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = state.message,
+                                    color = SemanticExpenseRed,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            // Fail-safe rollback recovery button
+                            OutlinedButton(
+                                onClick = { viewModel.restorePreAttemptState() },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = SemanticExpenseRed),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.6f)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_restore_pre_attempt_state")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("استعادة حالة ما قبل المحاولة (Rollback Safety Snapshot)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -463,13 +563,12 @@ fun CloudSyncSheet(
             ) {
                 Button(
                     onClick = {
-                        val fbAuthUser = runCatching {
-                            if (com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()) com.google.firebase.auth.FirebaseAuth.getInstance().currentUser else null
-                        }.getOrNull()
-                        if (fbAuthUser == null) {
+                        val signedIn = currentUser?.isSignedIn == true
+                        if (!signedIn) {
                             viewModel.signInWithGoogle(activity ?: context)
                         } else {
-                            viewModel.syncPushToFirebase()
+                            passphraseError = null
+                            showBackupPassphraseDialog = true
                         }
                     },
                     modifier = Modifier
@@ -488,19 +587,232 @@ fun CloudSyncSheet(
                 }
 
                 OutlinedButton(
-                    onClick = { viewModel.syncPullFromFirebase() },
+                    onClick = {
+                        scope.launch {
+                            isCheckingRemoteBackup = true
+                            val meta = viewModel.checkRemoteCloudBackup()
+                            isCheckingRemoteBackup = false
+                            restoreRemoteMeta = meta
+                            restorePassphraseError = null
+                            showRestoreConfirmDialog = true
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .testTag("btn_restore_from_cloud"),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isCheckingRemoteBackup
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                    if (isCheckingRemoteBackup) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = BrandCyanPrimary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("فحص السحابة...", fontSize = 11.sp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("استعادة من السحابة", fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 3.5. Local Full Backup & Instant Share Section (تأمين شامل وبديل السحابة عند انقطاعها)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("local_backup_share_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    BrandCyanPrimary.copy(alpha = 0.45f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(BrandCyanPrimary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = null,
+                                    tint = BrandCyanPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "النسخ الاحتياطي المحلي والمشاركة",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = "تأمين شامل بدون إنترنت (بديل آمن عند تعذر السحابة)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Status badge showing last local backup
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (lastLocalBackupTime != null) SemanticIncomeGreen.copy(alpha = 0.15f) else Color(0xFFFFB300).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = if (lastLocalBackupTime != null) "مؤمّن محلياً ✓" else "يوصى بعمل نسخة",
+                                color = if (lastLocalBackupTime != null) SemanticIncomeGreen else Color(0xFFFFB300),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "ملف نسخة احتياطية محلي كامل (.json) يحتوي على كامل القيود المحاسبية، السندات، الفواتير، أرصدة العملاء، وأجهزة الشبكة مع التوقيع الرقمي SHA-256.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("استعادة من السحابة (Restore from Cloud)", fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+
+                    lastLocalBackupTime?.let { epoch ->
+                        val dateFormatted = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date(epoch))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = SemanticIncomeGreen,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "آخر تصدير محلي: $dateFormatted",
+                                fontSize = 11.sp,
+                                color = SemanticIncomeGreen,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // 1-Tap Share Full Backup Button
+                    Button(
+                        onClick = {
+                            viewModel.exportAndShareLocalBackup(context) { success, msg ->
+                                localBackupMessage = msg
+                            }
+                        },
+                        enabled = !isBackupExporting,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_share_local_backup"),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        if (isBackupExporting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("جاري استخراج وتجهيز الملف...", fontSize = 12.sp, color = Color.White)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "عمل نسخة كاملة ومشاركتها (Share Backup)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    // Secondary Actions: Restore from file & Copy JSON Text
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                restoreFilePickerLauncher.launch("application/json")
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_restore_local_backup_file"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("استعادة من ملف", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.exportBackup { json ->
+                                    clipboard.setText(AnnotatedString(json))
+                                    localBackupMessage = "تم نسخ نص النسخة الاحتياطية إلى الحافظة بنجاح (${json.length} حرف)"
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_copy_local_backup_json"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("نسخ كود النسخة", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    localBackupMessage?.let { msg ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = SemanticIncomeGreen.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SemanticIncomeGreen,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -640,6 +952,293 @@ fun CloudSyncSheet(
             },
             dismissButton = {
                 TextButton(onClick = { showEmailEditDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Confirmation dialog for restoring local backup from picked file
+    showLocalRestoreConfirmDialog?.let { fileUri ->
+        AlertDialog(
+            onDismissRequest = { showLocalRestoreConfirmDialog = null },
+            title = { Text("تأكيد استعادة النسخة المحلية", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "هل أنت متأكد من استعادة البيانات من هذا الملف؟\n\n" +
+                    "سيتم فحص الملف واستيراد جميع القيود المحاسبية، السندات، الفواتير، وأجهزة الشبكة، مع التحقق من سلامة التوازن المحاسبي IFRS."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val uri = fileUri
+                        showLocalRestoreConfirmDialog = null
+                        viewModel.restoreBackupFromUri(context, uri) { success, msg ->
+                            localBackupMessage = msg
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary)
+                ) {
+                    Text("تأكيد الاستعادة والتحقق", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLocalRestoreConfirmDialog = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Pre-Backup Passphrase Dialog (تأمين وتشفير النسخة السحابية)
+    if (showBackupPassphraseDialog) {
+        AlertDialog(
+            onDismissRequest = { showBackupPassphraseDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Security, contentDescription = null, tint = BrandCyanPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تأمين وتشفير النسخة السحابية (AES-256)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        color = SemanticExpenseRed.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "تنبيه أمني هام:\nبدون عبارة المرور لا يمكن استعادة بياناتك — احتفظ بها في مكان آمن.",
+                            color = SemanticExpenseRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = backupPassphrase,
+                        onValueChange = {
+                            backupPassphrase = it
+                            passphraseError = null
+                        },
+                        label = { Text("عبارة مرور التشفير (8 أحرف فأكثر)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_backup_passphrase")
+                    )
+
+                    OutlinedTextField(
+                        value = backupConfirmPassphrase,
+                        onValueChange = {
+                            backupConfirmPassphrase = it
+                            passphraseError = null
+                        },
+                        label = { Text("تأكيد عبارة المرور") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_confirm_backup_passphrase")
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Checkbox(
+                            checked = savePassphraseInKeystore,
+                            onCheckedChange = { savePassphraseInKeystore = it },
+                            modifier = Modifier.testTag("checkbox_save_keystore")
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "حفظ عبارة المرور في أمان الجهاز (Android Keystore)",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    passphraseError?.let { err ->
+                        Text(
+                            text = err,
+                            color = SemanticExpenseRed,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val pass = backupPassphrase.trim()
+                        val confirm = backupConfirmPassphrase.trim()
+                        if (pass.length < 8) {
+                            passphraseError = "عبارة المرور يجب أن لا تقل عن 8 أحرف"
+                            return@Button
+                        }
+                        if (pass != confirm) {
+                            passphraseError = "عبارتا المرور غير متطابقتين"
+                            return@Button
+                        }
+                        val userEmail = currentUser?.email ?: ""
+                        if (userEmail.isNotBlank()) {
+                            if (savePassphraseInKeystore) {
+                                passphraseStorage.savePassphrase(userEmail, pass)
+                            } else {
+                                passphraseStorage.clearPassphrase(userEmail)
+                            }
+                        }
+                        showBackupPassphraseDialog = false
+                        viewModel.syncPushToFirebase(pass)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                    modifier = Modifier.testTag("btn_confirm_backup_passphrase")
+                ) {
+                    Text("بدء التشفير والرفع الذري", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showBackupPassphraseDialog = false },
+                    modifier = Modifier.testTag("btn_cancel_backup_passphrase")
+                ) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Pre-Restore Confirmation & Passphrase Dialog
+    if (showRestoreConfirmDialog) {
+        val meta = restoreRemoteMeta
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirmDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, tint = BrandCyanPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تأكيد فك التشفير واستعادة البيانات السحابية", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (meta == null) {
+                        Text(
+                            text = "لم يتم العثور على أي نسخة سحابية مسجلة لحسابك الحالي.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        val dateStr = if (meta.timestamp > 0L) {
+                            com.example.util.TransactionDateUtils.formatDateTime(meta.timestamp)
+                        } else "غير محدد"
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("تاريخ النسخة: $dateStr", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text("إصدار التطبيق: ${meta.appVersionCode}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("المستندات: ${meta.documentsCount} | القيود: ${meta.journalLinesCount}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("الأجهزة: ${meta.networkDevicesCount} | أسعار الصرف: ${meta.currencyRatesCount}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (meta.isChunked) {
+                                    val sizeKb = meta.totalCipherBytes / 1024
+                                    Text("الهيكلية: مشفرة ومجزأة (${meta.chunkCount} أجزاء • $sizeKb ك.ب)", fontSize = 11.sp, color = BrandCyanPrimary, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Text("الهيكلية: نسخة سحابية سابقة (Legacy)", fontSize = 11.sp, color = SemanticIncomeGreen, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        if (meta.isChunked) {
+                            Text(
+                                text = "أدخل عبارة المرور لفك التشفير والمطابقة الذرية:",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            OutlinedTextField(
+                                value = restorePassphrase,
+                                onValueChange = {
+                                    restorePassphrase = it
+                                    restorePassphraseError = null
+                                },
+                                label = { Text("عبارة مرور فك التشفير") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("input_restore_passphrase")
+                            )
+
+                            restorePassphraseError?.let { err ->
+                                Text(
+                                    text = err,
+                                    color = SemanticExpenseRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "ملاحظة: هذه نسخة متوافقة تلقائياً ولا تتطلب عبارة مرور.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Surface(
+                            color = SemanticIncomeGreen.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "ميزة الأمان: يتم حفظ لقطة أمان محلية تلقائياً قبل أي تفريغ أو استبدال للبيانات لتأمين الرجوع الفوري.",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (meta != null) {
+                    Button(
+                        onClick = {
+                            if (meta.isChunked && restorePassphrase.trim().isBlank()) {
+                                restorePassphraseError = "يرجى إدخال عبارة المرور لفك التشفير"
+                                return@Button
+                            }
+                            val pass = if (meta.isChunked) restorePassphrase.trim() else ""
+                            showRestoreConfirmDialog = false
+                            viewModel.restoreFromCloudWithPassphrase(
+                                passphrase = pass,
+                                targetUid = meta.uid,
+                                targetEmail = meta.userEmail
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                        modifier = Modifier.testTag("btn_confirm_restore_passphrase")
+                    ) {
+                        Text("فك التشفير والاستعادة الذرية", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRestoreConfirmDialog = false },
+                    modifier = Modifier.testTag("btn_cancel_restore_passphrase")
+                ) {
                     Text("إلغاء")
                 }
             }

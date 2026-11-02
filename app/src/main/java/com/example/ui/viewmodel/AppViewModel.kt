@@ -47,6 +47,8 @@ import com.example.core.model.RateZone
 import com.example.core.model.SignificantRateChangeException
 import com.example.data.local.entity.OrganizationEntity
 import com.example.domain.usecase.ExchangeRateResolver
+import android.net.Uri
+import java.io.File
 import com.example.domain.usecase.AgingReport
 import com.example.domain.usecase.BackupRestoreUseCase
 import com.example.domain.usecase.BalanceSheetReport
@@ -127,6 +129,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val syncState: StateFlow<SyncState> = syncManager.syncState
     val syncMetadata: StateFlow<SyncMetadata?> = syncManager.syncMetadata
     val syncHistory: StateFlow<List<SyncLogItem>> = syncManager.syncHistory
+
+    // Local Full Backup State
+    private val localBackupPrefs = application.getSharedPreferences("local_backup_prefs", Context.MODE_PRIVATE)
+    private val _lastLocalBackupTime = MutableStateFlow<Long?>(
+        localBackupPrefs.getLong("last_local_backup_epoch", -1L).takeIf { it > 0L }
+    )
+    val lastLocalBackupTime: StateFlow<Long?> = _lastLocalBackupTime.asStateFlow()
+
+    private val _isBackupExporting = MutableStateFlow(false)
+    val isBackupExporting: StateFlow<Boolean> = _isBackupExporting.asStateFlow()
 
     // Base Flows
     val allParties: StateFlow<List<PartyEntity>> = repository.allParties
@@ -1332,6 +1344,74 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Creates a full offline-first IFRS compliant database backup, saves it as a JSON file,
+     * and triggers the system share chooser (WhatsApp, Telegram, Drive, Gmail, Files, etc.).
+     */
+    fun exportAndShareLocalBackup(context: Context, onResult: ((Boolean, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _isBackupExporting.value = true
+            try {
+                val json = backupRestoreUseCase.exportDatabaseToJson()
+                val now = System.currentTimeMillis()
+                localBackupPrefs.edit().putLong("last_local_backup_epoch", now).apply()
+                _lastLocalBackupTime.value = now
+
+                val shareRes = com.example.util.BackupShareHelper.writeAndShareBackup(context, json)
+                if (shareRes.isSuccess) {
+                    val file = shareRes.getOrThrow()
+                    val msg = "تم تجهيز النسخة الاحتياطية (${com.example.util.BackupShareHelper.formatFileSize(file.length())}) وفتح خيارات المشاركة ✓"
+                    _userMessage.emit(msg)
+                    onResult?.invoke(true, msg)
+                } else {
+                    val errMsg = shareRes.exceptionOrNull()?.message ?: "فشلت مشاركة الملف"
+                    _userMessage.emit("تعذر فتح مشاركة الملف: $errMsg")
+                    onResult?.invoke(false, errMsg)
+                }
+            } catch (e: Exception) {
+                val errMsg = e.message ?: "خطأ غير متوقع أثناء النسخ الاحتياطي"
+                _userMessage.emit("فشل تصدير النسخة: $errMsg")
+                onResult?.invoke(false, errMsg)
+            } finally {
+                _isBackupExporting.value = false
+            }
+        }
+    }
+
+    /**
+     * Reads a backup JSON file from an external URI (selected from file picker or storage)
+     * and restores all accounts, documents, ledger, and network configurations.
+     */
+    fun restoreBackupFromUri(context: Context, uri: Uri, onComplete: ((Boolean, String) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val readRes = com.example.util.BackupShareHelper.readTextFromUri(context, uri)
+                if (readRes.isSuccess) {
+                    val json = readRes.getOrThrow()
+                    val res = backupRestoreUseCase.restoreDatabaseFromJson(json)
+                    if (res.isSuccess) {
+                        val msg = res.getOrNull() ?: "تمت استعادة النسخة الاحتياطية وتحديث الأرصدة بنجاح ✓"
+                        _userMessage.emit(msg)
+                        refreshDashboard()
+                        onComplete?.invoke(true, msg)
+                    } else {
+                        val err = res.exceptionOrNull()?.message ?: "فشلت استعادة البيانات"
+                        _userMessage.emit("فشل استعادة النسخة: $err")
+                        onComplete?.invoke(false, err)
+                    }
+                } else {
+                    val err = readRes.exceptionOrNull()?.message ?: "تعذر قراءة الملف"
+                    _userMessage.emit("خطأ في قراءة ملف النسخة: $err")
+                    onComplete?.invoke(false, err)
+                }
+            } catch (e: Exception) {
+                val errMsg = e.message ?: "خطأ أثناء استعادة النسخة"
+                _userMessage.emit(errMsg)
+                onComplete?.invoke(false, errMsg)
+            }
+        }
+    }
+
     fun importInvoicesBatch(jsonString: String, onReport: (ImportBatchReport) -> Unit) {
         viewModelScope.launch {
             try {
@@ -1539,7 +1619,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun syncPushToFirebase() {
+    fun restoreFromCloudWithPassphrase(passphrase: String, targetUid: String? = null, targetEmail: String? = null, onComplete: ((Boolean, String) -> Unit)? = null) {
+        val fbUser = runCatching {
+            if (com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty()) {
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            } else null
+        }.getOrNull()
+        val user = currentUser.value
+        val uid = targetUid ?: fbUser?.uid ?: user?.uid ?: ""
+        val email = targetEmail ?: fbUser?.email ?: user?.email ?: ""
+        if (fbUser == null && uid.isBlank() && email.isBlank()) {
+            val msg = "يرجى تسجيل الدخول بحساب Google أولاً لتحديد النسخة السحابية"
+            viewModelScope.launch { _userMessage.emit(msg) }
+            onComplete?.invoke(false, msg)
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val res = syncManager.syncPull(uid, email, passphrase)
+                if (res.isSuccess) {
+                    val msg = res.getOrNull() ?: "تمت استعادة البيانات من السحابة بنجاح"
+                    _userMessage.emit(msg)
+                    refreshDashboard()
+                    runInvariantCheck()
+                    onComplete?.invoke(true, msg)
+                } else {
+                    val msg = res.exceptionOrNull()?.localizedMessage ?: "فشل استعادة البيانات السحابية"
+                    _userMessage.emit(msg)
+                    onComplete?.invoke(false, msg)
+                }
+            } catch (e: Exception) {
+                val msg = "خطأ أثناء استعادة البيانات: ${e.localizedMessage ?: e.message}"
+                _userMessage.emit(msg)
+                onComplete?.invoke(false, msg)
+            }
+        }
+    }
+
+    fun syncPushToFirebase(passphrase: String = "") {
         val fbUser = runCatching {
             if (com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty()) {
                 com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
@@ -1573,7 +1690,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             try {
-                val res = syncManager.syncPush(uid, email)
+                val res = syncManager.syncPush(uid, email, passphrase)
                 if (res.isSuccess) {
                     _userMessage.emit(res.getOrNull() ?: "تمت المزامنة السحابية بنجاح")
                 } else {
@@ -1585,8 +1702,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun syncPullFromFirebase() {
-        restoreFromCloud()
+    fun syncPullFromFirebase(passphrase: String = "") {
+        if (passphrase.isNotBlank()) {
+            restoreFromCloudWithPassphrase(passphrase)
+        } else {
+            restoreFromCloud()
+        }
+    }
+
+    fun restorePreAttemptState() {
+        viewModelScope.launch {
+            val res = syncManager.restorePreAttemptState()
+            if (res.isSuccess) {
+                _userMessage.emit("تمت استعادة حالة ما قبل المحاولة بنجاح")
+                refreshDashboard()
+                runInvariantCheck()
+            } else {
+                _userMessage.emit(res.exceptionOrNull()?.localizedMessage ?: "فشل استعادة نقطة الأمان")
+            }
+        }
+    }
+
+    suspend fun checkRemoteCloudBackup(): com.example.data.sync.CloudBackupMeta? {
+        val fbUser = runCatching {
+            if (com.google.firebase.FirebaseApp.getApps(getApplication()).isNotEmpty()) {
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            } else null
+        }.getOrNull()
+        val user = currentUser.value
+        val uid = fbUser?.uid ?: user?.uid ?: ""
+        val email = fbUser?.email ?: user?.email ?: ""
+        return syncManager.checkRemoteBackup(uid, email)
     }
 
     fun pushNetworkDevices() {
