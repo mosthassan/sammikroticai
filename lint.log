@@ -1,0 +1,226 @@
+Initialized native services in: /opt/gradle/.gradle/native
+Initialized jansi services in: /opt/gradle/.gradle/native
+The client will now receive all logging from the daemon (pid: 65). The daemon log file: /opt/gradle/.gradle/daemon/9.3.1/daemon-65.out.log
+Starting 9th build in daemon [uptime: 47 mins 58.752 secs, performance: 96%, GC rate: 0.00/s, heap usage: 0% of 4 GiB]
+Using 4 worker leases.
+Operational build model parameters: {requiresToolingModels=false, parallelProjectExecution=true, configureOnDemand=false, configurationCache=true, configurationCacheParallelStore=false, configurationCacheParallelLoad=true, isolatedProjects=false, parallelProjectConfiguration=false, intermediateModelCache=false, parallelToolingApiActions=true, invalidateCoupledProjects=false, modelAsProjectDependency=false, resilientModelBuilding=false}
+Encryption key source: default Gradle keystore (pkcs12)
+Calculating task graph as no cached configuration is available for tasks: :app:lintVitalRelease
+Watching the file system is configured to be enabled if available
+Unable to list file systems to check whether they can be watched. Disabling watching. Reason: Could not query file systems: could not open mount file (errno 2: No such file or directory)
+File system watching is inactive
+Starting Build
+Resolved plugin [id: 'org.gradle.toolchains.foojay-resolver-convention', version: '1.0.0']
+Invalidating in-memory cache of /opt/gradle/.gradle/caches/9.3.1/fileHashes/kotlinDslCompileAvoidanceClasspathHashCache.bin
+Invalidating in-memory cache of /opt/gradle/.gradle/caches/9.3.1/fileHashes/fileHashes.bin
+Invalidating in-memory cache of /opt/gradle/.gradle/caches/9.3.1/fileHashes/resourceHashesCache.bin
+Settings evaluated using settings file '/app/applet/settings.gradle.kts'.
+Using local directory build cache for the root build (location = /opt/gradle/.gradle/caches/build-cache-1, remove unused entries = after 7 days).
+Projects loaded. Root project using build file '/app/applet/build.gradle.kts'.
+Included projects: [root project 'SamMikrotik', project ':app']
+
+> Configure project :
+Evaluating root project 'SamMikrotik' using build file '/app/applet/build.gradle.kts'.
+Resolved plugin [id: 'com.android.application', version: '9.1.1', apply: false]
+Resolved plugin [id: 'org.jetbrains.kotlin.plugin.compose', version: '2.2.10', apply: false]
+Resolved plugin [id: 'com.google.devtools.ksp', version: '2.3.7', apply: false]
+Resolved plugin [id: 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin', version: '2.0.1', apply: false]
+Resolved plugin [id: 'com.google.gms.google-services', version: '4.5.0', apply: false]
+
+> Configure project :app
+Evaluating project ':app' using build file '/app/applet/app/build.gradle.kts'.
+Resolved plugin [id: 'com.android.application', version: '9.1.1']
+Resolved plugin [id: 'org.jetbrains.kotlin.plugin.compose', version: '2.2.10']
+Resolved plugin [id: 'com.google.devtools.ksp', version: '2.3.7']
+Resolved plugin [id: 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin', version: '2.0.1']
+Resolved plugin [id: 'com.google.gms.google-services', version: '4.5.0']
+Build 73d74578-8c28-4e7c-bae1-d7f333a5843c is started
+Using default execution profile
+Detected Android Gradle Plugin compose compiler configuration
+Detected Android Gradle Plugin compose compiler configuration
+Detected Android Gradle Plugin compose compiler configuration
+Detected Android Gradle Plugin compose compiler configuration
+All projects evaluated.
+Task path ':app:lintVitalRelease' matched project ':app'
+Task name matched 'lintVitalRelease'
+Selected primary task 'lintVitalRelease' from project :app
+Tasks to be executed: [task ':app:preBuild', task ':app:preReleaseBuild', task ':app:generateReleaseBuildConfig', task ':app:generateReleaseResources', task ':app:processReleaseGoogleServices', task ':app:packageReleaseResources', task ':app:processReleaseNavigationResources', task ':app:parseReleaseLocalResources', task ':app:generateReleaseRFile', task ':app:kspReleaseKotlin', task ':app:compileReleaseKotlin', task ':app:javaPreCompileRelease', task ':app:compileReleaseJavaWithJavac', task ':app:extractProguardFiles', task ':app:extractDeepLinksRelease', task ':app:processReleaseMainManifest', task ':app:generateReleaseLintVitalReportModel', task ':app:lintVitalAnalyzeRelease', task ':app:lintVitalReportRelease', task ':app:lintVitalRelease']
+Tasks that were excluded: []
+Registered task dependencies: app:releaseCompileClasspath
+Skipping misunderstood TO dep string: org.jetbrains.kotlin:kotlin-stdlib
+Skipping misunderstood TO dep string: org.jetbrains.kotlin:kotlin-stdlib
+Skipping misunderstood TO dep string: org.jetbrains.kotlin:kotlin-stdlib
+Skipping misunderstood TO dep string: org.jetbrains.kotlin:kotlin-stdlib
+Skipping misunderstood TO dep string: androidx.compose.material:material-icons-core
+Skipping misunderstood TO dep string: androidx.compose.material:material-icons-extended
+Skipping misunderstood TO dep string: androidx.compose.material3:material3
+Skipping misunderstood TO dep string: androidx.compose.ui:ui
+Skipping misunderstood TO dep string: androidx.compose.ui:ui-graphics
+Skipping misunderstood TO dep string: androidx.compose.ui:ui-tooling-preview
+Skipping misunderstood TO dep string: org.jetbrains.kotlin:kotlin-stdlib
+Skipping misunderstood TO dep string: org.jetbrains.kotlin:kotlin-stdlib
+Skipping misunderstood TO dep string: org.jetbrains.kotlin:kotlin-stdlib
+Skipping misunderstood TO dep string: com.google.firebase:firebase-ai
+Skipping misunderstood TO dep string: com.google.firebase:firebase-firestore
+Skipping misunderstood TO dep string: com.google.firebase:firebase-auth
+Skipping misunderstood TO dep string: com.google.firebase:firebase-appcheck-recaptcha
+Skipping misunderstood TO dep string: com.google.firebase:firebase-appcheck-debug
+Starting dependency analysis
+Adding -Xuse-inline-scopes-numbers Kotlin compiler flag for task :app:compileDebugKotlin
+Registered task dependencies: app:kotlinCompilerPluginClasspath
+Starting dependency analysis
+Registered task dependencies: app:kotlinCompilerPluginClasspathRelease
+Starting dependency analysis
+Registered task dependencies: app:kotlinCompilerClasspath
+Starting dependency analysis
+Build 73d74578-8c28-4e7c-bae1-d7f333a5843c is closed
+Using local directory build cache for the root build (location = /opt/gradle/.gradle/caches/build-cache-1, remove unused entries = after 7 days).
+Ignoring listeners of task graph ready event, as this build (:) has already executed work.
+Resolve mutations for :app:preBuild (Thread[#447,Execution worker,5,main]) started.
+:app:preBuild (Thread[#447,Execution worker,5,main]) started.
+Resolve mutations for :app:processReleaseGoogleServices (Thread[#446,included builds,5,main]) started.
+:app:processReleaseGoogleServices (Thread[#446,included builds,5,main]) started.
+
+> Task :app:preBuild UP-TO-DATE
+Skipping task ':app:preBuild' as it has no actions.
+Resolve mutations for :app:preReleaseBuild (Thread[#447,Execution worker,5,main]) started.
+:app:preReleaseBuild (Thread[#447,Execution worker,5,main]) started.
+
+> Task :app:preReleaseBuild UP-TO-DATE
+Skipping task ':app:preReleaseBuild' as it has no actions.
+Resolve mutations for :app:generateReleaseBuildConfig (Thread[#447,Execution worker,5,main]) started.
+Resolve mutations for :app:generateReleaseResources (Thread[#449,Execution worker Thread 3,5,main]) started.
+:app:generateReleaseResources (Thread[#449,Execution worker Thread 3,5,main]) started.
+Resolve mutations for :app:processReleaseNavigationResources (Thread[#448,Execution worker Thread 2,5,main]) started.
+:app:generateReleaseBuildConfig (Thread[#447,Execution worker,5,main]) started.
+:app:processReleaseNavigationResources (Thread[#448,Execution worker Thread 2,5,main]) started.
+
+> Task :app:generateReleaseBuildConfig UP-TO-DATE
+Build cache key for task ':app:generateReleaseBuildConfig' is f668a6b6e5b68e6dc5befcc72fe699e8
+Skipping task ':app:generateReleaseBuildConfig' as it is up-to-date.
+Resolve mutations for :app:kspReleaseKotlin (Thread[#447,Execution worker,5,main]) started.
+:app:kspReleaseKotlin (Thread[#447,Execution worker,5,main]) started.
+
+> Task :app:processReleaseGoogleServices UP-TO-DATE
+Build cache key for task ':app:processReleaseGoogleServices' is 3fb8ad6bcf687a4dbda27f3ff6890e89
+Skipping task ':app:processReleaseGoogleServices' as it is up-to-date.
+Resolve mutations for :app:javaPreCompileRelease (Thread[#446,included builds,5,main]) started.
+:app:javaPreCompileRelease (Thread[#446,included builds,5,main]) started.
+
+> Task :app:generateReleaseResources UP-TO-DATE
+Build cache key for task ':app:generateReleaseResources' is 834de5172febbc54ac1f2e44379d0147
+Skipping task ':app:generateReleaseResources' as it is up-to-date.
+Resolve mutations for :app:packageReleaseResources (Thread[#449,Execution worker Thread 3,5,main]) started.
+:app:packageReleaseResources (Thread[#449,Execution worker Thread 3,5,main]) started.
+
+> Task :app:packageReleaseResources UP-TO-DATE
+Build cache key for task ':app:packageReleaseResources' is d3a51cc538e5cc897319fa006f51023b
+Skipping task ':app:packageReleaseResources' as it is up-to-date.
+Resolve mutations for :app:extractProguardFiles (Thread[#449,Execution worker Thread 3,5,main]) started.
+:app:extractProguardFiles (Thread[#449,Execution worker Thread 3,5,main]) started.
+
+> Task :app:extractProguardFiles UP-TO-DATE
+Caching disabled for task ':app:extractProguardFiles' because:
+  Fast task
+Skipping task ':app:extractProguardFiles' as it is up-to-date.
+Resolve mutations for :app:extractDeepLinksRelease (Thread[#449,Execution worker Thread 3,5,main]) started.
+:app:extractDeepLinksRelease (Thread[#449,Execution worker Thread 3,5,main]) started.
+
+> Task :app:extractDeepLinksRelease UP-TO-DATE
+Build cache key for task ':app:extractDeepLinksRelease' is cea60160a93d742128b9d758c8a95274
+Skipping task ':app:extractDeepLinksRelease' as it is up-to-date.
+Resolve mutations for :app:processReleaseMainManifest (Thread[#449,Execution worker Thread 3,5,main]) started.
+:app:processReleaseMainManifest (Thread[#449,Execution worker Thread 3,5,main]) started.
+
+> Task :app:javaPreCompileRelease UP-TO-DATE
+Build cache key for task ':app:javaPreCompileRelease' is 98ea08a9bb05a77eb42029ac47bfcd65
+Skipping task ':app:javaPreCompileRelease' as it is up-to-date.
+
+> Task :app:processReleaseMainManifest UP-TO-DATE
+Build cache key for task ':app:processReleaseMainManifest' is fcb69f585d27850a6a25a98ed79326ba
+Skipping task ':app:processReleaseMainManifest' as it is up-to-date.
+
+> Task :app:processReleaseNavigationResources UP-TO-DATE
+Build cache key for task ':app:processReleaseNavigationResources' is c3314c8964a99aa32ff169b361cdd7a9
+Skipping task ':app:processReleaseNavigationResources' as it is up-to-date.
+Resolve mutations for :app:parseReleaseLocalResources (Thread[#448,Execution worker Thread 2,5,main]) started.
+:app:parseReleaseLocalResources (Thread[#448,Execution worker Thread 2,5,main]) started.
+
+> Task :app:parseReleaseLocalResources UP-TO-DATE
+Build cache key for task ':app:parseReleaseLocalResources' is c1e976c07f0656c6315c4d512c147211
+Skipping task ':app:parseReleaseLocalResources' as it is up-to-date.
+Resolve mutations for :app:generateReleaseRFile (Thread[#448,Execution worker Thread 2,5,main]) started.
+:app:generateReleaseRFile (Thread[#448,Execution worker Thread 2,5,main]) started.
+
+> Task :app:generateReleaseRFile UP-TO-DATE
+Build cache key for task ':app:generateReleaseRFile' is 0263c3a915c83d1156d9d1cda77ee8e7
+Skipping task ':app:generateReleaseRFile' as it is up-to-date.
+
+> Task :app:kspReleaseKotlin
+Build cache key for task ':app:kspReleaseKotlin' is e71c079232d7470c0f85bf50fc2ed89a
+Task ':app:kspReleaseKotlin' is not up-to-date because:
+  Value of input property 'kspConfig.logLevel' has changed for task ':app:kspReleaseKotlin'
+The input changes require a full rebuild for incremental task ':app:kspReleaseKotlin'.
+i: [ksp] loaded provider(s): [androidx.room.RoomKspProcessor$Provider, com.squareup.moshi.kotlin.codegen.ksp.JsonClassSymbolProcessorProvider]
+Stored cache entry for task ':app:kspReleaseKotlin' with cache key e71c079232d7470c0f85bf50fc2ed89a
+Resolve mutations for :app:compileReleaseKotlin (Thread[#447,Execution worker,5,main]) started.
+:app:compileReleaseKotlin (Thread[#447,Execution worker,5,main]) started.
+
+> Task :app:compileReleaseKotlin UP-TO-DATE
+file or directory '/app/applet/app/src/main/kotlin', not found
+file or directory '/app/applet/app/src/release/java', not found
+file or directory '/app/applet/app/src/release/kotlin', not found
+file or directory '/app/applet/app/src/release/java', not found
+file or directory '/app/applet/app/src/main/kotlin', not found
+file or directory '/app/applet/app/src/release/java', not found
+file or directory '/app/applet/app/src/release/kotlin', not found
+file or directory '/app/applet/app/src/release/java', not found
+file or directory '/app/applet/app/src/main/kotlin', not found
+file or directory '/app/applet/app/src/release/java', not found
+file or directory '/app/applet/app/src/release/kotlin', not found
+file or directory '/app/applet/app/src/release/java', not found
+Build cache key for task ':app:compileReleaseKotlin' is cf2459707164ddf3694024ff68d14799
+Skipping task ':app:compileReleaseKotlin' as it is up-to-date.
+Resolve mutations for :app:compileReleaseJavaWithJavac (Thread[#447,Execution worker,5,main]) started.
+:app:compileReleaseJavaWithJavac (Thread[#447,Execution worker,5,main]) started.
+
+> Task :app:compileReleaseJavaWithJavac UP-TO-DATE
+Build cache key for task ':app:compileReleaseJavaWithJavac' is 4381d44198e70107641091a360fe80a2
+Skipping task ':app:compileReleaseJavaWithJavac' as it is up-to-date.
+No compile result for :app:compileReleaseJavaWithJavac
+Resolve mutations for :app:generateReleaseLintVitalReportModel (Thread[#447,Execution worker,5,main]) started.
+Resolve mutations for :app:lintVitalAnalyzeRelease (Thread[#448,Execution worker Thread 2,5,main]) started.
+:app:generateReleaseLintVitalReportModel (Thread[#448,Execution worker Thread 2,5,main]) started.
+:app:lintVitalAnalyzeRelease (Thread[#446,included builds,5,main]) started.
+
+> Task :app:lintVitalAnalyzeRelease UP-TO-DATE
+Build cache key for task ':app:lintVitalAnalyzeRelease' is 138dcba7edadcd0558b98fa8348d62cc
+Skipping task ':app:lintVitalAnalyzeRelease' as it is up-to-date.
+
+> Task :app:generateReleaseLintVitalReportModel UP-TO-DATE
+Caching disabled for task ':app:generateReleaseLintVitalReportModel' because:
+  Caching has been disabled for the task
+Skipping task ':app:generateReleaseLintVitalReportModel' as it is up-to-date.
+Resolve mutations for :app:lintVitalReportRelease (Thread[#448,Execution worker Thread 2,5,main]) started.
+:app:lintVitalReportRelease (Thread[#448,Execution worker Thread 2,5,main]) started.
+
+> Task :app:lintVitalReportRelease UP-TO-DATE
+Caching disabled for task ':app:lintVitalReportRelease' because:
+  Caching has been disabled for the task
+Skipping task ':app:lintVitalReportRelease' as it is up-to-date.
+Resolve mutations for :app:lintVitalRelease (Thread[#448,Execution worker Thread 2,5,main]) started.
+:app:lintVitalRelease (Thread[#448,Execution worker Thread 2,5,main]) started.
+
+> Task :app:lintVitalRelease
+Caching disabled for task ':app:lintVitalRelease' because:
+  Caching has been disabled for the task
+Task ':app:lintVitalRelease' is not up-to-date because:
+  Task.upToDateWhen is false.
+Build 2edffd2e-736b-4d6d-94de-5bcfeb306c93 is started
+Build 2edffd2e-736b-4d6d-94de-5bcfeb306c93 is closed
+
+See the complete report at file:///app/applet/build/reports/configuration-cache/zlchextve75i6wz414de61jp/7wxedkjkz8d7vl4tylgf4wmd3/configuration-cache-report.html
+
+BUILD SUCCESSFUL in 18s
+18 actionable tasks: 2 executed, 16 up-to-date
+Configuration cache entry stored.
