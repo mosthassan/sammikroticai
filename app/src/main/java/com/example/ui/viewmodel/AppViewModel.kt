@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -139,6 +140,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isBackupExporting = MutableStateFlow(false)
     val isBackupExporting: StateFlow<Boolean> = _isBackupExporting.asStateFlow()
+
+    // Freemium & Subscription Management
+    val licenseManager = com.example.util.LicenseManager.getInstance(application)
+    val subscriptionStatus = licenseManager.subscriptionStatus
+    val totalActiveInvoicesCount: StateFlow<Int> = db.documentDao().countActiveInvoicesFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val showSubscriptionLimitDialog = MutableStateFlow(false)
+
+    // Admin Authority & Signer
+    val adminLicenseSigner = com.example.util.AdminLicenseSigner(application)
+    val isAdmin: StateFlow<Boolean> = currentUser.map { user ->
+        com.example.domain.subscription.AdminAuthPolicy.isAdmin(user?.email)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun dismissSubscriptionLimitDialog() {
+        showSubscriptionLimitDialog.value = false
+    }
 
     // Base Flows
     val allParties: StateFlow<List<PartyEntity>> = repository.allParties
@@ -221,6 +239,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         refreshDashboard()
         runInvariantCheck()
+        licenseManager.currentUserEmail = currentUser.value?.email
+        viewModelScope.launch {
+            currentUser.collect { u ->
+                licenseManager.currentUserEmail = u?.email
+            }
+        }
         val user = currentUser.value
         if (user != null && user.isSignedIn) {
             triggerInitialCloudSyncOnLogin(user)
@@ -379,6 +403,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             try {
+                val currentInvoices = db.documentDao().countActiveInvoices()
+                if (!licenseManager.canCreateInvoice(currentInvoices)) {
+                    _userMessage.emit(com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR)
+                    showSubscriptionLimitDialog.value = true
+                    return@launch
+                }
                 val now = getLocalNow()
                 val fiscalYear = now.year
                 val today = now.toEpochDay()
@@ -413,6 +443,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             try {
+                val currentInvoices = db.documentDao().countActiveInvoices()
+                if (!licenseManager.canCreateInvoice(currentInvoices)) {
+                    _userMessage.emit(com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR)
+                    showSubscriptionLimitDialog.value = true
+                    return@launch
+                }
                 val now = getLocalNow()
                 val fiscalYear = now.year
                 val today = now.toEpochDay()
@@ -448,6 +484,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             try {
+                val currentInvoices = db.documentDao().countActiveInvoices()
+                if (!licenseManager.canCreateInvoice(currentInvoices)) {
+                    _userMessage.emit(com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR)
+                    showSubscriptionLimitDialog.value = true
+                    return@launch
+                }
                 val now = getLocalNow()
                 val fiscalYear = now.year
                 val today = now.toEpochDay()
@@ -772,6 +814,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             try {
+                val currentInvoices = db.documentDao().countActiveInvoices()
+                if (!licenseManager.canCreateInvoice(currentInvoices)) {
+                    _userMessage.emit(com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR)
+                    showSubscriptionLimitDialog.value = true
+                    return@launch
+                }
                 val now = getLocalNow()
                 val fiscalYear = now.year
                 val today = now.toEpochDay()
@@ -839,6 +887,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             try {
+                val currentInvoices = db.documentDao().countActiveInvoices()
+                if (!licenseManager.canCreateInvoice(currentInvoices)) {
+                    _userMessage.emit(com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR)
+                    showSubscriptionLimitDialog.value = true
+                    return@launch
+                }
                 val now = getLocalNow()
                 val fiscalYear = now.year
                 val today = now.toEpochDay()
@@ -1943,6 +1997,86 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun performCloudPull() {
         syncPullFromFirebase()
+    }
+
+    fun activateLicenseKey(token: String, onResult: (Result<com.example.domain.subscription.SubscriptionStatus>) -> Unit = {}) {
+        val res = licenseManager.activateLicenseKey(token)
+        res.onSuccess {
+            viewModelScope.launch {
+                _userMessage.emit("تهانينا! تم تفعيل الخطة الاحترافية (Pro) بنجاح.")
+            }
+        }.onFailure { e ->
+            viewModelScope.launch {
+                _userMessage.emit("فشل التفعيل: ${e.message}")
+            }
+        }
+        onResult(res)
+    }
+
+    fun deactivateLicense() {
+        licenseManager.deactivateLicense()
+        viewModelScope.launch {
+            _userMessage.emit("تم إلغاء تفعيل الترخيص والعودة إلى الخطة المجانية.")
+        }
+    }
+
+    fun syncSubscriptionFromCloud(onComplete: (Boolean, String) -> Unit = { _, _ -> }) {
+        val user = currentUser.value
+        if (user == null || user.uid.isBlank()) {
+            onComplete(false, "يجب تسجيل الدخول أولاً للتحقق من الاشتراك السحابي.")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val data = syncManager.getCloudSubscriptionStatus(user.uid, user.email)
+                if (data != null && data["tier"] != null) {
+                    val tierStr = data["tier"].toString()
+                    val expiry = (data["expirationEpochMs"] as? Number)?.toLong()
+                    val name = data["customerName"]?.toString()
+                    licenseManager.applyCloudSubscription(tierStr, expiry, name)
+                    val msg = "تم مزامنة الاشتراك السحابي بنجاح: $tierStr"
+                    _userMessage.emit(msg)
+                    onComplete(true, msg)
+                } else {
+                    onComplete(false, "لا يوجد اشتراك نشط مسجل في السحابة لهذا الحساب.")
+                }
+            } catch (e: Exception) {
+                val err = "فشل التحقق من السحابة: ${e.message}"
+                _userMessage.emit(err)
+                onComplete(false, err)
+            }
+        }
+    }
+
+    fun generateAdminLicenseToken(
+        deviceId: String,
+        durationMonths: Int,
+        customerName: String
+    ): Result<com.example.util.GeneratedLicenseResult> {
+        return adminLicenseSigner.generateLicenseToken(deviceId, durationMonths, customerName)
+    }
+
+    fun setCloudSubscriptionForUser(
+        targetUid: String,
+        tier: String = "PRO",
+        months: Int = 12,
+        customerName: String = "",
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        val now = System.currentTimeMillis()
+        val expiryMs = if (months > 0) now + (months.toLong() * 30L * 24L * 60L * 60L * 1000L) else null
+        viewModelScope.launch {
+            val success = syncManager.setCloudSubscription(targetUid, tier, expiryMs, customerName)
+            if (success) {
+                val msg = "تم تفعيل الاشتراك السحابي للمستخدم [$targetUid] بنجاح."
+                _userMessage.emit(msg)
+                onComplete(true, msg)
+            } else {
+                val err = "فشل تحديث الاشتراك السحابي في Firestore."
+                _userMessage.emit(err)
+                onComplete(false, err)
+            }
+        }
     }
 }
 

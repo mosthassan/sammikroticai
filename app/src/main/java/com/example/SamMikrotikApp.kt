@@ -11,8 +11,14 @@ import com.example.core.firebase.FirebaseInitializer
  */
 class SamMikrotikApp : Application() {
 
+    companion object {
+        lateinit var instance: SamMikrotikApp
+            private set
+    }
+
     override fun onCreate() {
         super.onCreate()
+        instance = this
         try {
             val app = FirebaseInitializer.ensureInitialized(this)
             if (app != null) {

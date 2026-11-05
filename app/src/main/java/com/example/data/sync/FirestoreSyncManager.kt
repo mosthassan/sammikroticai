@@ -48,7 +48,8 @@ data class CloudBackupMeta(
     val chunkCount: Int = 1,
     val totalCipherBytes: Long = 0L,
     val appVersionCode: Int = 10,
-    val manifest: BackupManifest? = null
+    val manifest: BackupManifest? = null,
+    val isEncrypted: Boolean = true
 )
 
 interface FirestoreAdapter {
@@ -266,7 +267,8 @@ class FirestoreSyncManager(
                         chunkCount = latest.chunkCount,
                         totalCipherBytes = latest.totalCipherBytes,
                         appVersionCode = latest.appVersionCode,
-                        manifest = latest
+                        manifest = latest,
+                        isEncrypted = latest.isEncrypted
                     )
                 }
             }
@@ -274,6 +276,49 @@ class FirestoreSyncManager(
             Log.w("FirestoreSyncManager", "checkRemoteBackup error: ${e.message}")
         }
         null
+    }
+
+    /**
+     * Retrieves active subscription status document from users/{uid}/subscription/status in Firestore.
+     */
+    suspend fun getCloudSubscriptionStatus(uid: String, userEmail: String): Map<String, Any?>? = withContext(Dispatchers.IO) {
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) return@withContext null
+        val safeUid = resolveEffectiveUid(uid, userEmail)
+        if (safeUid.isBlank()) return@withContext null
+        try {
+            adapter.get("users/$safeUid/subscription/status")
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "getCloudSubscriptionStatus error: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Sets or updates active subscription status under users/{uid}/subscription/status in Firestore.
+     */
+    suspend fun setCloudSubscription(
+        targetUid: String,
+        tier: String,
+        expirationEpochMs: Long?,
+        customerName: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) return@withContext false
+        val safeUid = targetUid.trim().replace("/", "_").takeIf { it.isNotBlank() } ?: return@withContext false
+        try {
+            val data = mapOf(
+                "tier" to tier,
+                "expirationEpochMs" to (expirationEpochMs ?: -1L),
+                "customerName" to customerName,
+                "updatedAt" to System.currentTimeMillis()
+            )
+            adapter.set("users/$safeUid/subscription/status", data, false)
+            true
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "setCloudSubscription error: ${e.message}")
+            false
+        }
     }
 
     /**
@@ -318,21 +363,30 @@ class FirestoreSyncManager(
                 return@withContext Result.failure(IllegalStateException(err))
             }
 
-            val effectivePassphrase = if (passphrase.isNotBlank()) {
-                if (passphrase.length < 8) {
-                    val err = "يجب تحديد عبارة مرور آمنة للنسخ الاحتياطي لا تقل عن 8 أحرف"
-                    _syncState.value = SyncState.Error(err)
-                    return@withContext Result.failure(IllegalArgumentException(err))
+            val storage = BackupPassphraseStorage(context)
+            val isCustomEncryptionEnabled = storage.isEncryptionEnabled(userEmail) || passphrase.isNotBlank()
+
+            val effectivePassphrase = if (isCustomEncryptionEnabled) {
+                if (passphrase.isNotBlank()) {
+                    if (passphrase.length < 8) {
+                        val err = "يجب تحديد عبارة مرور آمنة للنسخ الاحتياطي لا تقل عن 8 أحرف"
+                        _syncState.value = SyncState.Error(err)
+                        return@withContext Result.failure(IllegalArgumentException(err))
+                    }
+                    passphrase
+                } else {
+                    val saved = storage.getPassphrase(userEmail)
+                    if (saved.isNullOrBlank() || saved.length < 8) {
+                        val err = "عبارة مرور النسخ الاحتياطي مطلوبة لأن خيار التشفير المخصص مفعّل. عيّنها من نافذة المزامنة."
+                        _syncState.value = SyncState.Error(err)
+                        return@withContext Result.failure(IllegalStateException(err))
+                    }
+                    saved
                 }
-                passphrase
             } else {
-                val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
-                if (saved.isNullOrBlank() || saved.length < 8) {
-                    val err = "عبارة مرور النسخ الاحتياطي مطلوبة. عيّنها من الإعدادات > النسخ الاحتياطي السحابي."
-                    _syncState.value = SyncState.Error(err)
-                    return@withContext Result.failure(IllegalStateException(err))
-                }
-                saved
+                // Seamless default: derive strong account key from user ID & email (no prompt needed)
+                val accountRaw = "SamMikrotik_Default_Cloud_Key_${safeUid}_${userEmail.trim().lowercase()}"
+                BackupCryptoEngine.sha256Hex(accountRaw).take(32)
             }
 
             _syncState.value = SyncState.InProgress("تحضير البيانات وتجميع السجلات...", 0.1f)
@@ -342,13 +396,15 @@ class FirestoreSyncManager(
             val jsonSnapshot = backupRestoreUseCase.exportDatabaseToJson()
 
             // 2. Encrypt, compress, and chunk (JSON -> GZIP -> AES-256-GCM -> Base64 -> Chunks <= 400KB)
-            _syncState.value = SyncState.InProgress("ضغط وتشفير البيانات (AES-256-GCM)...", 0.3f)
+            val encLabel = if (isCustomEncryptionEnabled) "AES-256-GCM بكلمة مرور مخصصة" else "AES-256-GCM تلقائي"
+            _syncState.value = SyncState.InProgress("ضغط وتشفير البيانات ($encLabel)...", 0.3f)
             val backupPackage = BackupCryptoEngine.createBackupPackage(
                 jsonString = jsonSnapshot,
                 passphrase = effectivePassphrase,
                 uid = safeUid,
                 userEmail = userEmail,
                 appVersionCode = 10,
+                isEncrypted = isCustomEncryptionEnabled,
                 onProgress = { step, p ->
                     _syncState.value = SyncState.InProgress(step, p)
                     onProgress?.invoke(step, p)
@@ -578,7 +634,11 @@ class FirestoreSyncManager(
                     "إصدار هيكل النسخة الاحتياطية (${latestManifest.schemaVersion}) غير متوافق مع إصدار التطبيق الحالي"
                 }
 
-                val effectivePassphrase = if (passphrase.isNotBlank()) {
+                val effectivePassphrase = if (!latestManifest.isEncrypted) {
+                    // Backup was created without custom passphrase -> use account-derived key seamlessly
+                    val accountRaw = "SamMikrotik_Default_Cloud_Key_${safeUid}_${userEmail.trim().lowercase()}"
+                    BackupCryptoEngine.sha256Hex(accountRaw).take(32)
+                } else if (passphrase.isNotBlank()) {
                     if (passphrase.length < 8) {
                         throw IllegalArgumentException("يرجى إدخال عبارة مرور لا تقل عن 8 أحرف لفك تشفير النسخة الاحتياطية")
                     }
@@ -586,7 +646,7 @@ class FirestoreSyncManager(
                 } else {
                     val saved = BackupPassphraseStorage(context).getPassphrase(userEmail)
                     if (saved.isNullOrBlank() || saved.length < 8) {
-                        throw IllegalStateException("عبارة مرور النسخ الاحتياطي مطلوبة. عيّنها من الإعدادات > النسخ الاحتياطي السحابي.")
+                        throw IllegalStateException("عبارة مرور النسخ الاحتياطي مطلوبة لفك تشفير هذه النسخة.")
                     }
                     saved
                 }

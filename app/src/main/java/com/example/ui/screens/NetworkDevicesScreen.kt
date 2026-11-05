@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
@@ -42,6 +43,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -110,6 +112,8 @@ fun NetworkDevicesScreen(
     var isCloningDevice by remember { mutableStateOf(false) }
     var deviceToDelete by remember { mutableStateOf<NetworkDevice?>(null) }
     var showBackupDialog by remember { mutableStateOf(false) }
+    var showLimitDialog by remember { mutableStateOf(false) }
+    val licenseManager = remember { com.example.util.LicenseManager.getInstance(context) }
 
     if (onNavigateBack != null) {
         BackHandler { onNavigateBack() }
@@ -211,9 +215,13 @@ fun NetworkDevicesScreen(
 
                 Button(
                     onClick = {
-                        deviceToEdit = null
-                        isCloningDevice = false
-                        isAddingDevice = true
+                        if (!licenseManager.canCreateDevice(devices.size)) {
+                            showLimitDialog = true
+                        } else {
+                            deviceToEdit = null
+                            isCloningDevice = false
+                            isAddingDevice = true
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MikroTikPrimary),
                     shape = RoundedCornerShape(10.dp),
@@ -396,8 +404,12 @@ fun NetworkDevicesScreen(
                             isCloningDevice = false
                         },
                         onClone = {
-                            deviceToEdit = device
-                            isCloningDevice = true
+                            if (!licenseManager.canCreateDevice(devices.size)) {
+                                showLimitDialog = true
+                            } else {
+                                deviceToEdit = device
+                                isCloningDevice = true
+                            }
                         },
                         onDelete = {
                             deviceToDelete = device
@@ -437,6 +449,12 @@ fun NetworkDevicesScreen(
                                 "⚠️ تعذر الحفظ: الآي بي مستخدم مسبقاً للجهاز '${result.conflictingDevice.name}' بموقع '${result.conflictingDevice.towerLocation}'",
                                 Toast.LENGTH_LONG
                             ).show()
+                        }
+                        is DeviceSaveResult.LimitReached -> {
+                            isAddingDevice = false
+                            deviceToEdit = null
+                            isCloningDevice = false
+                            showLimitDialog = true
                         }
                     }
                 }
@@ -521,6 +539,98 @@ fun NetworkDevicesScreen(
                 }
             },
             onDismissRequest = { showBackupDialog = false }
+        )
+    }
+
+    // Freemium Limit Alert Dialog
+    if (showLimitDialog) {
+        AlertDialog(
+            onDismissRequest = { showLimitDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = SemanticExpenseRed
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تنبيه الحد الأقصى للخطة المجانية", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.LightGray
+                    )
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F2417)),
+                        border = BorderStroke(1.dp, Color(0xFF25D366)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_whatsapp),
+                                contentDescription = "واتساب",
+                                tint = Color.Unspecified,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "للتفعيل راسلنا وتساب على الرقم 770446040",
+                                    color = Color(0xFF25D366),
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    text = "انقر للتواصل المباشر وإرسال معرف جهازك",
+                                    color = Color.LightGray,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val hwId = licenseManager.hardwareDeviceId
+                        val msg = com.example.domain.subscription.SubscriptionLimits.buildActivationWhatsAppMessage(hwId)
+                        com.example.util.WhatsAppDispatcher.sendTextMessage(
+                            context = context,
+                            phoneNumber = com.example.domain.subscription.SubscriptionLimits.ACTIVATION_WHATSAPP_NUMBER,
+                            message = msg
+                        )
+                        showLimitDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                ) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_whatsapp),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("واتساب (770446040)", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showLimitDialog = false }) {
+                    Text("إغلاق", color = TextSecondaryDark)
+                }
+            },
+            containerColor = CyberDarkSurface
         )
     }
 }

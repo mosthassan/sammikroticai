@@ -60,6 +60,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -119,6 +120,7 @@ fun CloudSyncSheet(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val passphraseStorage = remember { com.example.data.sync.BackupPassphraseStorage(context) }
 
+    var isCustomEncryptionEnabled by remember { mutableStateOf(false) }
     var showBackupPassphraseDialog by remember { mutableStateOf(false) }
     var backupPassphrase by remember { mutableStateOf("") }
     var backupConfirmPassphrase by remember { mutableStateOf("") }
@@ -134,6 +136,7 @@ fun CloudSyncSheet(
     androidx.compose.runtime.LaunchedEffect(currentUser?.email) {
         val email = currentUser?.email ?: ""
         if (email.isNotBlank()) {
+            isCustomEncryptionEnabled = passphraseStorage.isEncryptionEnabled(email)
             val saved = passphraseStorage.getPassphrase(email)
             if (!saved.isNullOrBlank()) {
                 backupPassphrase = saved
@@ -556,6 +559,104 @@ fun CloudSyncSheet(
                 SyncState.Idle -> { /* Nothing */ }
             }
 
+            // Encryption Mode Preference Card
+            val emailForPref = currentUser?.email ?: ""
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("encryption_mode_preference_card"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isCustomEncryptionEnabled) BrandCyanPrimary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isCustomEncryptionEnabled) BrandCyanPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isCustomEncryptionEnabled) Icons.Default.Lock else Icons.Default.CloudDone,
+                                    contentDescription = null,
+                                    tint = if (isCustomEncryptionEnabled) BrandCyanPrimary else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isCustomEncryptionEnabled) "تشفير مخصص بكلمة مرور" else "رفع مرن وتلقائي بدون كلمة مرور",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isCustomEncryptionEnabled)
+                                        "يتطلب إدخال كلمة مرور عند الرفع والاستعادة"
+                                    else
+                                        "مزامنة واستعادة فورية ومريحة بدون مطالبات كلمة المرور",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isCustomEncryptionEnabled,
+                            onCheckedChange = { enabled ->
+                                isCustomEncryptionEnabled = enabled
+                                if (emailForPref.isNotBlank()) {
+                                    passphraseStorage.setEncryptionEnabled(emailForPref, enabled)
+                                    if (enabled && backupPassphrase.isBlank()) {
+                                        showBackupPassphraseDialog = true
+                                    }
+                                }
+                            },
+                            modifier = Modifier.testTag("switch_custom_encryption")
+                        )
+                    }
+
+                    if (isCustomEncryptionEnabled && backupPassphrase.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "عبارة المرور الحالية محفوظة بالجهاز",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SemanticIncomeGreen
+                            )
+                            TextButton(
+                                onClick = { showBackupPassphraseDialog = true },
+                                modifier = Modifier.testTag("btn_change_passphrase")
+                            ) {
+                                Text("تعديل كلمة المرور", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             // 3. Sync Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -566,9 +667,12 @@ fun CloudSyncSheet(
                         val signedIn = currentUser?.isSignedIn == true
                         if (!signedIn) {
                             viewModel.signInWithGoogle(activity ?: context)
-                        } else {
+                        } else if (isCustomEncryptionEnabled && backupPassphrase.isBlank()) {
                             passphraseError = null
                             showBackupPassphraseDialog = true
+                        } else {
+                            // Seamless sync without prompt if custom encryption disabled or passphrase already remembered
+                            viewModel.syncPushToFirebase(if (isCustomEncryptionEnabled) backupPassphrase else "")
                         }
                     },
                     modifier = Modifier
@@ -1159,7 +1263,7 @@ fun CloudSyncSheet(
                             }
                         }
 
-                        if (meta.isChunked) {
+                        if (meta.isChunked && meta.isEncrypted) {
                             Text(
                                 text = "أدخل عبارة المرور لفك التشفير والمطابقة الذرية:",
                                 style = MaterialTheme.typography.bodySmall,
@@ -1189,11 +1293,30 @@ fun CloudSyncSheet(
                                 )
                             }
                         } else {
-                            Text(
-                                text = "ملاحظة: هذه نسخة متوافقة تلقائياً ولا تتطلب عبارة مرور.",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Surface(
+                                color = BrandCyanPrimary.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = BrandCyanPrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "النسخة جاهزة للاستعادة الفورية المباشرة دون الحاجة لإدخال كلمة مرور.",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = BrandCyanPrimary
+                                    )
+                                }
+                            }
                         }
 
                         Surface(
@@ -1215,11 +1338,11 @@ fun CloudSyncSheet(
                 if (meta != null) {
                     Button(
                         onClick = {
-                            if (meta.isChunked && restorePassphrase.trim().isBlank()) {
+                            if (meta.isChunked && meta.isEncrypted && restorePassphrase.trim().isBlank()) {
                                 restorePassphraseError = "يرجى إدخال عبارة المرور لفك التشفير"
                                 return@Button
                             }
-                            val pass = if (meta.isChunked) restorePassphrase.trim() else ""
+                            val pass = if (meta.isChunked && meta.isEncrypted) restorePassphrase.trim() else ""
                             showRestoreConfirmDialog = false
                             viewModel.restoreFromCloudWithPassphrase(
                                 passphrase = pass,
@@ -1230,7 +1353,10 @@ fun CloudSyncSheet(
                         colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
                         modifier = Modifier.testTag("btn_confirm_restore_passphrase")
                     ) {
-                        Text("فك التشفير والاستعادة الذرية", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (meta.isEncrypted) "فك التشفير والاستعادة الذرية" else "استعادة البيانات السحابية فوراً",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             },

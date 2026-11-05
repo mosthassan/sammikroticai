@@ -95,6 +95,7 @@ typealias DeviceEntity = NetworkDevice
 sealed interface DeviceSaveResult {
     data class Success(val device: NetworkDevice) : DeviceSaveResult
     data class IpConflict(val conflictingDevice: NetworkDevice) : DeviceSaveResult
+    data object LimitReached : DeviceSaveResult
 }
 
 class NetworkRepository(private val context: Context) : com.example.data.local.dao.DeviceDao {
@@ -358,13 +359,22 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
     }
 
     suspend fun addOrUpdateDevice(device: NetworkDevice): DeviceSaveResult = withContext(Dispatchers.IO) {
+        val current = _devices.value.toMutableList()
+        val index = current.indexOfFirst { it.id == device.id }
+
+        // Freemium limit enforcement: Maximum 50 devices for Free tier
+        if (index < 0) {
+            val lm = runCatching { com.example.util.LicenseManager.getInstance(context) }.getOrNull()
+            if (lm != null && !lm.canCreateDevice(current.size)) {
+                return@withContext DeviceSaveResult.LimitReached
+            }
+        }
+
         val conflict = findDeviceByIp(device.ipAddress, device.id)
         if (conflict != null) {
             return@withContext DeviceSaveResult.IpConflict(conflict)
         }
 
-        val current = _devices.value.toMutableList()
-        val index = current.indexOfFirst { it.id == device.id }
         if (index >= 0) {
             current[index] = device
         } else {
@@ -419,9 +429,17 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
             val filtered = imported.filter { it.ipAddress.trim() !in existingIps }
             filtered + _devices.value
         }
-        saveDevicesInternal(updated)
-        _devices.value = updated
-        imported.size
+
+        val lm = runCatching { com.example.util.LicenseManager.getInstance(context) }.getOrNull()
+        val finalDevices = if (lm != null && !lm.isPro() && updated.size > com.example.domain.subscription.SubscriptionLimits.FREE_MAX_DEVICES) {
+            updated.take(com.example.domain.subscription.SubscriptionLimits.FREE_MAX_DEVICES)
+        } else {
+            updated
+        }
+
+        saveDevicesInternal(finalDevices)
+        _devices.value = finalDevices
+        finalDevices.size
     }
 
     fun exportDevicesToJson(): String {

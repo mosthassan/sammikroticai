@@ -72,6 +72,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -124,6 +125,7 @@ fun NetworkHubScreen(
     networkRepository: NetworkRepository,
     viewModel: AppViewModel? = null,
     initialTab: Int = 0,
+    onNavigateToSubscription: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -139,6 +141,8 @@ fun NetworkHubScreen(
     var isAddingDevice by remember { mutableStateOf(false) }
     var subnetToEdit by remember { mutableStateOf<SubnetRange?>(null) }
     var isAddingSubnet by remember { mutableStateOf(false) }
+    val licenseManager = remember { viewModel?.licenseManager ?: com.example.util.LicenseManager.getInstance(context) }
+    var showLocalLimitDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -236,18 +240,29 @@ fun NetworkHubScreen(
                 1 -> NetworkSecurityTab(config = config)
                 2 -> NetworkDevicesTab(
                     devices = devices,
+                    isPro = licenseManager.isPro(),
                     onAddDevice = {
-                        deviceToEdit = null
-                        isCloningDevice = false
-                        isAddingDevice = true
+                        if (!licenseManager.canCreateDevice(devices.size)) {
+                            viewModel?.showSubscriptionLimitDialog?.value = true
+                            if (viewModel == null) showLocalLimitDialog = true
+                        } else {
+                            deviceToEdit = null
+                            isCloningDevice = false
+                            isAddingDevice = true
+                        }
                     },
                     onEditDevice = {
                         deviceToEdit = it
                         isCloningDevice = false
                     },
                     onCloneDevice = {
-                        deviceToEdit = it
-                        isCloningDevice = true
+                        if (!licenseManager.canCreateDevice(devices.size)) {
+                            viewModel?.showSubscriptionLimitDialog?.value = true
+                            if (viewModel == null) showLocalLimitDialog = true
+                        } else {
+                            deviceToEdit = it
+                            isCloningDevice = true
+                        }
                     },
                     onDeleteDevice = { deviceId ->
                         scope.launch { networkRepository.deleteDevice(deviceId) }
@@ -265,7 +280,9 @@ fun NetworkHubScreen(
                 4 -> RatesHubTab(
                     viewModel = viewModel
                 )
-                5 -> com.example.ui.wifi.WifiSpectrumScreen()
+                5 -> com.example.ui.wifi.WifiSpectrumScreen(
+                    onNavigateToSubscription = onNavigateToSubscription
+                )
             }
         }
     }
@@ -309,6 +326,13 @@ fun NetworkHubScreen(
                                 Toast.LENGTH_LONG
                             ).show()
                         }
+                        is DeviceSaveResult.LimitReached -> {
+                            isAddingDevice = false
+                            deviceToEdit = null
+                            isCloningDevice = false
+                            viewModel?.showSubscriptionLimitDialog?.value = true
+                            if (viewModel == null) showLocalLimitDialog = true
+                        }
                     }
                 }
             },
@@ -334,6 +358,114 @@ fun NetworkHubScreen(
                 isAddingSubnet = false
                 subnetToEdit = null
             }
+        )
+    }
+
+    if (showLocalLimitDialog) {
+        AlertDialog(
+            onDismissRequest = { showLocalLimitDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = SemanticExpenseRed
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تنبيه الحد الأقصى للخطة المجانية", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "لقد وصلت للحد الأقصى المسموح به في الخطة المجانية (100 فاتورة / 50 جهازاً). يرجى ترقية اشتراكك للاستمرار.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.LightGray
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F2417),
+                        border = BorderStroke(1.dp, Color(0xFF25D366)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                val hwId = licenseManager.hardwareDeviceId
+                                com.example.util.WhatsAppDispatcher.sendTextMessage(
+                                    context = context,
+                                    phoneNumber = com.example.domain.subscription.SubscriptionLimits.ACTIVATION_WHATSAPP_NUMBER,
+                                    message = com.example.domain.subscription.SubscriptionLimits.buildActivationWhatsAppMessage(hwId)
+                                )
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(id = com.example.R.drawable.ic_whatsapp),
+                                contentDescription = "واتساب للتفعيل",
+                                tint = Color(0xFF25D366),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "للتفعيل راسلنا وتساب على الرقم 770446040",
+                                    color = Color(0xFF25D366),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    text = "انقر للمراسلة الفورية عبر واتساب",
+                                    color = Color.LightGray,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val hwId = licenseManager.hardwareDeviceId
+                        com.example.util.WhatsAppDispatcher.sendTextMessage(
+                            context = context,
+                            phoneNumber = com.example.domain.subscription.SubscriptionLimits.ACTIVATION_WHATSAPP_NUMBER,
+                            message = com.example.domain.subscription.SubscriptionLimits.buildActivationWhatsAppMessage(hwId)
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                ) {
+                    Icon(
+                        painter = painterResource(id = com.example.R.drawable.ic_whatsapp),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("واتساب (770446040)", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showLocalLimitDialog = false
+                            onNavigateToSubscription()
+                        }
+                    ) {
+                        Text("شاشة الاشتراك")
+                    }
+                    androidx.compose.material3.TextButton(
+                        onClick = { showLocalLimitDialog = false }
+                    ) {
+                        Text("إغلاق")
+                    }
+                }
+            },
+            containerColor = CyberDarkSurface
         )
     }
 }
@@ -820,6 +952,7 @@ private fun SecurityToggle(
 @Composable
 private fun NetworkDevicesTab(
     devices: List<NetworkDevice>,
+    isPro: Boolean = false,
     onAddDevice: () -> Unit,
     onEditDevice: (NetworkDevice) -> Unit,
     onCloneDevice: (NetworkDevice) -> Unit,
@@ -827,6 +960,48 @@ private fun NetworkDevicesTab(
     onOpenBackup: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
+        if (!isPro) {
+            val limitReached = devices.size >= com.example.domain.subscription.SubscriptionLimits.FREE_MAX_DEVICES
+            Surface(
+                color = if (limitReached) SemanticExpenseRed.copy(alpha = 0.15f) else CyberDarkCardElevated,
+                border = BorderStroke(1.dp, if (limitReached) SemanticExpenseRed else CyberBorder),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (limitReached) Icons.Default.Lock else Icons.Default.Router,
+                            contentDescription = null,
+                            tint = if (limitReached) SemanticExpenseRed else MikroTikCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (limitReached) "تم استهلاك حد الأجهزة للخطة المجانية (50/50)" else "أجهزة الشبكة: ${devices.size} من 50 جهازاً مسموحاً",
+                            color = if (limitReached) SemanticExpenseRed else TextSecondaryDark,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (limitReached) {
+                        Text(
+                            text = "PRO مطلوب",
+                            color = Color(0xFFFFD700),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

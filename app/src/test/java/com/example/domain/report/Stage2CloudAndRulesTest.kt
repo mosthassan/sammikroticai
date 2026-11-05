@@ -621,11 +621,41 @@ class Stage2CloudAndRulesTest {
             firestoreAdapter = adapter
         )
         val result = syncManager.syncPush(testUid, testEmail)
-        assertTrue("Push must fail without a passphrase", result.isFailure)
+        assertTrue("Push must fail without a passphrase when encryption is enabled", result.isFailure)
         assertTrue(
             "Failure must request a passphrase: ${result.exceptionOrNull()?.message}",
             result.exceptionOrNull()?.message?.contains("عبارة مرور") == true
         )
         assertTrue("No data may be written without a passphrase", adapter.writes.isEmpty())
     }
+
+    @Test
+    fun testUnencryptedBackupPushAndPullSucceedsWithoutPassphrase() = runBlocking {
+        val adapter = FakeFirestoreAdapter()
+        val storage = com.example.data.sync.BackupPassphraseStorage(context)
+        // Disable custom encryption requirement
+        storage.setEncryptionEnabled(testEmail, false)
+
+        val syncManager = FirestoreSyncManager(
+            context = context,
+            db = db,
+            backupRestoreUseCase = backupRestoreUseCase,
+            networkRepository = networkRepository,
+            deviceDao = networkRepository,
+            firestoreAdapter = adapter
+        )
+
+        // Push without passphrase must succeed seamlessly
+        val pushResult = syncManager.syncPush(testUid, testEmail)
+        assertTrue("Push without passphrase must succeed when encryption is disabled: ${pushResult.exceptionOrNull()?.message}", pushResult.isSuccess)
+        assertTrue("Data must be written to cloud chunks", adapter.writes.isNotEmpty())
+
+        // Pull without passphrase must succeed seamlessly
+        val pullResult = syncManager.syncPull(testUid, testEmail)
+        assertTrue("Pull without passphrase must succeed when isEncrypted is false: ${pullResult.exceptionOrNull()?.message}", pullResult.isSuccess)
+
+        // Reset preference
+        storage.setEncryptionEnabled(testEmail, true)
+    }
 }
+

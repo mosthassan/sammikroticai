@@ -51,8 +51,18 @@ class NetworkDeviceViewModel(
         return repository.findDeviceByIp(cleanIp, currentDeviceId = currentDeviceId)
     }
 
+    private val licenseManager: com.example.util.LicenseManager? = null
+
     fun saveDevice(device: NetworkDevice, onResult: (DeviceSaveResult) -> Unit = {}) {
         viewModelScope.launch {
+            val isExisting = repository.devices.value.any { it.id == device.id }
+            val lm = licenseManager ?: runCatching { com.example.util.LicenseManager.getInstance(com.example.SamMikrotikApp.instance) }.getOrNull()
+            if (!isExisting && lm != null && !lm.canCreateDevice(repository.devices.value.size)) {
+                _userMessage.emit(com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR)
+                onResult(DeviceSaveResult.LimitReached)
+                return@launch
+            }
+
             val result = repository.addOrUpdateDevice(device)
             when (result) {
                 is DeviceSaveResult.Success -> {
@@ -60,6 +70,9 @@ class NetworkDeviceViewModel(
                 }
                 is DeviceSaveResult.IpConflict -> {
                     _userMessage.emit("تعارض: عنوان الـ IP مستخدم مسبقاً بواسطة [${result.conflictingDevice.name}]")
+                }
+                is DeviceSaveResult.LimitReached -> {
+                    _userMessage.emit(com.example.domain.subscription.SubscriptionLimits.LIMIT_EXCEEDED_MESSAGE_AR)
                 }
             }
             onResult(result)

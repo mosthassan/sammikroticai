@@ -988,6 +988,12 @@ interface DocumentDao {
     @Query("SELECT COUNT(*) FROM documents WHERE type = 'PERIODIC_REVALUATION' AND status = 'POSTED' AND dateEpochDay >= :fromEpochDay AND dateEpochDay <= :toEpochDay")
     suspend fun getPostedRevaluationsCountInDateRange(fromEpochDay: Long, toEpochDay: Long): Int
 
+    @Query("SELECT COUNT(*) FROM documents WHERE type IN ('SALES_INVOICE', 'PURCHASE_INVOICE') AND status != 'VOIDED'")
+    fun countActiveInvoicesFlow(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM documents WHERE type IN ('SALES_INVOICE', 'PURCHASE_INVOICE') AND status != 'VOIDED'")
+    suspend fun countActiveInvoices(): Int
+
     @Query("""
         SELECT di.* FROM document_items di
         INNER JOIN documents d ON di.docId = d.id

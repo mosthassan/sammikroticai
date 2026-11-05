@@ -63,7 +63,8 @@ data class BackupManifest(
     val userEmail: String = "",
     val organizationName: String = "",
     val networkName: String = "",
-    val totalRecords: Int = 0
+    val totalRecords: Int = 0,
+    val isEncrypted: Boolean = true
 ) {
     fun toMap(): Map<String, Any?> = mapOf(
         "schemaVersion" to schemaVersion,
@@ -82,7 +83,8 @@ data class BackupManifest(
         "userEmail" to userEmail,
         "organizationName" to organizationName,
         "networkName" to networkName,
-        "totalRecords" to totalRecords
+        "totalRecords" to totalRecords,
+        "isEncrypted" to isEncrypted
     )
 
     companion object {
@@ -110,7 +112,8 @@ data class BackupManifest(
                 userEmail = map["userEmail"]?.toString() ?: "",
                 organizationName = map["organizationName"]?.toString() ?: "",
                 networkName = map["networkName"]?.toString() ?: "",
-                totalRecords = (map["totalRecords"] as? Number)?.toInt() ?: 0
+                totalRecords = (map["totalRecords"] as? Number)?.toInt() ?: 0,
+                isEncrypted = (map["isEncrypted"] as? Boolean) ?: true
             )
         }
     }
@@ -234,6 +237,7 @@ object BackupCryptoEngine {
         userEmail: String,
         appVersionCode: Int = 10,
         rawSliceSize: Int = DEFAULT_RAW_CHUNK_SLICE_BYTES,
+        isEncrypted: Boolean = true,
         onProgress: ((String, Float) -> Unit)? = null
     ): BackupPackage {
         require(jsonString.isNotBlank()) { "ملف البيانات الاحتياطية فارغ" }
@@ -349,7 +353,8 @@ object BackupCryptoEngine {
             userEmail = userEmail,
             organizationName = orgName,
             networkName = netName,
-            totalRecords = totalRecords
+            totalRecords = totalRecords,
+            isEncrypted = isEncrypted
         )
 
         return BackupPackage(manifest, chunks)

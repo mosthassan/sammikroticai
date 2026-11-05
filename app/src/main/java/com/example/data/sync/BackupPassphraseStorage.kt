@@ -117,4 +117,23 @@ class BackupPassphraseStorage(private val context: Context) {
             .remove("plain_$safeKey")
             .apply()
     }
+
+    /**
+     * Determines whether cloud backup encryption with a custom passphrase is enabled for this user.
+     * Defaults to true to enforce end-to-end user-supplied encryption.
+     * Users can toggle it off from settings for seamless automatic backup without passphrase prompts.
+     */
+    fun isEncryptionEnabled(userKey: String): Boolean {
+        val safeKey = userKey.replace(Regex("[^a-zA-Z0-9_]"), "_")
+        return prefs.getBoolean("opt_enc_enabled_$safeKey", true)
+    }
+
+    fun setEncryptionEnabled(userKey: String, enabled: Boolean) {
+        val safeKey = userKey.replace(Regex("[^a-zA-Z0-9_]"), "_")
+        prefs.edit().putBoolean("opt_enc_enabled_$safeKey", enabled).apply()
+    }
+
+    fun hasSavedPassphrase(userKey: String): Boolean {
+        return !getPassphrase(userKey).isNullOrBlank()
+    }
 }

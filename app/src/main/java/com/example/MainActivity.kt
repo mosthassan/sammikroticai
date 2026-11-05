@@ -6,9 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +38,10 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -153,6 +159,8 @@ class MainActivity : ComponentActivity() {
 
                 var showCloudSyncSheet by rememberSaveable { mutableStateOf(false) }
                 var showAiAssistant by rememberSaveable { mutableStateOf(false) }
+                var showSubscriptionScreen by rememberSaveable { mutableStateOf(false) }
+                var showAdminDashboard by rememberSaveable { mutableStateOf(false) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
                 // Listen for business feedback messages
@@ -169,7 +177,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (showAiAssistant) {
+                if (showAdminDashboard) {
+                    com.example.ui.screens.AdminDashboardScreen(
+                        viewModel = appViewModel,
+                        onNavigateBack = { showAdminDashboard = false }
+                    )
+                } else if (showSubscriptionScreen) {
+                    com.example.ui.screens.SubscriptionScreen(
+                        viewModel = appViewModel,
+                        onNavigateBack = { showSubscriptionScreen = false },
+                        onNavigateToAdmin = {
+                            showSubscriptionScreen = false
+                            showAdminDashboard = true
+                        }
+                    )
+                } else if (showAiAssistant) {
                     AIAssistantScreen(
                         onNavigateBack = { showAiAssistant = false }
                     )
@@ -195,6 +217,35 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 actions = {
+                                    val isAdmin by appViewModel.isAdmin.collectAsState()
+                                    if (isAdmin) {
+                                        IconButton(
+                                            onClick = { showAdminDashboard = true },
+                                            modifier = Modifier.testTag("top_bar_admin_dashboard_btn")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AdminPanelSettings,
+                                                contentDescription = "لوحة تحكم المسؤول",
+                                                tint = Color(0xFFFFD700),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+
+                                    val subStatus by appViewModel.subscriptionStatus.collectAsState()
+                                    val isProActive = subStatus.isPro && !subStatus.isExpired
+                                    IconButton(
+                                        onClick = { showSubscriptionScreen = true },
+                                        modifier = Modifier.testTag("top_bar_subscription_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.WorkspacePremium,
+                                            contentDescription = "الاشتراك والتفعيل",
+                                            tint = if (isProActive) Color(0xFFFFD700) else BrandCyanPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+
                                     IconButton(
                                         onClick = { showAiAssistant = true },
                                         modifier = Modifier.testTag("top_bar_ai_assistant_btn")
@@ -325,6 +376,7 @@ class MainActivity : ComponentActivity() {
                             networkRepository = appViewModel.networkRepository,
                             viewModel = appViewModel,
                             initialTab = networkHubInitialTab,
+                            onNavigateToSubscription = { showSubscriptionScreen = true },
                             modifier = modifier
                         )
                         6 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)
@@ -338,6 +390,116 @@ class MainActivity : ComponentActivity() {
                         viewModel = appViewModel,
                         sheetState = syncSheetState,
                         onDismissRequest = { showCloudSyncSheet = false }
+                    )
+                }
+
+                // Freemium Limit Alert Dialog
+                val showLimitDialog by appViewModel.showSubscriptionLimitDialog.collectAsState()
+                if (showLimitDialog) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { appViewModel.dismissSubscriptionLimitDialog() },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = SemanticExpenseRed
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("تنبيه الحد الأقصى للخطة المجانية", fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    text = "لقد وصلت للحد الأقصى المسموح به في الخطة المجانية (100 فاتورة / 50 جهازاً). يرجى ترقية اشتراكك للاستمرار.",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF0F2417),
+                                    border = BorderStroke(1.dp, Color(0xFF25D366)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            val hwId = appViewModel.licenseManager.hardwareDeviceId
+                                            com.example.util.WhatsAppDispatcher.sendTextMessage(
+                                                context = this@MainActivity,
+                                                phoneNumber = com.example.domain.subscription.SubscriptionLimits.ACTIVATION_WHATSAPP_NUMBER,
+                                                message = com.example.domain.subscription.SubscriptionLimits.buildActivationWhatsAppMessage(hwId)
+                                            )
+                                        }
+                                        .testTag("dialog_whatsapp_activation_row")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_whatsapp),
+                                            contentDescription = "واتساب للتفعيل",
+                                            tint = Color(0xFF25D366),
+                                            modifier = Modifier.size(26.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "للتفعيل راسلنا وتساب على الرقم 770446040",
+                                                color = Color(0xFF25D366),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                            Text(
+                                                text = "انقر هنا لفتح المحادثة ومراسلتنا مباشرة",
+                                                color = Color.LightGray,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    val hwId = appViewModel.licenseManager.hardwareDeviceId
+                                    com.example.util.WhatsAppDispatcher.sendTextMessage(
+                                        context = this@MainActivity,
+                                        phoneNumber = com.example.domain.subscription.SubscriptionLimits.ACTIVATION_WHATSAPP_NUMBER,
+                                        message = com.example.domain.subscription.SubscriptionLimits.buildActivationWhatsAppMessage(hwId)
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                modifier = Modifier.testTag("dialog_btn_whatsapp_direct")
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_whatsapp),
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("واتساب (770446040)", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                androidx.compose.material3.TextButton(
+                                    onClick = {
+                                        appViewModel.dismissSubscriptionLimitDialog()
+                                        showSubscriptionScreen = true
+                                    }
+                                ) {
+                                    Text("شاشة الاشتراك")
+                                }
+                                androidx.compose.material3.TextButton(
+                                    onClick = { appViewModel.dismissSubscriptionLimitDialog() }
+                                ) {
+                                    Text("إغلاق")
+                                }
+                            }
+                        }
                     )
                 }
 

@@ -118,72 +118,7 @@ fun HealthCheckScreen(
             }
         }
 
-        item {
-            SectionHeader(title = "إجراءات الاختبار والتحقق السريع")
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "1. زرع قيود تجريبية (مبيعات، Starlink، أصول MikroTik)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "يُنشئ مستندات حقيقية ويرحّلها عبر LedgerWriter للتحقق من الاتزان وتوليد أرقام متسلسلة وسطور القيود.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(
-                        onClick = { viewModel.seedDemoTransactions() },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("seed_demo_button")
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("زرع بيانات تجريبية فورية")
-                    }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-                    Text(
-                        text = "2. فحص أمان المشغّلات (SQLite Triggers Test)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "محاولة تنفيذ أمر UPDATE SQL مباشر على سطور القيود. يجب أن ترفض قاعدة البيانات وتُسقط العملية بـ RAISE(ABORT).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedButton(
-                        onClick = { viewModel.testDirectUpdateTrigger() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("test_triggers_button")
-                    ) {
-                        Icon(Icons.Default.Security, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("اختبار منع التعديل المباشر")
-                    }
-
-                    triggerResult?.let { res ->
-                        Text(
-                            text = res,
-                            color = if (res.startsWith("نجاح")) SemanticIncomeGreen else SemanticExpenseRed,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
 
         item {
             SectionHeader(title = "المستندات المنشأة (${documents.size})")

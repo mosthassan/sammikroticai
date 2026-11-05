@@ -57,3 +57,8 @@
     public void createAllTables(androidx.sqlite.db.SupportSQLiteDatabase);
     public androidx.room.RoomOpenDelegate createOpenDelegate();
 }
+
+# 10. Security Crypto and License Verification
+-keep class androidx.security.crypto.** { *; }
+-keep class com.example.util.LicenseManager** { *; }
+-keep class com.example.domain.subscription.** { *; }

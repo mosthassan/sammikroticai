@@ -89,8 +89,144 @@ import com.example.ui.theme.SemanticIncomeGreen
 @Composable
 fun WifiSpectrumScreen(
     viewModel: WifiSpectrumViewModel = viewModel(),
+    onNavigateToSubscription: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val licenseManager = remember { com.example.util.LicenseManager.getInstance(context) }
+    val subscriptionStatus by licenseManager.subscriptionStatus.collectAsState()
+    val isPro = subscriptionStatus.isPro && !subscriptionStatus.isExpired
+
+    if (!isPro) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(CyberDarkCanvas)
+                .padding(24.dp)
+                .testTag("wifi_spectrum_locked_container"),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = CyberDarkSurface),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFD700))
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Surface(
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        color = Color(0xFFFFD700).copy(alpha = 0.15f),
+                        modifier = Modifier.size(72.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "محلل طيف الواي فاي مقفل",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFFD700)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = com.example.domain.subscription.SubscriptionLimits.WIFI_SPECTRUM_LOCKED_MESSAGE_AR,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.LightGray,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "✨ ميزات النسخة الاحترافية (PRO):",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = BrandCyanPrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("• تحليل فوري لترددات 2.4GHz و 5GHz", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                        Text("• فحص تداخل القنوات وحساب التشويش ونقاط التغطية", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                        Text("• فواتير وأجهزة مايكروتك غير محدودة", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Button(
+                        onClick = onNavigateToSubscription,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("upgrade_pro_wifi_btn")
+                    ) {
+                        Text(
+                            text = "ترقية الاشتراك وتفعيل Pro الآن",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    OutlinedButton(
+                        onClick = {
+                            val licMgr = com.example.util.LicenseManager.getInstance(context)
+                            val hwId = licMgr.hardwareDeviceId
+                            val msg = com.example.domain.subscription.SubscriptionLimits.buildActivationWhatsAppMessage(hwId)
+                            com.example.util.WhatsAppDispatcher.sendTextMessage(
+                                context = context,
+                                phoneNumber = com.example.domain.subscription.SubscriptionLimits.ACTIVATION_WHATSAPP_NUMBER,
+                                message = msg
+                            )
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF25D366)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF25D366)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("whatsapp_activate_wifi_btn")
+                    ) {
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_whatsapp),
+                            contentDescription = "واتساب",
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "للتفعيل راسلنا وتساب على الرقم 770446040",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val uiState by viewModel.uiState.collectAsState()
     var showIntervalMenu by remember { mutableStateOf(false) }
 
