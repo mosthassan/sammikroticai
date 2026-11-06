@@ -55,6 +55,10 @@ object ChannelRecommendationEngine {
                 else -> ChannelRating.CONGESTED
             }
 
+            // Calculate 10-star rating based on congestion and co-channel count
+            // 0 APs / 0% congestion -> 10 stars, high congestion -> fewer stars
+            val star = ((100 - congestionPercent) / 10).coerceIn(1, 10)
+
             scores.add(
                 ChannelScore(
                     channel = channel,
@@ -64,7 +68,9 @@ object ChannelRecommendationEngine {
                     adjacentChannelCount = adjacentChannelCount,
                     totalInterferenceEnergy = totalEnergy,
                     congestionPercent = congestionPercent,
-                    rating = rating
+                    rating = rating,
+                    starRating = star,
+                    channelWidthMhz = 20
                 )
             )
         }
@@ -78,6 +84,13 @@ object ChannelRecommendationEngine {
             bestStandard
         } else {
             overallBest
+        }
+
+        // Determine best channels list (stars >= 7 or within top tier)
+        val maxStars = scores.maxOfOrNull { it.starRating } ?: 10
+        val finalScores = scores.map { score ->
+            val isRecommended = score.starRating >= (maxStars - 1) && score.starRating >= 6
+            score.copy(bestChannelRecommendation = isRecommended)
         }
 
         val rationale = buildString {
@@ -105,7 +118,7 @@ object ChannelRecommendationEngine {
             rating = chosen.rating,
             congestionScore = chosen.congestionPercent,
             rationale = rationale,
-            allChannelScores = scores
+            allChannelScores = finalScores
         )
     }
 
@@ -133,6 +146,8 @@ object ChannelRecommendationEngine {
                 else -> ChannelRating.CONGESTED
             }
 
+            val star = ((100 - congestionPercent) / 10).coerceIn(1, 10)
+
             scores.add(
                 ChannelScore(
                     channel = channel,
@@ -142,7 +157,9 @@ object ChannelRecommendationEngine {
                     adjacentChannelCount = 0, // 5GHz non-overlapping when 20MHz
                     totalInterferenceEnergy = totalEnergy,
                     congestionPercent = congestionPercent,
-                    rating = rating
+                    rating = rating,
+                    starRating = star,
+                    channelWidthMhz = 20
                 )
             )
         }
@@ -156,6 +173,12 @@ object ChannelRecommendationEngine {
             bestNonDfs
         } else {
             overallBest
+        }
+
+        val maxStars = scores.maxOfOrNull { it.starRating } ?: 10
+        val finalScores = scores.map { score ->
+            val isRecommended = score.starRating >= (maxStars - 1) && score.starRating >= 7
+            score.copy(bestChannelRecommendation = isRecommended)
         }
 
         val rationale = buildString {
@@ -180,7 +203,7 @@ object ChannelRecommendationEngine {
             rating = chosen.rating,
             congestionScore = chosen.congestionPercent,
             rationale = rationale,
-            allChannelScores = scores
+            allChannelScores = finalScores
         )
     }
 }

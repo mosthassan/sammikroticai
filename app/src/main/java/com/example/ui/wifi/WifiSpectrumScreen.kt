@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
@@ -501,203 +502,250 @@ fun WifiSpectrumScreen(
                         Text(
                             text = "إجمالي الشبكات: ${uiState.allAccessPoints.size}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = BrandCyanPrimary,
-                            fontWeight = FontWeight.Bold
+                            color = BrandCyanPrimary
                         )
+                    }
+
+                    // Sub-Tabs Navigation Row (matching WiFi Analyzer bottom bar: Channel Rating, Channel Graph, Live Meter, APs)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        WifiSpectrumViewTab.entries.forEach { tab ->
+                            val isTabSelected = uiState.selectedViewTab == tab
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isTabSelected) BrandCyanPrimary.copy(alpha = 0.2f) else CyberDarkSurface,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isTabSelected) BrandCyanPrimary else Color.White.copy(alpha = 0.1f)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { viewModel.selectViewTab(tab) }
+                                    .testTag("tab_wifi_${tab.name.lowercase()}")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = when (tab) {
+                                            WifiSpectrumViewTab.CHANNEL_RATING -> Icons.Default.Star
+                                            WifiSpectrumViewTab.CHANNEL_GRAPH -> Icons.Default.Sensors
+                                            WifiSpectrumViewTab.TIME_GRAPH -> Icons.Default.Speed
+                                            WifiSpectrumViewTab.ACCESS_POINTS -> Icons.Default.WifiFind
+                                        },
+                                        contentDescription = tab.titleAr,
+                                        tint = if (isTabSelected) BrandCyanPrimary else Color.LightGray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = tab.titleAr,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isTabSelected) BrandCyanPrimary else Color.LightGray,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // 3. Smart Channel Recommendation Engine Card
-        uiState.recommendation?.let { rec ->
+        // View 1: Channel Rating View (Matching WiFi Analyzer screenshot)
+        if (uiState.selectedViewTab == WifiSpectrumViewTab.CHANNEL_RATING) {
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_channel_recommendation"),
-                    colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.5.dp,
-                        when (rec.rating) {
-                            ChannelRating.EXCELLENT -> SemanticIncomeGreen
-                            ChannelRating.GOOD -> BrandCyanPrimary
-                            ChannelRating.MODERATE -> Color(0xFFFFB300)
-                            ChannelRating.CONGESTED -> SemanticExpenseRed
-                        }
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(SemanticIncomeGreen.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Tune,
-                                        contentDescription = null,
-                                        tint = SemanticIncomeGreen,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = "محرك التوصية الذكية بالقناة (Channel Recommendation)",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "تحليل التداخل الكهرومغناطيسي وازدحام الترددات",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 11.sp
-                                    )
-                                }
+                WifiChannelRatingView(
+                    recommendation = uiState.recommendation,
+                    currentConnection = uiState.currentConnection,
+                    isScanThrottlingEnabled = uiState.isScanThrottlingEnabled,
+                    selectedBand = uiState.selectedBand
+                )
+            }
+        }
+
+        // View 2: Channel Recommendation & RF Spectrum Graph (M3 Graph)
+        if (uiState.selectedViewTab == WifiSpectrumViewTab.CHANNEL_GRAPH) {
+            uiState.recommendation?.let { rec ->
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("card_channel_recommendation"),
+                        colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.5.dp,
+                            when (rec.rating) {
+                                ChannelRating.EXCELLENT -> SemanticIncomeGreen
+                                ChannelRating.GOOD -> BrandCyanPrimary
+                                ChannelRating.MODERATE -> Color(0xFFFFB300)
+                                ChannelRating.CONGESTED -> SemanticExpenseRed
                             }
-
-                            // Big Recommended Channel Badge
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = SemanticIncomeGreen.copy(alpha = 0.15f),
-                                border = androidx.compose.foundation.BorderStroke(1.5.dp, SemanticIncomeGreen)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text("القناة الأفضل", fontSize = 9.sp, color = SemanticIncomeGreen)
-                                    Text(
-                                        text = "CH ${rec.recommendedChannel}",
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 15.sp,
-                                        color = SemanticIncomeGreen
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = rec.rationale,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp
                         )
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(SemanticIncomeGreen.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Tune,
+                                            contentDescription = null,
+                                            tint = SemanticIncomeGreen,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "محرك التوصية الذكية بالقناة (Channel Recommendation)",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "تحليل التداخل الكهرومغناطيسي وازدحام الترددات",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Quick Congestion Indicator Bar
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("حالة القناة: ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(rec.rating.label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SemanticIncomeGreen)
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = SemanticIncomeGreen.copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(1.5.dp, SemanticIncomeGreen)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text("القناة الأفضل", fontSize = 9.sp, color = SemanticIncomeGreen)
+                                        Text(
+                                            text = "CH ${rec.recommendedChannel}",
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 15.sp,
+                                            color = SemanticIncomeGreen
+                                        )
+                                    }
+                                }
                             }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
                             Text(
-                                text = "نسبة الازدحام: ${rec.congestionScore}%",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (rec.congestionScore < 30) SemanticIncomeGreen else SemanticExpenseRed
+                                text = rec.rationale,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp
                             )
                         }
                     }
                 }
             }
-        }
 
-        // 4. Interactive Spectrum Graph
-        item {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Sensors,
-                            contentDescription = null,
-                            tint = BrandCyanPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+            item {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Sensors,
+                                contentDescription = null,
+                                tint = BrandCyanPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "مخطط طيف الترددات (RF Spectrum Graph)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Text(
-                            text = "مخطط طيف الترددات (RF Spectrum Graph)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                            text = "dBm vs Channel",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace
                         )
                     }
-                    Text(
-                        text = "dBm vs Channel",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = FontFamily.Monospace
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    WifiSpectrumGraph(
+                        accessPoints = uiState.filteredAccessPoints,
+                        band = uiState.selectedBand,
+                        recommendation = uiState.recommendation,
+                        selectedAp = uiState.selectedApForMeter,
+                        modifier = Modifier.testTag("wifi_spectrum_canvas")
                     )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                WifiSpectrumGraph(
-                    accessPoints = uiState.filteredAccessPoints,
-                    band = uiState.selectedBand,
-                    recommendation = uiState.recommendation,
-                    selectedAp = uiState.selectedApForMeter,
-                    modifier = Modifier.testTag("wifi_spectrum_canvas")
-                )
             }
         }
 
-        // 5. Live Signal Meter (Technician Alignment Tool)
-        item {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = null,
-                            tint = BrandCyanPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "مقياس الإشارة المباشر لضبط الهوائيات (Live Alignment Meter)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+        // View 3: Live Technician Signal Meter
+        if (uiState.selectedViewTab == WifiSpectrumViewTab.TIME_GRAPH) {
+            item {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = null,
+                                tint = BrandCyanPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "مقياس الإشارة المباشر لضبط الهوائيات (Live Alignment Meter)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    WifiLiveSignalMeter(
+                        selectedAp = uiState.selectedApForMeter,
+                        signalHistory = uiState.signalHistory,
+                        minRssi = uiState.minRssiDbm,
+                        maxRssi = uiState.maxRssiDbm,
+                        avgRssi = uiState.avgRssiDbm,
+                        modifier = Modifier.testTag("wifi_live_signal_meter")
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                WifiLiveSignalMeter(
-                    selectedAp = uiState.selectedApForMeter,
-                    signalHistory = uiState.signalHistory,
-                    minRssi = uiState.minRssiDbm,
-                    maxRssi = uiState.maxRssiDbm,
-                    avgRssi = uiState.avgRssiDbm,
-                    modifier = Modifier.testTag("wifi_live_signal_meter")
-                )
             }
         }
+
+        // View 4 or General Search Bar & Detected APs List
+        if (uiState.selectedViewTab == WifiSpectrumViewTab.ACCESS_POINTS || uiState.selectedViewTab == WifiSpectrumViewTab.CHANNEL_RATING) {
 
         // 6. Search Bar & AP Scan List
         item {
@@ -808,6 +856,7 @@ fun WifiSpectrumScreen(
                     isSelected = uiState.selectedApForMeter?.bssid == ap.bssid,
                     onSelectForMeter = { viewModel.selectApForMeter(ap) }
                 )
+            }
             }
         }
 

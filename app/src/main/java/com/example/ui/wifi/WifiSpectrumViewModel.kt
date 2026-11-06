@@ -36,8 +36,18 @@ data class WifiSpectrumUiState(
     val lastScanTime: Long = 0L,
     val minRssiDbm: Int = -100,
     val maxRssiDbm: Int = -30,
-    val avgRssiDbm: Int = -60
+    val avgRssiDbm: Int = -60,
+    val currentConnection: com.example.data.wifi.CurrentWifiConnection = com.example.data.wifi.CurrentWifiConnection(),
+    val selectedViewTab: WifiSpectrumViewTab = WifiSpectrumViewTab.CHANNEL_RATING,
+    val isScanThrottlingEnabled: Boolean = true
 )
+
+enum class WifiSpectrumViewTab(val titleAr: String, val titleEn: String) {
+    CHANNEL_RATING("تقييم القنوات", "Channel Rating"),
+    CHANNEL_GRAPH("مخطط الطيف", "Channel Graph"),
+    TIME_GRAPH("مقياس الإشارة", "Time Graph"),
+    ACCESS_POINTS("نقاط البث", "Access Points")
+}
 
 class WifiSpectrumViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -170,6 +180,7 @@ class WifiSpectrumViewModel(application: Application) : AndroidViewModel(applica
             val minRssi = newHistory.minOfOrNull { it.rssiDbm } ?: -95
             val maxRssi = newHistory.maxOfOrNull { it.rssiDbm } ?: -30
             val avgRssi = if (newHistory.isNotEmpty()) newHistory.map { it.rssiDbm }.average().toInt() else -60
+            val currentConn = scannerManager.getCurrentConnectionInfo()
 
             _uiState.update {
                 it.copy(
@@ -185,10 +196,15 @@ class WifiSpectrumViewModel(application: Application) : AndroidViewModel(applica
                     lastScanTime = now,
                     minRssiDbm = minRssi,
                     maxRssiDbm = maxRssi,
-                    avgRssiDbm = avgRssi
+                    avgRssiDbm = avgRssi,
+                    currentConnection = currentConn
                 )
             }
         }
+    }
+
+    fun selectViewTab(tab: WifiSpectrumViewTab) {
+        _uiState.update { it.copy(selectedViewTab = tab) }
     }
 
     private fun startAutoRefreshLoop() {

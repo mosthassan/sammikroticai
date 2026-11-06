@@ -88,6 +88,52 @@ class WifiScannerManager(private val context: Context) {
     }
 
     /**
+     * Retrieves current active WiFi connection information (SSID, BSSID, RSSI, Frequency, Channel, Link Speed, IP)
+     */
+    fun getCurrentConnectionInfo(): CurrentWifiConnection {
+        val wm = wifiManager ?: return CurrentWifiConnection()
+        return try {
+            val info = wm.connectionInfo ?: return CurrentWifiConnection()
+            val ssidRaw = info.ssid ?: ""
+            val cleanSsid = ssidRaw.trim('\"')
+            val isConnected = cleanSsid.isNotBlank() && cleanSsid != "<unknown ssid>" && info.networkId != -1
+            if (!isConnected) return CurrentWifiConnection()
+
+            val freq = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) info.frequency else 2412
+            val channel = WifiFrequencyHelper.frequencyToChannel(freq)
+            val ipInt = info.ipAddress
+            val ipStr = if (ipInt != 0) {
+                String.format(
+                    java.util.Locale.US,
+                    "%d.%d.%d.%d",
+                    ipInt and 0xff,
+                    ipInt shr 8 and 0xff,
+                    ipInt shr 16 and 0xff,
+                    ipInt shr 24 and 0xff
+                )
+            } else ""
+
+            // Calculate approximate distance using free space path loss
+            val exp = (27.55 - (20 * kotlin.math.log10(freq.toDouble().coerceAtLeast(1.0))) + kotlin.math.abs(info.rssi)) / 20.0
+            val distance = Math.pow(10.0, exp)
+
+            CurrentWifiConnection(
+                isConnected = true,
+                ssid = cleanSsid,
+                bssid = info.bssid ?: "",
+                frequencyMhz = freq,
+                channel = channel,
+                rssiDbm = info.rssi,
+                linkSpeedMbps = info.linkSpeed,
+                ipAddress = ipStr,
+                distanceMetersApprox = distance
+            )
+        } catch (_: Exception) {
+            CurrentWifiConnection()
+        }
+    }
+
+    /**
      * Triggers active hardware scan if supported
      */
     fun triggerHardwareScan(): Boolean {

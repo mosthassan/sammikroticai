@@ -70,8 +70,14 @@ data class ChannelScore(
     val adjacentChannelCount: Int,
     val totalInterferenceEnergy: Double,
     val congestionPercent: Int,
-    val rating: ChannelRating
-)
+    val rating: ChannelRating,
+    val starRating: Int = 10,
+    val channelWidthMhz: Int = 20,
+    val bestChannelRecommendation: Boolean = false
+) {
+    val totalApCount: Int
+        get() = coChannelCount
+}
 
 /**
  * Result from the smart channel recommendation engine
@@ -102,4 +108,19 @@ enum class ScanRefreshInterval(val seconds: Int, val label: String) {
 data class SignalHistoryPoint(
     val timestamp: Long,
     val rssiDbm: Int
+)
+
+/**
+ * Information regarding current active WiFi network connection
+ */
+data class CurrentWifiConnection(
+    val isConnected: Boolean = false,
+    val ssid: String = "",
+    val bssid: String = "",
+    val frequencyMhz: Int = 0,
+    val channel: Int = 0,
+    val rssiDbm: Int = -100,
+    val linkSpeedMbps: Int = 0,
+    val ipAddress: String = "",
+    val distanceMetersApprox: Double = 0.0
 )

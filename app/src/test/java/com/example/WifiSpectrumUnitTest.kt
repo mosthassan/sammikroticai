@@ -19,7 +19,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class WifiSpectrumUnitTest {
 
     @Test
@@ -208,5 +208,55 @@ class WifiSpectrumUnitTest {
         assertTrue(state is ScanState.Empty || state is ScanState.NoPermission || state is ScanState.WifiDisabled)
         val aps = scanner.getScannedAccessPoints()
         assertTrue("Scanned access points must be empty when no physical APs broadcast", aps.isEmpty())
+    }
+
+    @Test
+    fun test10StarChannelRatingComputation() {
+        val aps = listOf(
+            WifiAccessPoint(
+                bssid = "AA:BB:CC:DD:EE:01",
+                ssid = "AP-1",
+                frequencyMhz = 2412,
+                channel = 1,
+                channelWidthMhz = 20,
+                rssiDbm = -50,
+                securityType = WifiSecurityType.WPA2,
+                band = WifiBand.BAND_2_4_GHZ,
+                capabilities = ""
+            )
+        )
+        val rec = ChannelRecommendationEngine.evaluateBand(aps, WifiBand.BAND_2_4_GHZ)
+        assertNotNull(rec)
+        assertTrue(rec.allChannelScores.isNotEmpty())
+        
+        // Channel 1 has an AP so its score/star rating will be lower than empty channel 11
+        val ch1 = rec.allChannelScores.firstOrNull { it.channel == 1 }
+        val ch11 = rec.allChannelScores.firstOrNull { it.channel == 11 }
+        assertNotNull(ch1)
+        assertNotNull(ch11)
+        assertTrue("Star rating must be between 1 and 10", ch1!!.starRating in 1..10)
+        assertTrue("Star rating must be between 1 and 10", ch11!!.starRating in 1..10)
+        assertTrue("Channel 11 should have >= stars than congested channel 1", ch11.starRating >= ch1.starRating)
+        assertTrue("Channel scores must include channel width 20 MHz", ch1.channelWidthMhz == 20)
+    }
+
+    @Test
+    fun testCurrentWifiConnectionModel() {
+        val conn = com.example.data.wifi.CurrentWifiConnection(
+            isConnected = true,
+            ssid = "Talqa-Net 26",
+            bssid = "ec:31:4a:1a:44:f9",
+            frequencyMhz = 2462,
+            channel = 11,
+            rssiDbm = -60,
+            linkSpeedMbps = 97,
+            ipAddress = "10.50.7.251",
+            distanceMetersApprox = 9.7
+        )
+        assertTrue(conn.isConnected)
+        assertEquals("Talqa-Net 26", conn.ssid)
+        assertEquals(11, conn.channel)
+        assertEquals(97, conn.linkSpeedMbps)
+        assertEquals("10.50.7.251", conn.ipAddress)
     }
 }
