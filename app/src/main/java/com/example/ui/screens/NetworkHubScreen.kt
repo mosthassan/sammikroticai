@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wifi
@@ -204,6 +205,13 @@ fun NetworkHubScreen(
                 onClick = { activeTab = 5 },
                 modifier = Modifier.width(125.dp)
             )
+            HubTabItem(
+                label = "استوديو الكروت",
+                icon = Icons.Default.Style,
+                isSelected = activeTab == 6,
+                onClick = { activeTab = 6 },
+                modifier = Modifier.width(115.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -282,6 +290,9 @@ fun NetworkHubScreen(
                 )
                 5 -> com.example.ui.wifi.WifiSpectrumScreen(
                     onNavigateToSubscription = onNavigateToSubscription
+                )
+                6 -> com.example.ui.cardstudio.CardStudioScreen(
+                    onNavigateBack = { activeTab = 0 }
                 )
             }
         }

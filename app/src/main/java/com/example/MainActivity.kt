@@ -161,6 +161,7 @@ class MainActivity : ComponentActivity() {
                 var showAiAssistant by rememberSaveable { mutableStateOf(false) }
                 var showSubscriptionScreen by rememberSaveable { mutableStateOf(false) }
                 var showAdminDashboard by rememberSaveable { mutableStateOf(false) }
+                var showCardStudio by rememberSaveable { mutableStateOf(false) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
                 // Listen for business feedback messages
@@ -194,6 +195,10 @@ class MainActivity : ComponentActivity() {
                 } else if (showAiAssistant) {
                     AIAssistantScreen(
                         onNavigateBack = { showAiAssistant = false }
+                    )
+                } else if (showCardStudio) {
+                    com.example.ui.cardstudio.CardStudioScreen(
+                        onNavigateBack = { showCardStudio = false }
                     )
                 } else {
                     Scaffold(
@@ -366,6 +371,7 @@ class MainActivity : ComponentActivity() {
                                 selectedTabIndex = 5
                             },
                             onNavigateToAiAssistant = { showAiAssistant = true },
+                            onNavigateToCardStudio = { showCardStudio = true },
                             modifier = modifier
                         )
                         1 -> SalesScreen(viewModel = appViewModel, modifier = modifier)
