@@ -9,12 +9,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -35,14 +36,18 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -55,7 +60,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -75,6 +79,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -89,6 +94,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.card.CardBatch
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
+import com.example.data.card.CodeBoxStyle
 import com.example.data.card.GeneratedCard
 import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
@@ -130,13 +136,13 @@ fun CardStudioScreen(
                 title = {
                     Column {
                         Text(
-                            text = "استوديو كروت الميكروتك الذكية",
+                            text = "استوديو كروت الميكروتك (Card Studio)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                         Text(
-                            text = "تصميم القوالب، التوليد الآلي، QR للدخول الذكي، والطباعة",
+                            text = "تصميم احترافي، ثيمات نيون وVIP، كروت كشط، وطباعة A4",
                             style = MaterialTheme.typography.labelSmall,
                             color = BrandCyanPrimary
                         )
@@ -154,6 +160,15 @@ fun CardStudioScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(onClick = { viewModel.resetTemplatesToDefault() }) {
+                        Icon(
+                            imageVector = Icons.Default.RestartAlt,
+                            contentDescription = "استعادة القوالب الافتراضية",
+                            tint = BrandCyanPrimary
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF0F172A)
                 )
@@ -163,15 +178,15 @@ fun CardStudioScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0B0F19))
+                .background(Color(0xFF070B14))
                 .padding(innerPadding)
         ) {
             // Sub-tabs navigation row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF151D2A))
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .background(Color(0xFF0F172A))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -179,7 +194,7 @@ fun CardStudioScreen(
                     val isSelected = uiState.activeTab == tab
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) BrandCyanPrimary.copy(alpha = 0.2f) else CyberDarkSurface,
+                        color = if (isSelected) BrandCyanPrimary.copy(alpha = 0.22f) else CyberDarkSurface,
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
                             if (isSelected) BrandCyanPrimary else Color.White.copy(alpha = 0.1f)
@@ -218,22 +233,24 @@ fun CardStudioScreen(
             // Main Tab View Content
             Box(modifier = Modifier.weight(1f)) {
                 when (uiState.activeTab) {
-                    CardStudioTab.TEMPLATES -> TemplatesTabContent(
+                    CardStudioTab.TEMPLATES -> TemplatesGalleryTab(
                         templates = templates,
-                        onSelectForEdit = { viewModel.setEditingTemplate(it) },
-                        onSelectForGenerate = {
+                        currentTemplateId = uiState.editingTemplate.id,
+                        onSelectTemplate = { viewModel.setEditingTemplate(it) },
+                        onQuickGenerate = {
                             viewModel.setEditingTemplate(it)
                             viewModel.selectTab(CardStudioTab.GENERATOR)
                         },
                         onDelete = { viewModel.deleteTemplate(it.id) }
                     )
-                    CardStudioTab.DESIGNER -> DesignerTabContent(
+                    CardStudioTab.DESIGNER -> ProfessionalDesignerTab(
                         template = uiState.editingTemplate,
                         onUpdate = { viewModel.updateEditingTemplate(it) },
                         onApplyTheme = { viewModel.applyThemePreset(it) },
+                        onApplyCodeStyle = { viewModel.applyCodeBoxStyle(it) },
                         onSave = { viewModel.saveEditingTemplate() }
                     )
-                    CardStudioTab.GENERATOR -> GeneratorTabContent(
+                    CardStudioTab.GENERATOR -> FastGeneratorTab(
                         uiState = uiState,
                         template = uiState.editingTemplate,
                         onUpdateConfig = { t, c, p, pref, len, pat, fmt ->
@@ -241,7 +258,7 @@ fun CardStudioScreen(
                         },
                         onGenerate = { viewModel.generateBatch() }
                     )
-                    CardStudioTab.BATCHES -> BatchesTabContent(
+                    CardStudioTab.BATCHES -> ProfessionalBatchesTab(
                         batches = batches,
                         selectedBatch = uiState.selectedBatchForPreview,
                         onSelectBatch = { viewModel.selectBatchForPreview(it) },
@@ -256,51 +273,71 @@ fun CardStudioScreen(
 }
 
 // -------------------------------------------------------------
-// 1. Templates Tab
+// 1. Templates Gallery (Matching SamMikrotik Web Engine Presets)
 // -------------------------------------------------------------
 @Composable
-private fun TemplatesTabContent(
+private fun TemplatesGalleryTab(
     templates: List<CardTemplate>,
-    onSelectForEdit: (CardTemplate) -> Unit,
-    onSelectForGenerate: (CardTemplate) -> Unit,
+    currentTemplateId: String,
+    onSelectTemplate: (CardTemplate) -> Unit,
+    onQuickGenerate: (CardTemplate) -> Unit,
     onDelete: (CardTemplate) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.3f))
             ) {
-                Text(
-                    text = "مكتبة القوالب الجاهزة (${templates.size})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Button(
-                    onClick = { onSelectForEdit(CardTemplate(name = "قالب جديد مخصص")) },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
-                    shape = RoundedCornerShape(8.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("قالب جديد", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Column {
+                        Text(
+                            text = "قوالب كروت الإنترنت الاحترافية (${templates.size})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "اختر قالباً جاهزاً للتعديل السريع أو التوليد الفوري",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(
+                        onClick = { onSelectTemplate(CardTemplate(name = "قالب مخصص جديد")) },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("إنشاء قالب", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    }
                 }
             }
         }
 
         items(templates, key = { it.id }) { tpl ->
+            val isCurrent = tpl.id == currentTemplateId
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(tpl.primaryColorHex).copy(alpha = 0.4f))
+                shape = RoundedCornerShape(14.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    if (isCurrent) 1.8.dp else 1.dp,
+                    if (isCurrent) BrandCyanPrimary else Color(tpl.primaryColorHex).copy(alpha = 0.35f)
+                )
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(
@@ -309,26 +346,46 @@ private fun TemplatesTabContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text(
-                                text = tpl.name,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = tpl.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                if (isCurrent) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = BrandCyanPrimary.copy(alpha = 0.2f),
+                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, BrandCyanPrimary)
+                                    ) {
+                                        Text(
+                                            text = "محدد حالياً",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = BrandCyanPrimary,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
                             Text(
                                 text = "${tpl.networkName} • ${tpl.priceText} • ${tpl.quotaText}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = Color(tpl.primaryColorHex).copy(alpha = 0.15f),
                             border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(tpl.primaryColorHex))
                         ) {
                             Text(
-                                text = tpl.themePreset.displayNameAr,
+                                text = tpl.themePreset.displayNameAr.split(" ").first(),
                                 fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = Color(tpl.primaryColorHex),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
@@ -337,15 +394,15 @@ private fun TemplatesTabContent(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Small preview card
+                    // Authentic Live Preview
                     CardTicketLivePreview(
                         template = tpl,
-                        sampleUsername = "771234",
-                        samplePassword = "771234",
-                        scale = 0.9f
+                        sampleUsername = "770446",
+                        samplePassword = "770446",
+                        scale = 0.95f
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -357,24 +414,26 @@ private fun TemplatesTabContent(
                                 Icon(Icons.Default.Delete, contentDescription = "حذف", tint = SemanticExpenseRed)
                             }
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
+
                         OutlinedButton(
-                            onClick = { onSelectForEdit(tpl) },
+                            onClick = { onSelectTemplate(tpl) },
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("تعديل في المحرر", fontSize = 12.sp)
+                            Text("تخصيص في المحرر", fontSize = 11.sp)
                         }
+
                         Spacer(modifier = Modifier.width(8.dp))
+
                         Button(
-                            onClick = { onSelectForGenerate(tpl) },
+                            onClick = { onQuickGenerate(tpl) },
                             colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("توليد كروت", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("توليد كروت فوراً", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                     }
                 }
@@ -384,13 +443,14 @@ private fun TemplatesTabContent(
 }
 
 // -------------------------------------------------------------
-// 2. Designer Tab (Live Visual WYSIWYG Editor)
+// 2. Professional Designer Tab (WYSIWYG Live Canvas)
 // -------------------------------------------------------------
 @Composable
-private fun DesignerTabContent(
+private fun ProfessionalDesignerTab(
     template: CardTemplate,
     onUpdate: (CardTemplate) -> Unit,
     onApplyTheme: (CardThemePreset) -> Unit,
+    onApplyCodeStyle: (CodeBoxStyle) -> Unit,
     onSave: () -> Unit
 ) {
     LazyColumn(
@@ -399,32 +459,54 @@ private fun DesignerTabContent(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Sticky Hero Live Preview
         item {
-            Text(
-                text = "المعاينة الحية للكرت (Live WYSIWYG Preview)",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            CardTicketLivePreview(
-                template = template,
-                sampleUsername = "770446",
-                samplePassword = "770446",
-                scale = 1.0f
-            )
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(14.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "المعاينة الحية لبطاقة الكرت (Live Canvas):",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "${template.cardWidthMm} × ${template.cardHeightMm} مم",
+                            fontSize = 11.sp,
+                            color = BrandCyanPrimary,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    CardTicketLivePreview(
+                        template = template,
+                        sampleUsername = "770446",
+                        samplePassword = "770446",
+                        scale = 1.0f
+                    )
+                }
+            }
         }
 
-        // Theme presets
+        // Theme Preset Quick Selector
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "الأنماط اللونية والثيمات الجاهزة:",
+                        text = "اختر الثيم اللوني للكرت (Theme Preset):",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -451,6 +533,7 @@ private fun DesignerTabContent(
                                     text = preset.displayNameAr,
                                     fontSize = 11.sp,
                                     color = if (isCurrent) BrandCyanPrimary else Color.LightGray,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
@@ -460,12 +543,56 @@ private fun DesignerTabContent(
             }
         }
 
-        // Form Fields
+        // Code Box Style Selector
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "ستايل صندوق الكود ورمز الدخول (Code Box Style):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CodeBoxStyle.entries.forEach { style ->
+                            val isCurrent = template.codeBoxStyle == style
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isCurrent) SemanticIncomeGreen.copy(alpha = 0.25f) else CyberDarkSurface,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isCurrent) SemanticIncomeGreen else Color.White.copy(alpha = 0.15f)
+                                ),
+                                modifier = Modifier.clickable { onApplyCodeStyle(style) }
+                            ) {
+                                Text(
+                                    text = style.displayNameAr,
+                                    fontSize = 11.sp,
+                                    color = if (isCurrent) SemanticIncomeGreen else Color.LightGray,
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Data Fields
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
@@ -515,19 +642,28 @@ private fun DesignerTabContent(
                         )
                     }
 
-                    OutlinedTextField(
-                        value = template.hotspotLoginUrl,
-                        onValueChange = { onUpdate(template.copy(hotspotLoginUrl = it)) },
-                        label = { Text("رابط تسجيل دخول الهوتسبوت لرمز الـ QR") },
-                        placeholder = { Text("http://10.50.7.1/login") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = template.supportPhone,
+                            onValueChange = { onUpdate(template.copy(supportPhone = it)) },
+                            label = { Text("رقم خدمة العملاء / الدعم") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = template.hotspotLoginUrl,
+                            onValueChange = { onUpdate(template.copy(hotspotLoginUrl = it)) },
+                            label = { Text("رابط تسجيل دخول الهوتسبوت") },
+                            placeholder = { Text("http://10.50.7.1/login") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
 
                     OutlinedTextField(
                         value = template.footerNote,
                         onValueChange = { onUpdate(template.copy(footerNote = it)) },
-                        label = { Text("الملاحظة السفلية / الدعم الفني") },
+                        label = { Text("التعليمات والملاحظة السفلية") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -540,7 +676,7 @@ private fun DesignerTabContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("إظهار رمز QR للدخول التلقائي الذكي", color = Color.White, fontSize = 12.sp)
+                        Text("إظهار رمز QR للدخول الذكي", color = Color.White, fontSize = 12.sp)
                         Switch(
                             checked = template.showQrCode,
                             onCheckedChange = { onUpdate(template.copy(showQrCode = it)) },
@@ -553,10 +689,10 @@ private fun DesignerTabContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("إظهار السعر والرصيد على الكرت", color = Color.White, fontSize = 12.sp)
+                        Text("إظهار خطوط القص التوجيهية للتقطيع", color = Color.White, fontSize = 12.sp)
                         Switch(
-                            checked = template.showPrice,
-                            onCheckedChange = { onUpdate(template.copy(showPrice = it)) },
+                            checked = template.showCutLines,
+                            onCheckedChange = { onUpdate(template.copy(showCutLines = it)) },
                             colors = SwitchDefaults.colors(checkedThumbColor = BrandCyanPrimary)
                         )
                     }
@@ -583,10 +719,10 @@ private fun DesignerTabContent(
 }
 
 // -------------------------------------------------------------
-// 3. Generator Tab
+// 3. Fast Generator Tab (1-Tap Generation)
 // -------------------------------------------------------------
 @Composable
-private fun GeneratorTabContent(
+private fun FastGeneratorTab(
     uiState: CardStudioUiState,
     template: CardTemplate,
     onUpdateConfig: (String?, Int?, String?, String?, Int?, PasswordPattern?, PrintPageFormat?) -> Unit,
@@ -602,8 +738,7 @@ private fun GeneratorTabContent(
             Card(
                 colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
                 shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.3f)),
-                modifier = Modifier.fillMaxWidth()
+                border = androidx.compose.foundation.BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.3f))
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -613,9 +748,9 @@ private fun GeneratorTabContent(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "${template.name} (${template.networkName}) • ${template.priceText} - ${template.quotaText}",
+                        text = "${template.name} • ${template.priceText} - ${template.quotaText} (${template.themePreset.displayNameAr.split(" ").first()})",
                         color = BrandCyanPrimary,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -625,8 +760,7 @@ private fun GeneratorTabContent(
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
@@ -643,14 +777,14 @@ private fun GeneratorTabContent(
                     )
 
                     // Quick count chips
-                    Text("عدد الكروت المراد توليدها:", color = Color.LightGray, fontSize = 12.sp)
+                    Text("حدد عدد الكروت المطلوب توليدها:", color = Color.LightGray, fontSize = 12.sp)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(20, 50, 100, 200, 500).forEach { count ->
+                        listOf(24, 48, 96, 200, 500).forEach { count ->
                             val isSelected = uiState.batchCountInput == count
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
@@ -662,10 +796,10 @@ private fun GeneratorTabContent(
                                 modifier = Modifier.clickable { onUpdateConfig(null, count, null, null, null, null, null) }
                             ) {
                                 Text(
-                                    text = "$count كرت",
+                                    text = if (count == 24) "24 كرت (صفحة A4)" else if (count == 48) "48 كرت (صفحتين)" else "$count كرت",
                                     color = if (isSelected) BrandCyanPrimary else Color.White,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
                             }
@@ -744,7 +878,7 @@ private fun GeneratorTabContent(
                             Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black)
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "توليد ${uiState.batchCountInput} كرت الآن مع رموز الـ QR",
+                                text = "توليد ${uiState.batchCountInput} كرت الآن مع رموز الـ QR ⚡",
                                 color = Color.Black,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 13.sp
@@ -758,10 +892,10 @@ private fun GeneratorTabContent(
 }
 
 // -------------------------------------------------------------
-// 4. Batches & Print Tab
+// 4. Professional Batches & Printing Tab (A4 Grid & Thermal)
 // -------------------------------------------------------------
 @Composable
-private fun BatchesTabContent(
+private fun ProfessionalBatchesTab(
     batches: List<CardBatch>,
     selectedBatch: CardBatch?,
     onSelectBatch: (CardBatch?) -> Unit,
@@ -770,9 +904,91 @@ private fun BatchesTabContent(
     onDeleteBatch: (String) -> Unit
 ) {
     val context = LocalContext.current
-    var selectedFormat by remember { mutableStateOf(PrintPageFormat.A4_GRID_10) }
+    var selectedFormat by remember { mutableStateOf(PrintPageFormat.A4_GRID_24) }
     var showScriptDialog by remember { mutableStateOf<CardBatch?>(null) }
+    var showPrintDialog by remember { mutableStateOf<CardBatch?>(null) }
 
+    // Print Format Chooser Dialog
+    if (showPrintDialog != null) {
+        val b = showPrintDialog!!
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showPrintDialog = null }) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "خيارات طباعة دفعة #${b.batchNumber}",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "اختر قياس وتنسيق الصفحة المطلوب تصديره:",
+                        fontSize = 11.sp,
+                        color = Color.LightGray
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    PrintPageFormat.entries.forEach { format ->
+                        val isSel = selectedFormat == format
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSel) BrandCyanPrimary.copy(alpha = 0.2f) else CyberDarkSurface,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSel) BrandCyanPrimary else Color.White.copy(alpha = 0.1f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable { selectedFormat = format }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (isSel) Icons.Default.Check else Icons.Default.Print,
+                                    contentDescription = null,
+                                    tint = if (isSel) BrandCyanPrimary else Color.Gray,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = format.displayNameAr,
+                                    fontSize = 12.sp,
+                                    color = if (isSel) BrandCyanPrimary else Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = {
+                            onPrintPdf(b, selectedFormat)
+                            showPrintDialog = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Print, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("إنشاء ومشاركة ملف الـ PDF 🖨️", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+
+    // MikroTik Script Dialog
     if (showScriptDialog != null) {
         val b = showScriptDialog!!
         val script = remember(b) { MikroTikCardProvisioner.generateRouterOsScript(b) }
@@ -794,7 +1010,7 @@ private fun BatchesTabContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "يمكنك نسخ هذا السكربت ولصقه مباشرة في New Terminal بالراوتر:",
+                        text = "انسخ السكربت والصقه في New Terminal، أو شارك ملف .rsc:",
                         fontSize = 11.sp,
                         color = Color.LightGray
                     )
@@ -874,9 +1090,9 @@ private fun BatchesTabContent(
                     ) {
                         Icon(Icons.Default.Print, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(40.dp))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("لا توجد أي دفعات كروت مولدة حتى الآن", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("لا توجد دفعات كروت مولدة حتى الآن", fontWeight = FontWeight.Bold, color = Color.White)
                         Text(
-                            text = "انتقل إلى تبويب \"توليد دفعة جديدة\" لبدء إنشاء كروت الشبكة مع الـ QR.",
+                            text = "انتقل إلى تبويب \"توليد دفعة جديدة\" لبدء إنشاء كروت الشبكة.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center
@@ -887,7 +1103,7 @@ private fun BatchesTabContent(
         } else {
             item {
                 Text(
-                    text = "سجل الدفعات المولدة (${batches.size})",
+                    text = "سجل الدفعات المولدة والطباعة (${batches.size})",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -951,7 +1167,7 @@ private fun BatchesTabContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Button(
-                                onClick = { onPrintPdf(batch, selectedFormat) },
+                                onClick = { showPrintDialog = batch },
                                 colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
                                 shape = RoundedCornerShape(6.dp),
                                 modifier = Modifier.weight(1f)
@@ -977,8 +1193,8 @@ private fun BatchesTabContent(
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (isSelected) Icons.Default.Visibility else Icons.Default.Visibility,
-                                    contentDescription = "عرض",
+                                    imageVector = Icons.Default.Visibility,
+                                    contentDescription = "عرض الكروت",
                                     tint = if (isSelected) BrandCyanPrimary else Color.LightGray
                                 )
                             }
@@ -995,24 +1211,24 @@ private fun BatchesTabContent(
                         AnimatedVisibility(visible = isSelected) {
                             Column(modifier = Modifier.padding(top = 12.dp)) {
                                 Text(
-                                    text = "نماذج من كروت الدفعة:",
+                                    text = "نماذج من كروت الدفعة (${batch.cards.size} كرت):",
                                     fontSize = 11.sp,
                                     color = Color.LightGray,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
-                                batch.cards.take(3).forEach { card ->
+                                batch.cards.take(2).forEach { card ->
                                     CardTicketLivePreview(
                                         template = batch.templateSnapshot,
                                         sampleUsername = card.username,
                                         samplePassword = card.password,
-                                        scale = 0.85f
+                                        scale = 0.9f
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                 }
-                                if (batch.cards.size > 3) {
+                                if (batch.cards.size > 2) {
                                     Text(
-                                        text = "+ ويوجد ${batch.cards.size - 3} كرت إضافي في ملف الـ PDF الجاهز للطباعة",
+                                        text = "+ ويوجد ${batch.cards.size - 2} كرت إضافي في ملف الـ PDF الجاهز للطباعة والتوزيع الشبكي",
                                         fontSize = 10.sp,
                                         color = BrandCyanPrimary
                                     )
@@ -1027,7 +1243,7 @@ private fun BatchesTabContent(
 }
 
 // -------------------------------------------------------------
-// Interactive Live Card Ticket Preview (Component)
+// Interactive Live Card Ticket Preview (Component matching SamMikrotik Web Engine)
 // -------------------------------------------------------------
 @Composable
 fun CardTicketLivePreview(
@@ -1048,124 +1264,272 @@ fun CardTicketLivePreview(
 
     val primaryColor = Color(template.primaryColorHex)
     val bgColor = Color(template.backgroundColorHex)
+    val gradEndColor = Color(template.gradientEndColorHex)
     val textColor = Color(template.textColorHex)
+    val accentColor = Color(template.accentColorHex)
+    val isCleanWhite = template.themePreset == CardThemePreset.CLEAN_WHITE
+
+    val backgroundBrush = if (isCleanWhite) {
+        Brush.linearGradient(listOf(Color.White, Color(0xFFF8FAFC)))
+    } else {
+        Brush.linearGradient(listOf(bgColor, gradEndColor))
+    }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .testTag("card_ticket_live_preview"),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = bgColor),
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, primaryColor)
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = androidx.compose.foundation.BorderStroke(
+            1.5.dp,
+            if (isCleanWhite) Color(0xFFCBD5E1) else primaryColor.copy(alpha = 0.8f)
+        )
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            // Header: Network name & Price
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .background(primaryColor),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Router, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = template.networkName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = (12 * scale).sp,
-                        color = textColor
-                    )
-                }
-
-                if (template.showPrice) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = primaryColor.copy(alpha = 0.2f),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, primaryColor)
-                    ) {
-                        Text(
-                            text = template.priceText,
-                            fontSize = (11 * scale).sp,
-                            fontWeight = FontWeight.Black,
-                            color = primaryColor,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Body: QR on Left, Info on Right
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // QR code
-                if (template.showQrCode && qrBitmap != null) {
-                    Surface(
-                        color = Color.White,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.size((64 * scale).dp)
-                    ) {
-                        Image(
-                            bitmap = qrBitmap.asImageBitmap(),
-                            contentDescription = "QR Code",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(3.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                // Credentials & Quota
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${template.quotaText} • ${template.validityText}",
-                        color = primaryColor,
-                        fontSize = (10 * scale).sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(3.dp))
-
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(backgroundBrush)
+                .padding(10.dp)
+        ) {
+            Column {
+                // Header Row: Network Name with WiFi Icon on Right & Price Pill on Left
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("اسم المستخدم: ", fontSize = (9 * scale).sp, color = textColor.copy(alpha = 0.7f))
+                        Box(
+                            modifier = Modifier
+                                .size((18 * scale).dp)
+                                .clip(CircleShape)
+                                .background(if (isCleanWhite) Color(0xFF0284C7) else primaryColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Wifi,
+                                contentDescription = null,
+                                tint = if (isCleanWhite) Color.White else Color.Black,
+                                modifier = Modifier.size((12 * scale).dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = sampleUsername,
+                            text = template.networkName,
+                            fontWeight = FontWeight.Bold,
                             fontSize = (12 * scale).sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace,
                             color = textColor
                         )
                     }
 
-                    if (samplePassword != sampleUsername) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("كلمة المرور: ", fontSize = (9 * scale).sp, color = textColor.copy(alpha = 0.7f))
+                    if (template.showPrice) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(template.badgeBgColorHex),
+                            shadowElevation = 2.dp
+                        ) {
                             Text(
-                                text = samplePassword,
-                                fontSize = (12 * scale).sp,
+                                text = template.priceText,
+                                fontSize = (11 * scale).sp,
                                 fontWeight = FontWeight.Black,
+                                color = Color(template.badgeTextColorHex),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height((6 * scale).dp))
+
+                // Middle Row: QR Code on Left, Credentials & Quota on Right
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // QR Code in high contrast container
+                    if (template.showQrCode && qrBitmap != null) {
+                        Surface(
+                            color = Color.White,
+                            shape = RoundedCornerShape(8.dp),
+                            shadowElevation = 2.dp,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33000000)),
+                            modifier = Modifier.size((64 * scale).dp)
+                        ) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "QR Code",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(3.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // Column: Quota, Code Box according to style, and serial
+                    Column(modifier = Modifier.weight(1f)) {
+                        // Quota & Validity
+                        Text(
+                            text = "${template.quotaText} • ${template.validityText}",
+                            color = if (isCleanWhite) Color(0xFF0284C7) else primaryColor,
+                            fontSize = (10 * scale).sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(3.dp))
+
+                        // Render Code Box according to selected style
+                        when (template.codeBoxStyle) {
+                            CodeBoxStyle.PILL_BADGE -> {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isCleanWhite) Color(0xFFF1F5F9) else primaryColor.copy(alpha = 0.2f),
+                                    border = androidx.compose.foundation.BorderStroke(1.2.dp, primaryColor)
+                                ) {
+                                    Text(
+                                        text = sampleUsername,
+                                        fontSize = (12 * scale).sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = textColor,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            CodeBoxStyle.SPLIT_DIGITS -> {
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    sampleUsername.forEach { ch ->
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = if (isCleanWhite) Color(0xFFF8FAFC) else Color(0xFF090E1F),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor)
+                                        ) {
+                                            Text(
+                                                text = ch.toString(),
+                                                fontSize = (11 * scale).sp,
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = textColor,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            CodeBoxStyle.SCRATCH_FOIL -> {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFFD97706),
+                                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFFDE68A))
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(11.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = sampleUsername,
+                                            fontSize = (11 * scale).sp,
+                                            fontWeight = FontWeight.Black,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                            CodeBoxStyle.TICKET_DASHED -> {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isCleanWhite) Color.White else Color(0x22FFFFFF),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor)
+                                ) {
+                                    Text(
+                                        text = sampleUsername,
+                                        fontSize = (12 * scale).sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = textColor,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            else -> {
+                                // MODERN_BOX
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isCleanWhite) Color(0xFFF1F5F9) else Color(0x33000000),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, primaryColor.copy(alpha = 0.6f))
+                                ) {
+                                    Text(
+                                        text = sampleUsername,
+                                        fontSize = (12 * scale).sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = textColor,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (samplePassword != sampleUsername) {
+                            Text(
+                                text = "PIN: $samplePassword",
+                                fontSize = (9 * scale).sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = textColor
+                                color = textColor.copy(alpha = 0.8f)
+                            )
+                        }
+
+                        // Serial number
+                        if (template.showSerialNumber) {
+                            Text(
+                                text = "SN: 000142",
+                                fontSize = (7.5 * scale).sp,
+                                color = textColor.copy(alpha = 0.6f),
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height((5 * scale).dp))
+
+                // Footer Row: Support phone on Right & Scan QR note on Left
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (template.showSupportPhone && template.supportPhone.isNotBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Phone,
+                                contentDescription = null,
+                                tint = if (isCleanWhite) Color(0xFF0284C7) else primaryColor,
+                                modifier = Modifier.size((10 * scale).dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = template.supportPhone,
+                                fontSize = (8 * scale).sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor.copy(alpha = 0.85f),
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                     }
 
                     Text(
-                        text = "امسح الرمز للدخول الفوري للشبكة",
-                        fontSize = (8 * scale).sp,
-                        color = textColor.copy(alpha = 0.6f)
+                        text = template.footerNote,
+                        fontSize = (7.5 * scale).sp,
+                        color = textColor.copy(alpha = 0.65f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

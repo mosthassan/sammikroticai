@@ -8,6 +8,7 @@ import com.example.data.card.CardBatch
 import com.example.data.card.CardStudioRepository
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
+import com.example.data.card.CodeBoxStyle
 import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
 import com.example.util.CardPdfDocumentGenerator
@@ -27,7 +28,7 @@ enum class CardStudioTab(val titleAr: String) {
     TEMPLATES("القوالب الجاهزة"),
     DESIGNER("المحرر المرئي"),
     GENERATOR("توليد دفعة جديدة"),
-    BATCHES("الدفعات المولدة والطباعة")
+    BATCHES("الدفعات والطباعة")
 }
 
 data class CardStudioUiState(
@@ -36,12 +37,12 @@ data class CardStudioUiState(
     val isGenerating: Boolean = false,
     val selectedBatchForPreview: CardBatch? = null,
     val batchTitleInput: String = "دفعة إنترنت فئة 500",
-    val batchCountInput: Int = 50,
+    val batchCountInput: Int = 24,
     val batchProfileInput: String = "2G_1W",
     val batchPrefixInput: String = "77",
     val batchUserLengthInput: Int = 6,
     val batchPasswordPattern: PasswordPattern = PasswordPattern.SAME_AS_USERNAME,
-    val selectedPrintFormat: PrintPageFormat = PrintPageFormat.A4_GRID_10,
+    val selectedPrintFormat: PrintPageFormat = PrintPageFormat.A4_GRID_24,
     val generatedPdfFile: File? = null
 )
 
@@ -62,7 +63,6 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     val userMessage: SharedFlow<String> = _userMessage.asSharedFlow()
 
     init {
-        // Initialize editing template with first template once available
         viewModelScope.launch {
             repository.templates.collect { list ->
                 if (list.isNotEmpty() && _uiState.value.editingTemplate.id == CardTemplate().id) {
@@ -92,33 +92,76 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         val updated = when (preset) {
             CardThemePreset.CYBER_NEON -> current.copy(
                 themePreset = preset,
-                primaryColorHex = 0xFF00E5FF,
-                backgroundColorHex = 0xFF0F172A,
+                primaryColorHex = 0xFF00F0FF,
+                backgroundColorHex = 0xFF080318,
+                gradientEndColorHex = 0xFF12062B,
                 textColorHex = 0xFFFFFFFF,
-                accentColorHex = 0xFF00E5FF
+                accentColorHex = 0xFFFF007F,
+                badgeBgColorHex = 0xFF00F0FF,
+                badgeTextColorHex = 0xFF000000,
+                codeBoxStyle = CodeBoxStyle.PILL_BADGE
             )
-            CardThemePreset.GOLDEN_LUXURY -> current.copy(
+            CardThemePreset.ROYAL_GOLD -> current.copy(
                 themePreset = preset,
-                primaryColorHex = 0xFFFFD700,
-                backgroundColorHex = 0xFF181824,
-                textColorHex = 0xFFFFF8E7,
-                accentColorHex = 0xFFFFB300
+                primaryColorHex = 0xFFEAB308,
+                backgroundColorHex = 0xFF0C0A09,
+                gradientEndColorHex = 0xFF1C1917,
+                textColorHex = 0xFFFEF08A,
+                accentColorHex = 0xFFCA8A04,
+                badgeBgColorHex = 0xFFEAB308,
+                badgeTextColorHex = 0xFF000000,
+                codeBoxStyle = CodeBoxStyle.MODERN_BOX
             )
-            CardThemePreset.CLEAN_INK_SAVER -> current.copy(
+            CardThemePreset.CORPORATE_BLUE -> current.copy(
+                themePreset = preset,
+                primaryColorHex = 0xFF38BDF8,
+                backgroundColorHex = 0xFF071322,
+                gradientEndColorHex = 0xFF0F2744,
+                textColorHex = 0xFFFFFFFF,
+                accentColorHex = 0xFF0284C7,
+                badgeBgColorHex = 0xFF0284C7,
+                badgeTextColorHex = 0xFFFFFFFF,
+                codeBoxStyle = CodeBoxStyle.TICKET_DASHED
+            )
+            CardThemePreset.CLEAN_WHITE -> current.copy(
                 themePreset = preset,
                 primaryColorHex = 0xFF0284C7,
                 backgroundColorHex = 0xFFFFFFFF,
+                gradientEndColorHex = 0xFFF8FAFC,
                 textColorHex = 0xFF0F172A,
-                accentColorHex = 0xFF0284C7
+                accentColorHex = 0xFF64748B,
+                badgeBgColorHex = 0xFF0F172A,
+                badgeTextColorHex = 0xFFFFFFFF,
+                codeBoxStyle = CodeBoxStyle.MODERN_BOX
             )
-            CardThemePreset.TECH_DARK -> current.copy(
+            CardThemePreset.SPORT_SPEED -> current.copy(
                 themePreset = preset,
-                primaryColorHex = 0xFF10B981,
-                backgroundColorHex = 0xFF050505,
-                textColorHex = 0xFFE2E8F0,
-                accentColorHex = 0xFF34D399
+                primaryColorHex = 0xFFEA580C,
+                backgroundColorHex = 0xFF141418,
+                gradientEndColorHex = 0xFF202028,
+                textColorHex = 0xFFFFFFFF,
+                accentColorHex = 0xFFF59E0B,
+                badgeBgColorHex = 0xFFEA580C,
+                badgeTextColorHex = 0xFFFFFFFF,
+                codeBoxStyle = CodeBoxStyle.MODERN_BOX
+            )
+            CardThemePreset.SCRATCH_CARD -> current.copy(
+                themePreset = preset,
+                primaryColorHex = 0xFFF59E0B,
+                backgroundColorHex = 0xFF1E293B,
+                gradientEndColorHex = 0xFF0F172A,
+                textColorHex = 0xFFFFFFFF,
+                accentColorHex = 0xFFD97706,
+                badgeBgColorHex = 0xFFF59E0B,
+                badgeTextColorHex = 0xFF000000,
+                codeBoxStyle = CodeBoxStyle.SCRATCH_FOIL
             )
         }
+        _uiState.value = _uiState.value.copy(editingTemplate = updated)
+    }
+
+    fun applyCodeBoxStyle(style: CodeBoxStyle) {
+        val updated = _uiState.value.editingTemplate.copy(codeBoxStyle = style)
         _uiState.value = _uiState.value.copy(editingTemplate = updated)
     }
 
@@ -126,6 +169,13 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             repository.saveTemplate(_uiState.value.editingTemplate)
             _userMessage.emit("تم حفظ قالب الكروت بنجاح")
+        }
+    }
+
+    fun resetTemplatesToDefault() {
+        viewModelScope.launch {
+            repository.resetToDefaultTemplates()
+            _userMessage.emit("تمت استعادة القوالب الافتراضية بنجاح")
         }
     }
 

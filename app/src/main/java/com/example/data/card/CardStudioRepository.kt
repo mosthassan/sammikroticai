@@ -15,9 +15,8 @@ import java.security.SecureRandom
 import java.util.UUID
 
 /**
- * Offline-first repository for Hotspot Card Templates and Generated Batches.
- * Stores templates and batches securely in app local storage without touching
- * the accounting ledger database.
+ * Offline-first repository for Hotspot Card Templates and Batches.
+ * Stores templates and batches with rich presets matching SamMikrotik Web Engine.
  */
 class CardStudioRepository(
     private val context: Context,
@@ -75,6 +74,12 @@ class CardStudioRepository(
         saveTemplatesSync(current)
     }
 
+    suspend fun resetToDefaultTemplates() = withContext(ioDispatcher) {
+        val defaults = getInitialTemplates()
+        _templates.value = defaults
+        saveTemplatesSync(defaults)
+    }
+
     suspend fun deleteTemplate(templateId: String) = withContext(ioDispatcher) {
         val current = _templates.value.filterNot { it.id == templateId }
         _templates.value = current
@@ -123,6 +128,7 @@ class CardStudioRepository(
                     quotaText = template.quotaText,
                     validityText = template.validityText,
                     networkName = template.networkName,
+                    supportPhone = template.supportPhone,
                     loginUrlWithCredentials = loginUrl,
                     batchId = batchId
                 )
@@ -187,8 +193,7 @@ class CardStudioRepository(
     }
 
     private fun generateRandomAlphanumeric(length: Int): String {
-        // Exclude ambiguous chars like 0, O, 1, I, l
-        val chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz"
+        val chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
         val sb = StringBuilder(length)
         for (i in 0 until length) {
             sb.append(chars[secureRandom.nextInt(chars.length)])
@@ -212,55 +217,112 @@ class CardStudioRepository(
         } catch (_: Exception) {}
     }
 
-    private fun getInitialTemplates(): List<CardTemplate> {
+    fun getInitialTemplates(): List<CardTemplate> {
         return listOf(
             CardTemplate(
-                id = "tpl_cyber_neon",
-                name = "قالب سايبر نيون المتطور",
+                id = "tpl_cyber_neon_2026",
+                name = "سايبر نيون 2026 (Cyber Neon)",
                 networkName = "شبكة سام ميكروتك",
                 priceText = "500 ر.ي",
                 quotaText = "2 جيجابايت",
                 validityText = "صلاحية 7 أيام",
                 headline = "إنترنت فائق السرعة",
-                footerNote = "للدعم اتصل على خدمة العملاء",
+                footerNote = "امسح الرمز أو ادخل الكود للاتصال الفوري",
+                supportPhone = "770446040",
                 hotspotLoginUrl = "http://10.50.7.1/login",
-                primaryColorHex = 0xFF00E5FF,
-                backgroundColorHex = 0xFF0F172A,
+                primaryColorHex = 0xFF00F0FF,
+                backgroundColorHex = 0xFF080318,
+                gradientEndColorHex = 0xFF12062B,
                 textColorHex = 0xFFFFFFFF,
-                accentColorHex = 0xFF00E5FF,
+                accentColorHex = 0xFFFF007F,
+                badgeBgColorHex = 0xFF00F0FF,
+                badgeTextColorHex = 0xFF000000,
+                codeBoxStyle = CodeBoxStyle.PILL_BADGE,
                 themePreset = CardThemePreset.CYBER_NEON
             ),
             CardTemplate(
-                id = "tpl_golden_luxury",
-                name = "قالب ذهبي ملكي",
+                id = "tpl_royal_gold_vip",
+                name = "ذهب ملكي VIP (Royal Gold)",
                 networkName = "الشبكة الذهبية VIP",
                 priceText = "1,000 ر.ي",
                 quotaText = "5 جيجابايت",
                 validityText = "صلاحية 15 يوم",
                 headline = "باقة كبار الشخصيات",
-                footerNote = "شكراً لاختياركم شبكتنا",
+                footerNote = "شكراً لاختياركم شبكتنا المتميزة",
+                supportPhone = "770446040",
                 hotspotLoginUrl = "http://wifi.net/login",
-                primaryColorHex = 0xFFFFD700,
-                backgroundColorHex = 0xFF1A1A24,
-                textColorHex = 0xFFFFF8E7,
-                accentColorHex = 0xFFFFC107,
-                themePreset = CardThemePreset.GOLDEN_LUXURY
+                primaryColorHex = 0xFFEAB308,
+                backgroundColorHex = 0xFF0C0A09,
+                gradientEndColorHex = 0xFF1C1917,
+                textColorHex = 0xFFFEF08A,
+                accentColorHex = 0xFFCA8A04,
+                badgeBgColorHex = 0xFFEAB308,
+                badgeTextColorHex = 0xFF000000,
+                codeBoxStyle = CodeBoxStyle.MODERN_BOX,
+                themePreset = CardThemePreset.ROYAL_GOLD
             ),
             CardTemplate(
-                id = "tpl_clean_print",
-                name = "قالب أبيض موفر للحبر (للطباعة)",
-                networkName = "سام نت للإنترنت",
+                id = "tpl_corporate_blue",
+                name = "أزرق فايبر كلاسيك (Fiber Blue)",
+                networkName = "سام نت للإنترنت اللاسلكي",
+                priceText = "300 ر.ي",
+                quotaText = "1.5 جيجابايت",
+                validityText = "صلاحية 3 أيام",
+                headline = "اتصال مستقر بلا انقطاع",
+                footerNote = "خدمة العملاء متاحة 24/7",
+                supportPhone = "770446040",
+                hotspotLoginUrl = "http://10.50.7.1/login",
+                primaryColorHex = 0xFF38BDF8,
+                backgroundColorHex = 0xFF071322,
+                gradientEndColorHex = 0xFF0F2744,
+                textColorHex = 0xFFFFFFFF,
+                accentColorHex = 0xFF0284C7,
+                badgeBgColorHex = 0xFF0284C7,
+                badgeTextColorHex = 0xFFFFFFFF,
+                codeBoxStyle = CodeBoxStyle.TICKET_DASHED,
+                themePreset = CardThemePreset.CORPORATE_BLUE
+            ),
+            CardTemplate(
+                id = "tpl_clean_print_economy",
+                name = "أبيض ناصع 300DPI (موفر للحبر)",
+                networkName = "شبكة الواي فاي العامة",
                 priceText = "200 ر.ي",
                 quotaText = "1 جيجابايت",
                 validityText = "صلاحية 24 ساعة",
-                headline = "كرت إنترنت يومي",
-                footerNote = "امسح الكود للدخول المباشر",
+                headline = "كرت إنترنت يومي اقتصادي",
+                footerNote = "امسح الرمز بكاميرا الهاتف",
+                supportPhone = "770446040",
                 hotspotLoginUrl = "http://10.50.7.1/login",
                 primaryColorHex = 0xFF0284C7,
                 backgroundColorHex = 0xFFFFFFFF,
+                gradientEndColorHex = 0xFFF8FAFC,
                 textColorHex = 0xFF0F172A,
-                accentColorHex = 0xFF0284C7,
-                themePreset = CardThemePreset.CLEAN_INK_SAVER
+                accentColorHex = 0xFF64748B,
+                badgeBgColorHex = 0xFF0F172A,
+                badgeTextColorHex = 0xFFFFFFFF,
+                codeBoxStyle = CodeBoxStyle.MODERN_BOX,
+                themePreset = CardThemePreset.CLEAN_WHITE
+            ),
+            CardTemplate(
+                id = "tpl_scratch_card",
+                name = "كرت كشط أمني (Scratch Card)",
+                networkName = "بطاقة شحن الرصيد الفوري",
+                priceText = "500 ر.ي",
+                quotaText = "2 جيجابايت",
+                validityText = "صلاحية 7 أيام",
+                headline = "امسح الشريط برفق للكشف عن الكود",
+                footerNote = "لا تقبل البطاقة إذا كان الشريط مكشوطاً",
+                supportPhone = "770446040",
+                hotspotLoginUrl = "http://10.50.7.1/login",
+                primaryColorHex = 0xFFF59E0B,
+                backgroundColorHex = 0xFF1E293B,
+                gradientEndColorHex = 0xFF0F172A,
+                textColorHex = 0xFFFFFFFF,
+                accentColorHex = 0xFFD97706,
+                badgeBgColorHex = 0xFFF59E0B,
+                badgeTextColorHex = 0xFF000000,
+                codeBoxStyle = CodeBoxStyle.SCRATCH_FOIL,
+                themePreset = CardThemePreset.SCRATCH_CARD
             )
         )
     }

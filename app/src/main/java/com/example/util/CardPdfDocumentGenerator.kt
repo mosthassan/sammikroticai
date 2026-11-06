@@ -6,12 +6,17 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
 import com.example.data.card.CardBatch
+import com.example.data.card.CardTemplate
+import com.example.data.card.CardThemePreset
+import com.example.data.card.CodeBoxStyle
 import com.example.data.card.GeneratedCard
 import com.example.data.card.PrintPageFormat
 import java.io.File
@@ -21,8 +26,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * High-Resolution Multi-Card PDF Generator.
- * Produces crisp, print-ready PDF sheets for standard A4 printers and 80mm thermal rolls.
+ * High-Resolution Multi-Card PDF Generator matching SamMikrotik Web Engine.
+ * Supports A4 24-card grid (3x8), 18-card grid (3x6), 10-card grid (2x5),
+ * and 80mm thermal rolls with rich theme-faithful rendering and cutting marks.
  */
 object CardPdfDocumentGenerator {
 
@@ -30,54 +36,41 @@ object CardPdfDocumentGenerator {
     private const val A4_HEIGHT_POINTS = 842  // 72 points/inch * 11.69 inches
     private const val THERMAL_80MM_WIDTH = 226
 
-    /**
-     * Generates a printable PDF file containing all cards in the batch.
-     */
     fun generateBatchPdf(
         context: Context,
         batch: CardBatch,
-        pageFormat: PrintPageFormat = PrintPageFormat.A4_GRID_10
+        pageFormat: PrintPageFormat = PrintPageFormat.A4_GRID_24
     ): File {
         val document = PdfDocument()
         val cards = batch.cards
         val template = batch.templateSnapshot
 
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             typeface = Typeface.DEFAULT_BOLD
         }
-        val subTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.DKGRAY
-            typeface = Typeface.DEFAULT
-        }
         val cutLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.LTGRAY
             style = Paint.Style.STROKE
-            strokeWidth = 1f
-            pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
+            strokeWidth = 0.75f
+            pathEffect = DashPathEffect(floatArrayOf(4f, 3f), 0f)
         }
 
         if (pageFormat == PrintPageFormat.THERMAL_ROLL_80MM) {
-            // Thermal roll: Each card is one ticket page
             val ticketHeight = 220
             cards.forEachIndexed { index, card ->
                 val pageInfo = PdfDocument.PageInfo.Builder(THERMAL_80MM_WIDTH, ticketHeight, index + 1).create()
                 val page = document.startPage(pageInfo)
-                val canvas = page.canvas
-
-                drawSingleThermalCard(canvas, card, template, THERMAL_80MM_WIDTH.toFloat(), ticketHeight.toFloat())
-
+                drawThermalCard(page.canvas, card, template, THERMAL_80MM_WIDTH.toFloat(), ticketHeight.toFloat())
                 document.finishPage(page)
             }
         } else {
-            // Standard A4 Grid mode (10 cards: 2 cols x 5 rows)
-            val cols = 2
-            val rows = 5
+            val cols = pageFormat.cols
+            val rows = pageFormat.rows
             val cardsPerPage = cols * rows
 
-            val marginH = 20f
-            val marginV = 28f
+            val marginH = 16f
+            val marginV = 22f
             val gridWidth = A4_WIDTH_POINTS - (marginH * 2)
             val gridHeight = A4_HEIGHT_POINTS - (marginV * 2)
 
@@ -91,17 +84,15 @@ object CardPdfDocumentGenerator {
                 val page = document.startPage(pageInfo)
                 val canvas = page.canvas
 
-                // Draw Page Header & Batch Metadata
-                paint.color = Color.parseColor("#0F172A")
-                paint.style = Paint.Style.FILL
+                // Header info
                 textPaint.color = Color.parseColor("#0F172A")
-                textPaint.textSize = 10f
+                textPaint.textSize = 8.5f
                 textPaint.textAlign = Paint.Align.LEFT
-                canvas.drawText("SamMikrotik Card Studio - دفعة #${batch.batchNumber} (${batch.batchTitle})", marginH, 18f, textPaint)
+                canvas.drawText("SamMikrotik Card Studio - دفعة #${batch.batchNumber} (${batch.batchTitle})", marginH, 14f, textPaint)
 
                 textPaint.textAlign = Paint.Align.RIGHT
                 val dateStr = SimpleDateFormat("yyyy/MM/dd", Locale.US).format(Date(batch.createdAt))
-                canvas.drawText("صفحة ${pageIndex + 1} من $totalPages | $dateStr", A4_WIDTH_POINTS - marginH, 18f, textPaint)
+                canvas.drawText("صفحة ${pageIndex + 1} من $totalPages • ${cards.size} كرت • $dateStr", A4_WIDTH_POINTS - marginH, 14f, textPaint)
 
                 val startIndex = pageIndex * cardsPerPage
                 val endIndex = kotlin.math.min(startIndex + cardsPerPage, cards.size)
@@ -116,11 +107,12 @@ object CardPdfDocumentGenerator {
                     val right = left + cardWidth
                     val bottom = top + cardHeight
 
-                    val cardRect = RectF(left + 4f, top + 4f, right - 4f, bottom - 4f)
-                    drawSingleA4Card(canvas, cards[i], template, cardRect)
+                    val cardRect = RectF(left + 2f, top + 2f, right - 2f, bottom - 2f)
+                    drawA4Card(canvas, cards[i], template, cardRect, pageFormat)
 
-                    // Draw cutting guide lines
-                    canvas.drawRect(left, top, right, bottom, cutLinePaint)
+                    if (template.showCutLines) {
+                        canvas.drawRect(left, top, right, bottom, cutLinePaint)
+                    }
                 }
 
                 document.finishPage(page)
@@ -137,134 +129,218 @@ object CardPdfDocumentGenerator {
         return file
     }
 
-    private fun drawSingleA4Card(
+    private fun drawA4Card(
         canvas: Canvas,
         card: GeneratedCard,
-        template: com.example.data.card.CardTemplate,
-        rect: RectF
+        template: CardTemplate,
+        rect: RectF,
+        format: PrintPageFormat
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val isCleanWhite = template.themePreset == CardThemePreset.CLEAN_WHITE
 
-        // Card Cardboard Background
-        paint.color = Color.WHITE
-        paint.style = Paint.Style.FILL
-        canvas.drawRoundRect(rect, 8f, 8f, paint)
+        // 1. Background Fill (Solid or Gradient)
+        if (isCleanWhite) {
+            paint.color = Color.WHITE
+            paint.shader = null
+            canvas.drawRoundRect(rect, 6f, 6f, paint)
 
-        // Card Border
-        paint.color = Color.parseColor("#CBD5E1") // Slate border
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.2f
-        canvas.drawRoundRect(rect, 8f, 8f, paint)
-
-        // Top Header Banner
-        val headerHeight = 26f
-        val headerRect = RectF(rect.left, rect.top, rect.right, rect.top + headerHeight)
-        paint.color = Color.parseColor("#0F172A")
-        paint.style = Paint.Style.FILL
-        canvas.drawRoundRect(headerRect, 8f, 8f, paint)
-        // Square bottom corners for header
-        canvas.drawRect(RectF(rect.left, rect.top + 10f, rect.right, rect.top + headerHeight), paint)
-
-        // Header Title (Network Name)
-        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 11f
-            typeface = Typeface.DEFAULT_BOLD
-            textAlign = Paint.Align.RIGHT
-        }
-        canvas.drawText(card.networkName, rect.right - 10f, rect.top + 17f, titlePaint)
-
-        // Price badge in header
-        val priceBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#00E5FF")
-            textSize = 10f
-            typeface = Typeface.DEFAULT_BOLD
-            textAlign = Paint.Align.LEFT
-        }
-        canvas.drawText(card.priceText, rect.left + 10f, rect.top + 17f, priceBadgePaint)
-
-        // QR Code on Left side
-        val qrSize = (rect.height() - headerHeight - 16f).toInt()
-        val qrLeft = rect.left + 10f
-        val qrTop = rect.top + headerHeight + 8f
-
-        try {
-            val qrBitmap = QrCodeGenerator.generateQrBitmap(
-                content = card.loginUrlWithCredentials,
-                sizePx = qrSize
+            paint.color = Color.parseColor("#CBD5E1")
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1f
+            canvas.drawRoundRect(rect, 6f, 6f, paint)
+            paint.style = Paint.Style.FILL
+        } else {
+            val bgShader = LinearGradient(
+                rect.left, rect.top, rect.right, rect.bottom,
+                template.backgroundColorHex.toInt(),
+                template.gradientEndColorHex.toInt(),
+                Shader.TileMode.CLAMP
             )
-            canvas.drawBitmap(qrBitmap, qrLeft, qrTop, null)
-        } catch (_: Exception) {}
+            paint.shader = bgShader
+            paint.style = Paint.Style.FILL
+            canvas.drawRoundRect(rect, 6f, 6f, paint)
+            paint.shader = null
 
-        // Credentials & Quota details on Right side
-        val contentLeft = qrLeft + qrSize + 12f
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 10f
-            textAlign = Paint.Align.RIGHT
+            // Subtle border
+            paint.color = template.primaryColorHex.toInt()
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.2f
+            canvas.drawRoundRect(rect, 6f, 6f, paint)
+            paint.style = Paint.Style.FILL
+        }
+
+        val w = rect.width()
+        val h = rect.height()
+        val isCompact = format == PrintPageFormat.A4_GRID_24
+
+        // 2. Top Header Bar
+        val headerHeight = if (isCompact) 18f else 22f
+        val headerRect = RectF(rect.left, rect.top, rect.right, rect.top + headerHeight)
+
+        if (isCleanWhite) {
+            paint.color = Color.parseColor("#F1F5F9")
+            canvas.drawRoundRect(headerRect, 6f, 6f, paint)
+            canvas.drawRect(RectF(rect.left, rect.top + 6f, rect.right, rect.top + headerHeight), paint)
+        } else {
+            paint.color = Color.BLACK
+            paint.alpha = 80
+            canvas.drawRoundRect(headerRect, 6f, 6f, paint)
+            canvas.drawRect(RectF(rect.left, rect.top + 6f, rect.right, rect.top + headerHeight), paint)
+            paint.alpha = 255
+        }
+
+        // Network Name (Right side of header)
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (isCleanWhite) Color.parseColor("#0F172A") else Color.WHITE
+            textSize = if (isCompact) 8f else 10f
             typeface = Typeface.DEFAULT_BOLD
-        }
-        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#64748B")
-            textSize = 8.5f
             textAlign = Paint.Align.RIGHT
-            typeface = Typeface.DEFAULT
         }
-        val credValuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#0F172A")
-            textSize = 12f
-            textAlign = Paint.Align.RIGHT
-            typeface = Typeface.MONOSPACE
+        canvas.drawText(card.networkName, rect.right - 6f, rect.top + headerHeight - 6f, titlePaint)
+
+        // Price Badge (Left side of header)
+        if (template.showPrice) {
+            val badgeWidth = if (isCompact) 40f else 48f
+            val badgeRect = RectF(rect.left + 5f, rect.top + 2f, rect.left + 5f + badgeWidth, rect.top + headerHeight - 2f)
+            paint.color = template.badgeBgColorHex.toInt()
+            canvas.drawRoundRect(badgeRect, 4f, 4f, paint)
+
+            val pricePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = template.badgeTextColorHex.toInt()
+                textSize = if (isCompact) 7.5f else 9f
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText(card.priceText, badgeRect.centerX(), badgeRect.centerY() + 3f, pricePaint)
         }
 
-        var currentY = rect.top + headerHeight + 20f
+        // 3. Middle Body: QR Code on Left, Credentials on Right
+        val qrSize = (h - headerHeight - 16f).toInt().coerceIn(24, 60)
+        val qrLeft = rect.left + 6f
+        val qrTop = rect.top + headerHeight + 4f
+
+        if (template.showQrCode) {
+            try {
+                // Draw QR container background
+                paint.color = Color.WHITE
+                canvas.drawRoundRect(RectF(qrLeft, qrTop, qrLeft + qrSize, qrTop + qrSize), 4f, 4f, paint)
+
+                val qrBitmap = QrCodeGenerator.generateQrBitmap(
+                    content = card.loginUrlWithCredentials,
+                    sizePx = qrSize
+                )
+                canvas.drawBitmap(qrBitmap, qrLeft, qrTop, null)
+            } catch (_: Exception) {}
+        }
+
+        // Info Column on Right
+        val infoRight = rect.right - 6f
+        var currentY = rect.top + headerHeight + 11f
 
         // Quota & Validity
-        if (card.quotaText.isNotBlank() || card.validityText.isNotBlank()) {
-            val quotaStr = listOf(card.quotaText, card.validityText).filter { it.isNotBlank() }.joinToString(" • ")
-            val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#0284C7")
-                textSize = 9.5f
-                textAlign = Paint.Align.RIGHT
-                typeface = Typeface.DEFAULT_BOLD
-            }
-            canvas.drawText(quotaStr, rect.right - 10f, currentY, badgePaint)
-            currentY += 16f
-        }
-
-        // Username
-        canvas.drawText("اسم المستخدم (Username):", rect.right - 10f, currentY, labelPaint)
-        currentY += 13f
-        canvas.drawText(card.username, rect.right - 10f, currentY, credValuePaint)
-        currentY += 16f
-
-        // Password (if different)
-        if (card.password.isNotBlank() && card.password != card.username) {
-            canvas.drawText("كلمة المرور (Password):", rect.right - 10f, currentY, labelPaint)
-            currentY += 13f
-            canvas.drawText(card.password, rect.right - 10f, currentY, credValuePaint)
-            currentY += 16f
-        }
-
-        // Scan QR instruction
-        val instructPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#475569")
-            textSize = 8f
+        val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (isCleanWhite) Color.parseColor("#0284C7") else template.primaryColorHex.toInt()
+            textSize = if (isCompact) 6.5f else 8f
+            typeface = Typeface.DEFAULT_BOLD
             textAlign = Paint.Align.RIGHT
-            typeface = Typeface.DEFAULT
         }
-        canvas.drawText("امسح الرمز بكاميرا هاتفك للدخول الفوري", rect.right - 10f, rect.bottom - 8f, instructPaint)
+        val metaStr = listOf(card.quotaText, card.validityText).filter { it.isNotBlank() }.joinToString(" • ")
+        if (metaStr.isNotBlank()) {
+            canvas.drawText(metaStr, infoRight, currentY, metaPaint)
+            currentY += if (isCompact) 9f else 11f
+        }
+
+        // Code Box (User & Password)
+        val boxWidth = if (template.showQrCode) (w - qrSize - 20f) else (w - 14f)
+        val boxHeight = if (isCompact) 18f else 22f
+        val boxRect = RectF(infoRight - boxWidth, currentY, infoRight, currentY + boxHeight)
+
+        // Draw Code Box background according to CodeBoxStyle
+        when (template.codeBoxStyle) {
+            CodeBoxStyle.PILL_BADGE -> {
+                paint.color = if (isCleanWhite) Color.parseColor("#F1F5F9") else 0x3300F0FF.toInt()
+                canvas.drawRoundRect(boxRect, boxHeight / 2, boxHeight / 2, paint)
+                paint.color = template.primaryColorHex.toInt()
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1f
+                canvas.drawRoundRect(boxRect, boxHeight / 2, boxHeight / 2, paint)
+                paint.style = Paint.Style.FILL
+            }
+            CodeBoxStyle.SCRATCH_FOIL -> {
+                paint.color = Color.parseColor("#D97706") // Gold foil look
+                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
+                paint.color = Color.parseColor("#FDE68A")
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 0.8f
+                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
+                paint.style = Paint.Style.FILL
+            }
+            CodeBoxStyle.TICKET_DASHED -> {
+                paint.color = if (isCleanWhite) Color.WHITE else 0x22FFFFFF.toInt()
+                canvas.drawRoundRect(boxRect, 3f, 3f, paint)
+                paint.color = template.primaryColorHex.toInt()
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1f
+                paint.pathEffect = DashPathEffect(floatArrayOf(3f, 2f), 0f)
+                canvas.drawRoundRect(boxRect, 3f, 3f, paint)
+                paint.pathEffect = null
+                paint.style = Paint.Style.FILL
+            }
+            else -> {
+                // MODERN_BOX or SPLIT_DIGITS
+                paint.color = if (isCleanWhite) Color.parseColor("#F8FAFC") else 0x330F172A.toInt()
+                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
+                paint.color = if (isCleanWhite) Color.parseColor("#CBD5E1") else template.primaryColorHex.toInt()
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1f
+                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
+                paint.style = Paint.Style.FILL
+            }
+        }
+
+        // Code text inside box
+        val codeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (template.codeBoxStyle == CodeBoxStyle.SCRATCH_FOIL) Color.WHITE
+                    else if (isCleanWhite) Color.parseColor("#0F172A")
+                    else Color.WHITE
+            textSize = if (isCompact) 8.5f else 11f
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.CENTER
+        }
+        val displayCode = if (card.password != card.username) "${card.username} : ${card.password}" else card.username
+        canvas.drawText(displayCode, boxRect.centerX(), boxRect.centerY() + 3.5f, codeTextPaint)
+
+        // 4. Footer Row
+        val footerY = rect.bottom - 4f
+        val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (isCleanWhite) Color.parseColor("#64748B") else 0xB3FFFFFF.toInt()
+            textSize = if (isCompact) 5.5f else 6.5f
+            textAlign = Paint.Align.RIGHT
+        }
+        val phoneStr = if (template.showSupportPhone && card.supportPhone.isNotBlank()) "خدمة العملاء: ${card.supportPhone}" else template.footerNote
+        canvas.drawText(phoneStr, infoRight, footerY, footerPaint)
+
+        // Serial Number on left of footer
+        if (template.showSerialNumber) {
+            val snPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (isCleanWhite) Color.parseColor("#94A3B8") else 0x80FFFFFF.toInt()
+                textSize = if (isCompact) 5.5f else 6.5f
+                typeface = Typeface.MONOSPACE
+                textAlign = Paint.Align.LEFT
+            }
+            canvas.drawText("#${card.serialNumber}", rect.left + 6f, footerY, snPaint)
+        }
     }
 
-    private fun drawSingleThermalCard(
+    private fun drawThermalCard(
         canvas: Canvas,
         card: GeneratedCard,
-        template: com.example.data.card.CardTemplate,
+        template: CardTemplate,
         width: Float,
         height: Float
     ) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.color = Color.WHITE
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
         canvas.drawRect(0f, 0f, width, height, paint)
 
         val centerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -302,7 +378,6 @@ object CardPdfDocumentGenerator {
 
         y += qrSize + 16f
 
-        // Credentials
         canvas.drawText("المستخدم: ${card.username}", width / 2f, y, monoPaint)
         y += 15f
         if (card.password != card.username) {
@@ -310,7 +385,10 @@ object CardPdfDocumentGenerator {
             y += 15f
         }
 
-        canvas.drawText(card.validityText, width / 2f, y, subPaint)
+        if (card.supportPhone.isNotBlank()) {
+            canvas.drawText("الدعم الفني: ${card.supportPhone}", width / 2f, y, subPaint)
+            y += 14f
+        }
 
         // Cut divider line
         val dashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -322,9 +400,6 @@ object CardPdfDocumentGenerator {
         canvas.drawLine(10f, height - 2f, width - 10f, height - 2f, dashPaint)
     }
 
-    /**
-     * Opens or shares the generated PDF file using the Android system chooser
-     */
     fun sharePdfFile(context: Context, file: File, title: String = "كروت الميكروتك جاهزة للطباعة") {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
@@ -334,18 +409,5 @@ object CardPdfDocumentGenerator {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(Intent.createChooser(intent, title))
-    }
-
-    fun openPdfFile(context: Context, file: File) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/pdf")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        try {
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            sharePdfFile(context, file)
-        }
     }
 }
