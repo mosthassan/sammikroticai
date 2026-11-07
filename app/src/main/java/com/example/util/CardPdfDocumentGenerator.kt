@@ -84,15 +84,15 @@ object CardPdfDocumentGenerator {
                 val page = document.startPage(pageInfo)
                 val canvas = page.canvas
 
-                // Header info
+                // Header info matching sammikroticnew
                 textPaint.color = Color.parseColor("#0F172A")
-                textPaint.textSize = 8.5f
+                textPaint.textSize = 8f
                 textPaint.textAlign = Paint.Align.LEFT
-                canvas.drawText("SamMikrotik Card Studio - دفعة #${batch.batchNumber} (${batch.batchTitle})", marginH, 14f, textPaint)
+                canvas.drawText("${template.networkName} • هاتف الدعم: ${template.supportPhone} • صفحة ${pageIndex + 1} من $totalPages", marginH, 14f, textPaint)
 
                 textPaint.textAlign = Paint.Align.RIGHT
-                val dateStr = SimpleDateFormat("yyyy/MM/dd", Locale.US).format(Date(batch.createdAt))
-                canvas.drawText("صفحة ${pageIndex + 1} من $totalPages • ${cards.size} كرت • $dateStr", A4_WIDTH_POINTS - marginH, 14f, textPaint)
+                val formatTitle = "ورقة A4 (297 × 210 مم) • ${cols} أعمدة × ${rows} صفوف (${cardsPerPage} كرت/ورقة) • خطوط القص ✂️"
+                canvas.drawText(formatTitle, A4_WIDTH_POINTS - marginH, 14f, textPaint)
 
                 val startIndex = pageIndex * cardsPerPage
                 val endIndex = kotlin.math.min(startIndex + cardsPerPage, cards.size)
@@ -139,40 +139,65 @@ object CardPdfDocumentGenerator {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val isCleanWhite = template.themePreset == CardThemePreset.CLEAN_WHITE
 
-        // 1. Background Fill (Solid or Gradient)
-        if (isCleanWhite) {
-            paint.color = Color.WHITE
-            paint.shader = null
-            canvas.drawRoundRect(rect, 6f, 6f, paint)
+        // 1. Background Fill: Custom Gallery Image OR Theme Solid/Gradient
+        var hasCustomBg = false
+        if (!template.customBackgroundImagePath.isNullOrBlank()) {
+            val bgFile = File(template.customBackgroundImagePath)
+            if (bgFile.exists() && bgFile.length() > 0) {
+                try {
+                    val options = android.graphics.BitmapFactory.Options().apply {
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    }
+                    val customBitmap = android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath, options)
+                    if (customBitmap != null) {
+                        canvas.drawBitmap(customBitmap, null, rect, null)
+                        hasCustomBg = true
+                        if (template.overlayAlpha > 0f) {
+                            paint.color = Color.BLACK
+                            paint.alpha = (template.overlayAlpha * 255).toInt().coerceIn(0, 255)
+                            canvas.drawRoundRect(rect, 6f, 6f, paint)
+                            paint.alpha = 255
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
 
-            paint.color = Color.parseColor("#CBD5E1")
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1f
-            canvas.drawRoundRect(rect, 6f, 6f, paint)
-            paint.style = Paint.Style.FILL
-        } else {
-            val bgShader = LinearGradient(
-                rect.left, rect.top, rect.right, rect.bottom,
-                template.backgroundColorHex.toInt(),
-                template.gradientEndColorHex.toInt(),
-                Shader.TileMode.CLAMP
-            )
-            paint.shader = bgShader
-            paint.style = Paint.Style.FILL
-            canvas.drawRoundRect(rect, 6f, 6f, paint)
-            paint.shader = null
+        if (!hasCustomBg) {
+            if (isCleanWhite) {
+                paint.color = Color.WHITE
+                paint.shader = null
+                canvas.drawRoundRect(rect, 6f, 6f, paint)
 
-            // Subtle border
-            paint.color = template.primaryColorHex.toInt()
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1.2f
-            canvas.drawRoundRect(rect, 6f, 6f, paint)
-            paint.style = Paint.Style.FILL
+                paint.color = Color.parseColor("#CBD5E1")
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1f
+                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                paint.style = Paint.Style.FILL
+            } else {
+                val bgShader = LinearGradient(
+                    rect.left, rect.top, rect.right, rect.bottom,
+                    template.backgroundColorHex.toInt(),
+                    template.gradientEndColorHex.toInt(),
+                    Shader.TileMode.CLAMP
+                )
+                paint.shader = bgShader
+                paint.style = Paint.Style.FILL
+                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                paint.shader = null
+
+                // Subtle border
+                paint.color = template.primaryColorHex.toInt()
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.2f
+                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                paint.style = Paint.Style.FILL
+            }
         }
 
         val w = rect.width()
         val h = rect.height()
-        val isCompact = format == PrintPageFormat.A4_GRID_24
+        val isCompact = format == PrintPageFormat.A4_GRID_24 || format == PrintPageFormat.A4_GRID_42
 
         // 2. Top Header Bar
         val headerHeight = if (isCompact) 18f else 22f

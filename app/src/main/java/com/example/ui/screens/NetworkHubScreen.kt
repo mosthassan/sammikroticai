@@ -127,6 +127,7 @@ fun NetworkHubScreen(
     viewModel: AppViewModel? = null,
     initialTab: Int = 0,
     onNavigateToSubscription: () -> Unit = {},
+    onNavigateToCardStudio: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -209,7 +210,9 @@ fun NetworkHubScreen(
                 label = "استوديو الكروت",
                 icon = Icons.Default.Style,
                 isSelected = activeTab == 6,
-                onClick = { activeTab = 6 },
+                onClick = {
+                    onNavigateToCardStudio()
+                },
                 modifier = Modifier.width(115.dp)
             )
         }

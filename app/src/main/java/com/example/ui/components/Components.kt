@@ -53,9 +53,14 @@ import com.example.core.model.Money
 import com.example.core.model.RateZone
 import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material3.OutlinedButton
+import com.example.ui.theme.BrandCyanPrimary
+import com.example.ui.theme.CyberBorder
+import com.example.ui.theme.CyberDarkCardElevated
 import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
 import com.example.ui.theme.SemanticWarningAmber
+import com.example.ui.theme.TextMutedDark
+import com.example.ui.theme.TextSecondaryDark
 
 enum class AmountSemanticType {
     INCOME,
@@ -315,16 +320,23 @@ fun StatCard(
     semanticType: AmountSemanticType = AmountSemanticType.AUTO,
     testTag: String = "stat_card"
 ) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        shape = RoundedCornerShape(12.dp),
-        modifier = modifier
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-            .testTag(testTag)
+    val iconTint = when (semanticType) {
+        AmountSemanticType.INCOME -> SemanticIncomeGreen
+        AmountSemanticType.EXPENSE -> SemanticExpenseRed
+        AmountSemanticType.NEUTRAL -> BrandCyanPrimary
+        AmountSemanticType.AUTO -> if (amount.minor >= 0L) SemanticIncomeGreen else SemanticExpenseRed
+    }
+
+    Surface(
+        color = CyberDarkCardElevated,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, CyberBorder),
+        shadowElevation = 2.dp,
+        modifier = modifier.testTag(testTag)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier.padding(14.dp)
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -332,37 +344,39 @@ fun StatCard(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextSecondaryDark,
+                    maxLines = 1
                 )
                 Box(
                     modifier = Modifier
                         .size(32.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(iconTint.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = title,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        tint = iconTint,
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             AmountText(
                 money = amount,
                 semanticType = semanticType,
-                fontSize = 20,
-                fontWeight = FontWeight.Bold
+                fontSize = 19,
+                fontWeight = FontWeight.ExtraBold
             )
             if (subtitle != null) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = TextMutedDark,
+                    maxLines = 1
                 )
             }
         }
@@ -379,17 +393,16 @@ fun InvariantBanner(
     modifier: Modifier = Modifier,
     testTag: String = "invariant_banner"
 ) {
-    val containerColor = if (isValid) Color(0xFF064E3B) else Color(0xFF7F1D1D)
-    val borderColor = if (isValid) SemanticIncomeGreen else SemanticExpenseRed
+    val borderColor = if (isValid) SemanticIncomeGreen.copy(alpha = 0.5f) else SemanticExpenseRed.copy(alpha = 0.8f)
     val statusText = if (isValid) "دفتر الأستاذ متزن 100% (IFRS متوافق)" else "تنبيه: خلل في اتزان دفتر الأستاذ ($violationsCount مخالفات)"
     val icon = if (isValid) Icons.Default.CheckCircle else Icons.Default.Error
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        shape = RoundedCornerShape(10.dp),
+    Surface(
+        color = if (isValid) Color(0xFF0C1F1D) else Color(0xFF260D14),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, borderColor),
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
             .clickable { onRunCheck() }
             .testTag(testTag)
     ) {
@@ -397,24 +410,32 @@ fun InvariantBanner(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(12.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = "حالة الاتزان",
-                tint = if (isValid) SemanticIncomeGreen else SemanticExpenseRed,
-                modifier = Modifier.size(24.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(if (isValid) SemanticIncomeGreen.copy(alpha = 0.15f) else SemanticExpenseRed.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = "حالة الاتزان",
+                    tint = if (isValid) SemanticIncomeGreen else SemanticExpenseRed,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = statusText,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
+                    fontSize = 12.5.sp
                 )
                 Text(
                     text = "إجمالي المدين: ${Money(debitTotal, CurrencyCode.FUNCTIONAL).format()} | الدائن: ${Money(creditTotal, CurrencyCode.FUNCTIONAL).format()}",
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 11.sp,
+                    color = TextSecondaryDark,
+                    fontSize = 10.5.sp,
                     fontFamily = FontFamily.Monospace
                 )
             }

@@ -4,7 +4,9 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.net.Uri
 import com.example.data.card.CardBatch
+import com.example.data.card.CardPreviewMode
 import com.example.data.card.CardStudioRepository
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
@@ -23,22 +25,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
 
 enum class CardStudioTab(val titleAr: String) {
-    TEMPLATES("القوالب الجاهزة"),
-    DESIGNER("المحرر المرئي"),
-    GENERATOR("توليد دفعة جديدة"),
-    BATCHES("الدفعات والطباعة")
+    GENERATOR("معايير وتوليد الدفعة ⚡"),
+    TEMPLATES("القوالب و AI 🎨"),
+    DESIGNER("عناصر ومقاس الكرت 🎛️"),
+    BATCHES("ورقة A4 والطباعة 📄")
 }
 
 data class CardStudioUiState(
-    val activeTab: CardStudioTab = CardStudioTab.TEMPLATES,
+    val activeTab: CardStudioTab = CardStudioTab.GENERATOR,
     val editingTemplate: CardTemplate = CardTemplate(),
+    val previewMode: CardPreviewMode = CardPreviewMode.A4_FULL_SHEET,
     val isGenerating: Boolean = false,
     val selectedBatchForPreview: CardBatch? = null,
-    val batchTitleInput: String = "دفعة إنترنت فئة 500",
+    val batchTitleInput: String = "كرت 500 - باقة 2700 ميجا",
     val batchCountInput: Int = 24,
-    val batchProfileInput: String = "2G_1W",
+    val batchProfileInput: String = "2700M_35H",
     val batchPrefixInput: String = "77",
     val batchUserLengthInput: Int = 6,
     val batchPasswordPattern: PasswordPattern = PasswordPattern.SAME_AS_USERNAME,
@@ -184,6 +188,54 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             repository.deleteTemplate(id)
             _userMessage.emit("تم حذف القالب")
         }
+    }
+
+    fun setCustomBackgroundImage(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                val dir = File(context.filesDir, "card_templates").apply { mkdirs() }
+                val targetFile = File(dir, "template_${_uiState.value.editingTemplate.id}_bg.png")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(targetFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                val updated = _uiState.value.editingTemplate.copy(
+                    customBackgroundImagePath = targetFile.absolutePath,
+                    customBackgroundImageUri = uri.toString()
+                )
+                _uiState.value = _uiState.value.copy(editingTemplate = updated)
+                repository.saveTemplate(updated)
+                _userMessage.emit("تم بنجاح جلب صورة القالب من الاستديو واستخدامها كخلفية للكرت 🖼️✨")
+            } catch (e: Exception) {
+                _userMessage.emit("تعذر استيراد الصورة: ${e.message}")
+            }
+        }
+    }
+
+    fun removeCustomBackgroundImage() {
+        viewModelScope.launch {
+            val current = _uiState.value.editingTemplate
+            if (!current.customBackgroundImagePath.isNullOrBlank()) {
+                try { File(current.customBackgroundImagePath).delete() } catch (_: Exception) {}
+            }
+            val updated = current.copy(
+                customBackgroundImagePath = null,
+                customBackgroundImageUri = null
+            )
+            _uiState.value = _uiState.value.copy(editingTemplate = updated)
+            repository.saveTemplate(updated)
+            _userMessage.emit("تمت إزالة صورة القالب والرجوع للثيم الرقمي 🎨")
+        }
+    }
+
+    fun togglePreviewMode(mode: CardPreviewMode) {
+        _uiState.value = _uiState.value.copy(previewMode = mode)
+    }
+
+    fun toggleCutLines(enabled: Boolean) {
+        val updated = _uiState.value.editingTemplate.copy(showCutLines = enabled)
+        _uiState.value = _uiState.value.copy(editingTemplate = updated)
     }
 
     fun updateBatchConfig(

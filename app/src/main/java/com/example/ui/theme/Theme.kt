@@ -6,36 +6,40 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 
 private val SamDarkColorScheme = darkColorScheme(
     primary = BrandCyanPrimary,
-    onPrimary = BrandCyanOnPrimary,
-    primaryContainer = BrandCyanContainer,
-    onPrimaryContainer = BrandCyanOnContainer,
+    onPrimary = Color(0xFF090D16),
+    primaryContainer = Color(0xFF0C243C),
+    onPrimaryContainer = Color(0xFFBAE6FD),
     secondary = BrandBlueSecondary,
-    onSecondary = BrandBlueOnSecondary,
-    secondaryContainer = BrandBlueContainer,
-    onSecondaryContainer = BrandBlueOnContainer,
-    background = DarkBackground,
-    onBackground = DarkOnBackground,
-    surface = DarkSurface,
-    onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceVariant,
-    onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkSurfaceBorder,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFF132A4A),
+    onSecondaryContainer = Color(0xFFE0F2FE),
+    background = CyberDarkCanvas,
+    onBackground = TextPrimaryDark,
+    surface = CyberDarkSurface,
+    onSurface = TextPrimaryDark,
+    surfaceVariant = CyberDarkCardElevated,
+    onSurfaceVariant = TextSecondaryDark,
+    outline = CyberBorder,
+    outlineVariant = CyberBorderSubtle,
     error = SemanticExpenseRed,
-    onError = DarkBackground
+    onError = Color.White,
+    errorContainer = Color(0xFF4C0519),
+    onErrorContainer = Color(0xFFFFD1DC)
 )
 
 private val SamLightColorScheme = lightColorScheme(
     primary = BrandCyanPrimary,
-    onPrimary = BrandCyanOnPrimary,
-    primaryContainer = BrandCyanOnContainer,
-    onPrimaryContainer = BrandCyanContainer,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE0F2FE),
+    onPrimaryContainer = Color(0xFF0369A1),
     secondary = BrandBlueSecondary,
-    onSecondary = BrandBlueOnSecondary,
+    onSecondary = Color.White,
     background = LightBackground,
     onBackground = LightOnBackground,
     surface = LightSurface,
@@ -43,8 +47,9 @@ private val SamLightColorScheme = lightColorScheme(
     surfaceVariant = LightSurfaceVariant,
     onSurfaceVariant = LightOnSurfaceVariant,
     outline = LightSurfaceBorder,
+    outlineVariant = Color(0xFFE2E8F0),
     error = SemanticExpenseRed,
-    onError = LightBackground
+    onError = Color.White
 )
 
 @Composable

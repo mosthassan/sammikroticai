@@ -41,6 +41,11 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,7 +62,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
+import com.example.ui.theme.CyberBorder
+import com.example.ui.theme.CyberDarkCardElevated
+import com.example.ui.theme.CyberDarkSurface
+import com.example.ui.theme.TextPrimaryDark
+import com.example.ui.theme.TextSecondaryDark
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -205,14 +217,14 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         snackbarHost = { SnackbarHost(snackbarHostState) },
                         topBar = {
-                            CenterAlignedTopAppBar(
+                            TopAppBar(
                                 title = {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Column {
                                         Text(
-                                            text = if (selectedTabIndex == 0) AppBrand.DASHBOARD_TITLE else AppBrand.NAME,
+                                            text = AppBrand.NAME,
                                             style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = TextPrimaryDark
                                         )
                                         Text(
                                             text = MainTab.all[selectedTabIndex].title,
@@ -222,6 +234,38 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 actions = {
+                                    val isBalanced = invariantResult?.isValid ?: true
+                                    val badgeColor = if (isBalanced) SemanticIncomeGreen else SemanticExpenseRed
+                                    Surface(
+                                        color = badgeColor.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.5f)),
+                                        modifier = Modifier
+                                            .padding(end = 4.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { selectedTabIndex = 7 /* Jump to Audit tab */ }
+                                            .testTag("top_bar_invariant_badge")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isBalanced) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                                contentDescription = null,
+                                                tint = badgeColor,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = if (isBalanced) "IFRS متزن" else "خلل",
+                                                color = badgeColor,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    }
+
                                     val isAdmin by appViewModel.isAdmin.collectAsState()
                                     if (isAdmin) {
                                         IconButton(
@@ -232,7 +276,7 @@ class MainActivity : ComponentActivity() {
                                                 imageVector = Icons.Default.AdminPanelSettings,
                                                 contentDescription = "لوحة تحكم المسؤول",
                                                 tint = Color(0xFFFFD700),
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
                                         }
                                     }
@@ -247,7 +291,7 @@ class MainActivity : ComponentActivity() {
                                             imageVector = Icons.Default.WorkspacePremium,
                                             contentDescription = "الاشتراك والتفعيل",
                                             tint = if (isProActive) Color(0xFFFFD700) else BrandCyanPrimary,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(22.dp)
                                         )
                                     }
 
@@ -259,7 +303,7 @@ class MainActivity : ComponentActivity() {
                                             imageVector = Icons.Default.AutoAwesome,
                                             contentDescription = "مساعد سامي الذكي (ERP AI)",
                                             tint = BrandCyanPrimary,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(22.dp)
                                         )
                                     }
 
@@ -276,80 +320,66 @@ class MainActivity : ComponentActivity() {
                                             },
                                             contentDescription = "المزامنة السحابية",
                                             tint = BrandCyanPrimary,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(22.dp)
                                         )
                                     }
-
-                                val isBalanced = invariantResult?.isValid ?: true
-                                val badgeColor = if (isBalanced) SemanticIncomeGreen else SemanticExpenseRed
-                                Surface(
-                                    color = badgeColor.copy(alpha = 0.15f),
-                                    shape = RoundedCornerShape(16.dp),
+                                },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor = CyberDarkSurface
+                                )
+                            )
+                        },
+                        bottomBar = {
+                            Surface(
+                                color = CyberDarkSurface,
+                                tonalElevation = 6.dp,
+                                shadowElevation = 12.dp,
+                                border = BorderStroke(1.dp, CyberBorder.copy(alpha = 0.7f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
                                     modifier = Modifier
-                                        .padding(end = 12.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .clickable { selectedTabIndex = 7 /* Jump to Audit tab */ }
-                                        .border(1.dp, badgeColor, RoundedCornerShape(16.dp))
-                                        .testTag("top_bar_invariant_badge")
+                                        .fillMaxWidth()
+                                        .windowInsetsPadding(WindowInsets.navigationBars)
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isBalanced) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                            contentDescription = null,
-                                            tint = badgeColor,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = if (isBalanced) "IFRS متزن" else "خلل رياضي",
-                                            color = badgeColor,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp
-                                        )
+                                    MainTab.all.forEachIndexed { index, tab ->
+                                        val isSelected = selectedTabIndex == index
+                                        Surface(
+                                            onClick = { selectedTabIndex = index },
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isSelected) BrandCyanPrimary.copy(alpha = 0.15f) else Color.Transparent,
+                                            border = if (isSelected) BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.6f)) else null,
+                                            modifier = Modifier
+                                                .minimumInteractiveComponentSize()
+                                                .testTag(tab.tag)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = tab.icon,
+                                                    contentDescription = tab.title,
+                                                    tint = if (isSelected) BrandCyanPrimary else TextSecondaryDark,
+                                                    modifier = Modifier.size(19.dp)
+                                                )
+                                                Text(
+                                                    text = tab.title,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSelected) BrandCyanPrimary else TextSecondaryDark
+                                                )
+                                            }
+                                        }
                                     }
                                 }
-                            },
-                            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            )
-                        )
-                    },
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            MainTab.all.forEachIndexed { index, tab ->
-                                NavigationBarItem(
-                                    selected = selectedTabIndex == index,
-                                    onClick = { selectedTabIndex = index },
-                                    icon = {
-                                        Icon(
-                                            imageVector = tab.icon,
-                                            contentDescription = tab.title,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    },
-                                    label = {
-                                        Text(
-                                            text = tab.title,
-                                            fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal,
-                                            fontSize = 10.sp,
-                                            maxLines = 1
-                                        )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                    ),
-                                    modifier = Modifier.testTag(tab.tag)
-                                )
                             }
                         }
-                    }
                 ) { innerPadding ->
                     val modifier = Modifier.padding(innerPadding)
                     when (selectedTabIndex) {
@@ -383,6 +413,7 @@ class MainActivity : ComponentActivity() {
                             viewModel = appViewModel,
                             initialTab = networkHubInitialTab,
                             onNavigateToSubscription = { showSubscriptionScreen = true },
+                            onNavigateToCardStudio = { showCardStudio = true },
                             modifier = modifier
                         )
                         6 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)

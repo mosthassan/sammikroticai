@@ -43,10 +43,19 @@ enum class PrintPageFormat(
     val cols: Int,
     val rows: Int
 ) {
-    A4_GRID_24("ورقة A4 (24 كرت - 3×8 اقتصادي ومرن)", 24, 3, 8),
+    A4_GRID_24("ورقة A4 (24 كرت - 3×8 اقتصادي ومرن 63×33 مم)", 24, 3, 8),
+    A4_GRID_42("ورقة A4 (42 كرت - 3×14 شريط اقتصادي 63×19 مم)", 42, 3, 14),
     A4_GRID_18("ورقة A4 (18 كرت - 3×6 مقاس وسطي)", 18, 3, 6),
     A4_GRID_10("ورقة A4 (10 كروت - 2×5 مقاس بطاقة كبير)", 10, 2, 5),
     THERMAL_ROLL_80MM("رول فواتير حراري (80 مم)", 1, 1, 1)
+}
+
+/**
+ * Preview Mode for Card Studio
+ */
+enum class CardPreviewMode(val displayNameAr: String) {
+    A4_FULL_SHEET("ورقة A4 كاملة للطباعة 📄"),
+    SINGLE_CARD("معاينة كرت مفرد 🎴")
 }
 
 /**
@@ -55,23 +64,27 @@ enum class PrintPageFormat(
 data class CardTemplate(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "قالب سايبر نيون 2026",
-    val networkName: String = "شبكة سام نت",
+    val networkName: String = "شبكة طلقة نت",
     val priceText: String = "500 ر.ي",
-    val quotaText: String = "2 جيجابايت",
-    val validityText: String = "صلاحية 7 أيام",
+    val quotaText: String = "2700 ميجا",
+    val validityText: String = "35 ساعة",
     val headline: String = "كرت إنترنت فائق السرعة",
     val footerNote: String = "امسح الرمز أو ادخل الكود للاتصال الفوري",
     val supportPhone: String = "770446040",
     val hotspotLoginUrl: String = "http://10.50.7.1/login",
+    val dateText: String = "07/11/26",
     val primaryColorHex: Long = 0xFF00F0FF, // Neon Cyan
     val backgroundColorHex: Long = 0xFF080318, // Deep Cosmic
     val gradientEndColorHex: Long = 0xFF12062B,
     val textColorHex: Long = 0xFFFFFFFF,
     val accentColorHex: Long = 0xFFFF007F, // Neon Pink
-    val badgeBgColorHex: Long = 0xFF0284C7,
-    val badgeTextColorHex: Long = 0xFFFFFFFF,
+    val badgeBgColorHex: Long = 0xFFEAB308, // Gold/Yellow badge matching sammikroticnew
+    val badgeTextColorHex: Long = 0xFF000000,
     val themePreset: CardThemePreset = CardThemePreset.CYBER_NEON,
     val codeBoxStyle: CodeBoxStyle = CodeBoxStyle.MODERN_BOX,
+    val customBackgroundImagePath: String? = null,
+    val customBackgroundImageUri: String? = null,
+    val overlayAlpha: Float = 0.12f,
     val showQrCode: Boolean = true,
     val showBarcode: Boolean = false,
     val showPrice: Boolean = true,
