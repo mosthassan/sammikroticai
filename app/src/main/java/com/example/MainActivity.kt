@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.WindowInsets
@@ -125,17 +126,18 @@ object AppBrand {
 }
 
 sealed class MainTab(val title: String, val icon: ImageVector, val tag: String) {
-    object Dashboard : MainTab("الرئيسية", Icons.Default.Dashboard, "tab_dashboard")
+    object Operations : MainTab("الميكروتك", Icons.Default.Router, "tab_operations")
+    object Dashboard : MainTab("المالية", Icons.Default.Dashboard, "tab_dashboard")
     object Sales : MainTab("المبيعات", Icons.Default.Receipt, "tab_sales")
     object Vouchers : MainTab("السندات", Icons.Default.AccountBalanceWallet, "tab_vouchers")
     object Purchases : MainTab("المشتريات", Icons.Default.ShoppingCart, "tab_purchases")
-    object PartiesAndStock : MainTab("العملاء", Icons.Default.Store, "tab_parties_stock")
-    object NetworkHub : MainTab("الشبكة", Icons.Default.Router, "tab_network_hub")
+    object PartiesAndStock : MainTab("العملاء والبقالات", Icons.Default.Store, "tab_parties_stock")
+    object NetworkHub : MainTab("الشبكة", Icons.Default.Settings, "tab_network_hub")
     object Reports : MainTab("التقارير", Icons.Default.Assessment, "tab_reports")
     object Audit : MainTab("الرقابة", Icons.Default.Security, "tab_audit")
 
     companion object {
-        val all = listOf(Dashboard, Sales, Vouchers, Purchases, PartiesAndStock, NetworkHub, Reports, Audit)
+        val all = listOf(Operations, Dashboard, Sales, Vouchers, Purchases, PartiesAndStock, NetworkHub, Reports, Audit)
     }
 }
 
@@ -174,6 +176,7 @@ class MainActivity : ComponentActivity() {
                 var showSubscriptionScreen by rememberSaveable { mutableStateOf(false) }
                 var showAdminDashboard by rememberSaveable { mutableStateOf(false) }
                 var showCardStudio by rememberSaveable { mutableStateOf(false) }
+                var showDeviceMonitorScreen by rememberSaveable { mutableStateOf(false) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
                 // Listen for business feedback messages
@@ -212,6 +215,11 @@ class MainActivity : ComponentActivity() {
                     com.example.ui.cardstudio.CardStudioScreen(
                         onNavigateBack = { showCardStudio = false }
                     )
+                } else if (showDeviceMonitorScreen) {
+                    com.example.ui.screens.NetworkDevicesScreen(
+                        networkRepository = appViewModel.networkRepository,
+                        onNavigateBack = { showDeviceMonitorScreen = false }
+                    )
                 } else {
                     Scaffold(
                         modifier = Modifier.fillMaxSize(),
@@ -243,7 +251,7 @@ class MainActivity : ComponentActivity() {
                                         modifier = Modifier
                                             .padding(end = 4.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .clickable { selectedTabIndex = 7 /* Jump to Audit tab */ }
+                                            .clickable { selectedTabIndex = MainTab.all.indexOf(MainTab.Audit) /* Jump to Audit tab */ }
                                             .testTag("top_bar_invariant_badge")
                                     ) {
                                         Row(
@@ -383,32 +391,45 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     val modifier = Modifier.padding(innerPadding)
                     when (selectedTabIndex) {
-                        0 -> DashboardScreen(
+                        0 -> com.example.ui.screens.MikrotikOperationsScreen(
+                            networkRepository = appViewModel.networkRepository,
                             viewModel = appViewModel,
-                            onNavigateToQuickSale = { selectedTabIndex = 1 },
-                            onNavigateToSales = { selectedTabIndex = 1 },
+                            onNavigateToDeviceMonitor = { showDeviceMonitorScreen = true },
+                            onNavigateToCardStudio = { showCardStudio = true },
+                            onNavigateToWifiSpectrum = {
+                                networkHubInitialTab = 5
+                                selectedTabIndex = 6
+                            },
+                            onNavigateToAiAssistant = { showAiAssistant = true },
+                            onNavigateToCloudSync = { showCloudSyncSheet = true },
+                            modifier = modifier
+                        )
+                        1 -> DashboardScreen(
+                            viewModel = appViewModel,
+                            onNavigateToQuickSale = { selectedTabIndex = 2 },
+                            onNavigateToSales = { selectedTabIndex = 2 },
                             onNavigateToReceipts = {
                                 vouchersInitialTab = 0
-                                selectedTabIndex = 2
+                                selectedTabIndex = 3
                             },
                             onNavigateToPayments = {
                                 vouchersInitialTab = 1
-                                selectedTabIndex = 2
+                                selectedTabIndex = 3
                             },
-                            onNavigateToReports = { selectedTabIndex = 6 },
+                            onNavigateToReports = { selectedTabIndex = 7 },
                             onNavigateToWifiSpectrum = {
                                 networkHubInitialTab = 5
-                                selectedTabIndex = 5
+                                selectedTabIndex = 6
                             },
                             onNavigateToAiAssistant = { showAiAssistant = true },
                             onNavigateToCardStudio = { showCardStudio = true },
                             modifier = modifier
                         )
-                        1 -> SalesScreen(viewModel = appViewModel, modifier = modifier)
-                        2 -> VouchersScreen(viewModel = appViewModel, initialTab = vouchersInitialTab, modifier = modifier)
-                        3 -> PurchasesAssetsScreen(viewModel = appViewModel, modifier = modifier)
-                        4 -> PartiesAndStockCombinedScreen(viewModel = appViewModel, modifier = modifier)
-                        5 -> NetworkHubScreen(
+                        2 -> SalesScreen(viewModel = appViewModel, modifier = modifier)
+                        3 -> VouchersScreen(viewModel = appViewModel, initialTab = vouchersInitialTab, modifier = modifier)
+                        4 -> PurchasesAssetsScreen(viewModel = appViewModel, modifier = modifier)
+                        5 -> PartiesAndStockCombinedScreen(viewModel = appViewModel, modifier = modifier)
+                        6 -> NetworkHubScreen(
                             networkRepository = appViewModel.networkRepository,
                             viewModel = appViewModel,
                             initialTab = networkHubInitialTab,
@@ -416,8 +437,8 @@ class MainActivity : ComponentActivity() {
                             onNavigateToCardStudio = { showCardStudio = true },
                             modifier = modifier
                         )
-                        6 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)
-                        7 -> AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
+                        7 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)
+                        8 -> AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
                     }
                 }
             }

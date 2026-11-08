@@ -1081,6 +1081,7 @@ private fun DeviceCard(
         DeviceStatus.ONLINE -> StatusOnline
         DeviceStatus.WARNING -> StatusWarning
         DeviceStatus.OFFLINE -> StatusOffline
+        DeviceStatus.UNCHECKED -> Color(0xFF94A3B8)
     }
 
     Card(

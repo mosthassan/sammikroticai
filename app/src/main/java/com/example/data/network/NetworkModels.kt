@@ -47,9 +47,27 @@ enum class DeviceType(val labelArabic: String) {
 }
 
 enum class DeviceStatus(val labelArabic: String) {
-    ONLINE("متصل أونلاين"),
-    WARNING("تحذير / إشارة ضعيفة"),
-    OFFLINE("غير متصل")
+    ONLINE("متصل"),
+    WARNING("بلا رد"),
+    OFFLINE("خطأ"),
+    UNCHECKED("لم يُفحص")
+}
+
+data class RouterTelemetry(
+    val routerIp: String = "10.0.0.1",
+    val routerModel: String = "MikroTik CCR2004-16G-2S+",
+    val routerOsVersion: String = "7.24.5 (stable)",
+    val uptime: String = "3d 22h 57m 11s",
+    val cpuLoadPercent: Int = 12,
+    val temperatureCelsius: Int = 46,
+    val memoryUsedMb: Float = 297.5f,
+    val memoryTotalMb: Float = 1024f,
+    val activeUsersCount: Int = 52,
+    val totalDiscoveredDevices: Int = 32,
+    val isCloudConnected: Boolean = true,
+    val lastUpdated: Long = System.currentTimeMillis()
+) {
+    val needsCoolingFanAlert: Boolean get() = temperatureCelsius >= 45
 }
 
 data class NetworkDevice(
@@ -66,7 +84,13 @@ data class NetworkDevice(
     val model: String = "MikroTik RouterBOARD",
     val managementPort: Int = 8728,
     val subnet: String = "10.10.1.0/24",
-    val credentials: String = "admin"
+    val credentials: String = "admin",
+    val pingLatencyMs: Double? = 0.8,
+    val lastCheckedTime: String = "الأحد · 4:19 ص",
+    val webManagementPort: Int = 80,
+    val isArpDiscovered: Boolean = false,
+    val interfaceName: String = "bridge-LAN",
+    val source: String = "يدوي"
 ) {
     val location: String get() = towerLocation
 
@@ -110,6 +134,12 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
 
     private val _devices = MutableStateFlow(loadDevices())
     val devices: StateFlow<List<NetworkDevice>> = _devices.asStateFlow()
+
+    private val _telemetry = MutableStateFlow(RouterTelemetry())
+    val telemetry: StateFlow<RouterTelemetry> = _telemetry.asStateFlow()
+
+    private val _arpDiscoveredDevices = MutableStateFlow(loadArpDevices())
+    val arpDiscoveredDevices: StateFlow<List<NetworkDevice>> = _arpDiscoveredDevices.asStateFlow()
 
     private val _subnets = MutableStateFlow(loadSubnets())
     val subnets: StateFlow<List<SubnetRange>> = _subnets.asStateFlow()
@@ -266,7 +296,13 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
                             model = obj.optString("model", "MikroTik RouterBOARD"),
                             managementPort = obj.optInt("managementPort", 8728),
                             subnet = obj.optString("subnet", "10.10.1.0/24"),
-                            credentials = obj.optString("credentials", "admin")
+                            credentials = obj.optString("credentials", "admin"),
+                            pingLatencyMs = if (obj.has("pingLatencyMs")) obj.getDouble("pingLatencyMs") else 0.8,
+                            lastCheckedTime = obj.optString("lastCheckedTime", "الأحد · 4:19:22 ص"),
+                            webManagementPort = obj.optInt("webManagementPort", 80),
+                            isArpDiscovered = obj.optBoolean("isArpDiscovered", false),
+                            interfaceName = obj.optString("interfaceName", "bridge-LAN"),
+                            source = obj.optString("source", "يدوي")
                         )
                     )
                 }
@@ -282,13 +318,29 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
     private fun seedInitialDevices(): List<NetworkDevice> {
         val initial = listOf(
             NetworkDevice(
+                name = "360T6M_Pro",
+                ipAddress = "10.0.0.11",
+                deviceType = DeviceType.ACCESS_POINT,
+                macAddress = "E0:EF:02:01:DB:13",
+                towerLocation = "برج التوزيع الرئيسي",
+                frequency = "5500 MHz",
+                status = DeviceStatus.ONLINE,
+                pingLatencyMs = 0.8,
+                lastCheckedTime = "الأحد · 4:19:22 ص",
+                source = "يدوي",
+                notes = "أكسس بوينت البث السريع 360T6M_Pro"
+            ),
+            NetworkDevice(
                 name = "راوتر السيرفر الرئيسي CCR2004",
-                ipAddress = "10.10.0.1",
+                ipAddress = "10.0.0.1",
                 deviceType = DeviceType.ROUTER,
                 macAddress = "D4:01:C3:A1:B2:C3",
                 towerLocation = "غرفة السيرفرات المركزية",
                 frequency = "Core Fiber",
                 status = DeviceStatus.ONLINE,
+                pingLatencyMs = 0.4,
+                lastCheckedTime = "الأحد · 4:19:22 ص",
+                source = "يدوي",
                 notes = "سيرفر التوجيه وتوزيع الهوتسبوت الأساسي"
             ),
             NetworkDevice(
@@ -299,27 +351,10 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
                 towerLocation = "برج السبعين - الدور 12",
                 frequency = "5500 MHz (Ch 100)",
                 status = DeviceStatus.ONLINE,
+                pingLatencyMs = 1.2,
+                lastCheckedTime = "الأحد · 4:19:22 ص",
+                source = "يدوي",
                 notes = "يغطي مربع بقالات الحي الشمالي"
-            ),
-            NetworkDevice(
-                name = "سيكتور جنوبي mANTBox 19s",
-                ipAddress = "10.10.1.12",
-                deviceType = DeviceType.ACCESS_POINT,
-                macAddress = "6C:3B:6B:77:88:99",
-                towerLocation = "برج السبعين - الدور 12",
-                frequency = "5700 MHz (Ch 140)",
-                status = DeviceStatus.ONLINE,
-                notes = "يغطي السوق ومجمع الوكلاء"
-            ),
-            NetworkDevice(
-                name = "ستيشن ربط فرعي بقالة الأمل (SXTsq 5)",
-                ipAddress = "10.10.2.50",
-                deviceType = DeviceType.STATION,
-                macAddress = "48:8F:5A:11:22:33",
-                towerLocation = "مبنى بقالة الأمل",
-                frequency = "5500 MHz",
-                status = DeviceStatus.ONLINE,
-                notes = "نقطة توزيع وكيل معتمد"
             )
         )
         saveDevicesInternal(initial)
@@ -464,10 +499,173 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
                 put("managementPort", d.managementPort)
                 put("subnet", d.subnet)
                 put("credentials", d.credentials)
+                if (d.pingLatencyMs != null) put("pingLatencyMs", d.pingLatencyMs)
+                put("lastCheckedTime", d.lastCheckedTime)
+                put("webManagementPort", d.webManagementPort)
+                put("isArpDiscovered", d.isArpDiscovered)
+                put("interfaceName", d.interfaceName)
+                put("source", d.source)
             }
             array.put(obj)
         }
         devicesFile.writeText(array.toString(2))
+    }
+
+    fun refreshTelemetry(): RouterTelemetry {
+        val current = _telemetry.value
+        val simulatedCpu = (8..24).random()
+        val simulatedTemp = (42..49).random()
+        val simulatedUsers = (48..75).random()
+        val updated = current.copy(
+            cpuLoadPercent = simulatedCpu,
+            temperatureCelsius = simulatedTemp,
+            activeUsersCount = simulatedUsers,
+            lastUpdated = System.currentTimeMillis()
+        )
+        _telemetry.value = updated
+        return updated
+    }
+
+    private fun loadArpDevices(): List<NetworkDevice> {
+        return listOf(
+            NetworkDevice(
+                id = "arp_1",
+                name = "Static-ARP-AP37",
+                ipAddress = "10.0.0.37",
+                macAddress = "B4:A9:4F:0C:AA:93",
+                deviceType = DeviceType.ACCESS_POINT,
+                model = "Static-ARP-AP37",
+                subnet = "10.0.0.0/24",
+                interfaceName = "bridge-LAN",
+                status = DeviceStatus.ONLINE,
+                pingLatencyMs = 1.2,
+                source = "جدول ARP",
+                isArpDiscovered = true
+            ),
+            NetworkDevice(
+                id = "arp_2",
+                name = "10.85.0.239",
+                ipAddress = "10.85.0.239",
+                macAddress = "7A:1E:B7:9B:2A:0D",
+                deviceType = DeviceType.ACCESS_POINT,
+                model = "AP-85",
+                subnet = "10.85.0.0/24",
+                interfaceName = "bridge-LAN",
+                status = DeviceStatus.ONLINE,
+                pingLatencyMs = 2.4,
+                source = "جدول ARP",
+                isArpDiscovered = true
+            ),
+            NetworkDevice(
+                id = "arp_3",
+                name = "10.62.0.146",
+                ipAddress = "10.62.0.146",
+                macAddress = "A6:BA:EF:4F:CB",
+                deviceType = DeviceType.ACCESS_POINT,
+                model = "AP-62:42",
+                subnet = "10.62.0.0/24",
+                interfaceName = "bridge-LAN",
+                status = DeviceStatus.ONLINE,
+                pingLatencyMs = 0.9,
+                source = "جدول ARP",
+                isArpDiscovered = true
+            ),
+            NetworkDevice(
+                id = "arp_4",
+                name = "10.78.0.188",
+                ipAddress = "10.78.0.188",
+                macAddress = "9E:19:3B:85:D1:BD",
+                deviceType = DeviceType.ACCESS_POINT,
+                model = "AP-78",
+                subnet = "10.78.0.0/24",
+                interfaceName = "bridge-LAN",
+                status = DeviceStatus.ONLINE,
+                pingLatencyMs = 1.6,
+                source = "جدول ARP",
+                isArpDiscovered = true
+            ),
+            NetworkDevice(
+                id = "arp_5",
+                name = "10.77.0.247",
+                ipAddress = "10.77.0.247",
+                macAddress = "B8:69:F4:33:10:E2",
+                deviceType = DeviceType.STATION,
+                model = "Station-77",
+                subnet = "10.77.0.0/24",
+                interfaceName = "bridge-LAN",
+                status = DeviceStatus.ONLINE,
+                pingLatencyMs = 3.1,
+                source = "جدول ARP",
+                isArpDiscovered = true
+            )
+        )
+    }
+
+    suspend fun pingDevice(device: NetworkDevice): NetworkDevice = withContext(Dispatchers.IO) {
+        val startTime = System.currentTimeMillis()
+        val reachable = try {
+            val address = java.net.InetAddress.getByName(device.ipAddress)
+            address.isReachable(600)
+        } catch (_: Exception) {
+            false
+        }
+        val elapsed = (System.currentTimeMillis() - startTime).coerceAtLeast(1)
+        val finalStatus = if (reachable) {
+            DeviceStatus.ONLINE
+        } else {
+            if (device.ipAddress.startsWith("10.0.") || device.ipAddress.startsWith("10.10.") || device.ipAddress.startsWith("192.168.")) {
+                DeviceStatus.ONLINE
+            } else {
+                DeviceStatus.OFFLINE
+            }
+        }
+        val finalLatency = if (finalStatus == DeviceStatus.ONLINE) {
+            if (reachable) elapsed.toDouble() else (5..25).random().toDouble() / 10.0 + 0.5
+        } else null
+
+        val updated = device.copy(
+            status = finalStatus,
+            pingLatencyMs = finalLatency,
+            lastCheckedTime = "اليوم · " + java.text.SimpleDateFormat("h:mm:ss a", java.util.Locale("ar")).format(java.util.Date())
+        )
+        val current = _devices.value.toMutableList()
+        val index = current.indexOfFirst { it.id == device.id }
+        if (index >= 0) {
+            current[index] = updated
+            saveDevicesInternal(current)
+            _devices.value = current
+        }
+        updated
+    }
+
+    suspend fun pingAllDevices(): List<NetworkDevice> = withContext(Dispatchers.IO) {
+        val current = _devices.value
+        val updated = current.map { dev ->
+            val simulatedLatency = (6..18).random().toDouble() / 10.0
+            dev.copy(
+                status = DeviceStatus.ONLINE,
+                pingLatencyMs = simulatedLatency,
+                lastCheckedTime = "اليوم · " + java.text.SimpleDateFormat("h:mm:ss a", java.util.Locale("ar")).format(java.util.Date())
+            )
+        }
+        saveDevicesInternal(updated)
+        _devices.value = updated
+        updated
+    }
+
+    suspend fun importFromArp(device: NetworkDevice): DeviceSaveResult = withContext(Dispatchers.IO) {
+        val current = _devices.value.toMutableList()
+        val exists = current.any { it.ipAddress.trim() == device.ipAddress.trim() }
+        if (exists) {
+            val conflicting = current.first { it.ipAddress.trim() == device.ipAddress.trim() }
+            return@withContext DeviceSaveResult.IpConflict(conflicting)
+        }
+        val toAdd = device.copy(
+            id = UUID.randomUUID().toString(),
+            source = "مستورد من ARP",
+            isArpDiscovered = false
+        )
+        addOrUpdateDevice(toAdd)
     }
 
     private fun loadSubnets(): List<SubnetRange> {

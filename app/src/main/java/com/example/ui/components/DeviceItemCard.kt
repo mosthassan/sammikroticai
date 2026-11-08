@@ -20,14 +20,20 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiTethering
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +52,7 @@ import com.example.data.network.NetworkDevice
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberDarkCardElevated
 import com.example.ui.theme.MikroTikCyan
+import com.example.ui.theme.MikroTikPrimary
 import com.example.ui.theme.StatusOffline
 import com.example.ui.theme.StatusOnline
 import com.example.ui.theme.StatusWarning
@@ -59,177 +66,266 @@ fun DeviceItemCard(
     onEdit: () -> Unit,
     onClone: () -> Unit,
     onDelete: () -> Unit,
+    onPing: () -> Unit = {},
+    onOpenInBrowser: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val statusColor = when (device.status) {
         DeviceStatus.ONLINE -> StatusOnline
         DeviceStatus.WARNING -> StatusWarning
         DeviceStatus.OFFLINE -> StatusOffline
+        DeviceStatus.UNCHECKED -> Color(0xFF94A3B8)
     }
 
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
         border = BorderStroke(1.dp, CyberBorder),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(16.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(14.dp)
         ) {
-            // Device Type & Status Icon
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(statusColor.copy(alpha = 0.15f))
-                    .border(BorderStroke(1.5.dp, statusColor.copy(alpha = 0.6f)), CircleShape),
-                contentAlignment = Alignment.Center
+            // Header: Status badge, Device Name, Device Type Icon
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = when (device.deviceType) {
-                        DeviceType.ACCESS_POINT -> Icons.Default.WifiTethering
-                        DeviceType.ROUTER -> Icons.Default.Router
-                        DeviceType.STATION -> Icons.Default.Wifi
-                        DeviceType.SWITCH -> Icons.Default.Lan
-                        DeviceType.ANTENNA -> Icons.Default.Public
-                    },
-                    contentDescription = null,
-                    tint = statusColor,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Technical Specifications Content
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Status Badge (MkCards pill style)
+                Surface(
+                    color = statusColor.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f))
                 ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(statusColor)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = device.status.labelArabic,
+                            color = statusColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Name and Type Icon
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = device.name,
                         color = TextPrimaryDark,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                        fontSize = 15.sp
                     )
-
-                    Surface(
-                        color = statusColor.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(4.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(statusColor.copy(alpha = 0.15f))
+                            .border(BorderStroke(1.dp, statusColor.copy(alpha = 0.4f)), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = device.status.labelArabic,
-                            color = statusColor,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        Icon(
+                            imageVector = when (device.deviceType) {
+                                DeviceType.ACCESS_POINT -> Icons.Default.WifiTethering
+                                DeviceType.ROUTER -> Icons.Default.Router
+                                DeviceType.STATION -> Icons.Default.Wifi
+                                DeviceType.SWITCH -> Icons.Default.Lan
+                                DeviceType.ANTENNA -> Icons.Default.Public
+                            },
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(3.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-                // IP Address & Model & Port
+            // IP & MAC Row (clean container)
+            Surface(
+                color = Color(0xFF0F172A),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "IP: ${device.ipAddress}",
-                        color = if (device.ipAddress.isNotBlank()) MikroTikCyan else StatusWarning,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
-                    )
-
-                    if (device.model.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "• ${device.model}",
+                            text = "IP: ",
                             color = TextSecondaryDark,
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = device.ipAddress,
+                            color = MikroTikCyan,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
                         )
                     }
 
-                    if (device.managementPort != 8728) {
-                        Text(
-                            text = "• منفذ: ${device.managementPort}",
-                            color = TextMutedDark,
-                            fontSize = 10.sp
-                        )
+                    if (device.macAddress.isNotBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "MAC: ",
+                                color = TextSecondaryDark,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = device.macAddress,
+                                color = TextPrimaryDark,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-                // Location & Frequency & Subnet
-                Text(
-                    text = "الموقع: ${device.towerLocation} • رنج: ${device.subnet} • تردد: ${device.frequency}",
-                    color = TextSecondaryDark,
-                    fontSize = 11.sp
-                )
-
-                if (device.notes.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+            // Telemetry line: Source · Latency ms · Timestamp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "ملاحظات: ${device.notes}",
+                        text = "${device.source} · ",
+                        color = TextSecondaryDark,
+                        fontSize = 11.sp
+                    )
+                    if (device.pingLatencyMs != null) {
+                        Text(
+                            text = "استجابة ${device.pingLatencyMs} ms · ",
+                            color = if (device.pingLatencyMs < 20.0) StatusOnline else StatusWarning,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Text(
+                        text = device.lastCheckedTime,
+                        color = TextMutedDark,
+                        fontSize = 10.sp
+                    )
+                }
+
+                if (device.towerLocation.isNotBlank() && device.towerLocation != "البرج الرئيسي") {
+                    Text(
+                        text = device.towerLocation,
                         color = TextMutedDark,
                         fontSize = 10.sp
                     )
                 }
             }
 
-            // Action Buttons: Edit, Clone / Duplicate, Delete
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action Buttons Row: [Trash] [Edit] [Clone] ... [فتح بالمتصفح] [فحص الآن]
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // CLONE / DUPLICATE ACTION BUTTON
-                IconButton(
-                    onClick = onClone,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .testTag("btn_clone_device_${device.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "تكرار الجهاز",
-                        tint = Color(0xFF10B981), // Emerald green for clone action
-                        modifier = Modifier.size(17.dp)
-                    )
+                // Secondary management actions
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("btn_delete_device_${device.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "حذف الجهاز",
+                            tint = StatusOffline,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("btn_edit_device_${device.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "تعديل الجهاز",
+                            tint = MikroTikCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onClone,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("btn_clone_device_${device.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "تكرار الجهاز",
+                            tint = StatusOnline,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
 
-                // EDIT ACTION BUTTON
-                IconButton(
-                    onClick = onEdit,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .testTag("btn_edit_device_${device.id}")
+                // Primary operational actions (MkCards style)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "تعديل الجهاز",
-                        tint = MikroTikCyan,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
+                    // Open in Browser (Direct WebFig / AirOS / LuCI)
+                    OutlinedButton(
+                        onClick = onOpenInBrowser,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8)),
+                        border = BorderStroke(1.dp, Color(0xFF0369A1)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("btn_open_browser_${device.id}")
+                    ) {
+                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("فتح بالمتصفح", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
 
-                // DELETE ACTION BUTTON
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .testTag("btn_delete_device_${device.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "حذف الجهاز",
-                        tint = StatusOffline,
-                        modifier = Modifier.size(17.dp)
-                    )
+                    // Instant Ping Check
+                    Button(
+                        onClick = onPing,
+                        colors = ButtonDefaults.buttonColors(containerColor = MikroTikPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("btn_ping_device_${device.id}")
+                    ) {
+                        Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("فحص الآن", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
