@@ -54,6 +54,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.network.NetworkRepository
+import com.example.ui.components.CardQuotaAndExpiredDetailsCard
+import com.example.ui.components.LiveInternetTrafficCard
+import com.example.ui.components.MkCardsLiveTelemetryQuadRow
 import com.example.ui.components.RouterHealthTelemetryCard
 import com.example.ui.theme.AiGeminiPurple
 import com.example.ui.theme.CyberBorder
@@ -98,6 +101,9 @@ fun MikrotikOperationsScreen(
     val telemetry by networkRepository.telemetry.collectAsState()
     val devices by networkRepository.devices.collectAsState()
     val activeRouter by viewModel.activeRouterProfile.collectAsState()
+    val liveInterfaces by viewModel.liveInterfaces.collectAsState()
+    val selectedIface by viewModel.selectedInterfaceTraffic.collectAsState()
+    val cardQuota by viewModel.cardQuotaTelemetry.collectAsState()
 
     val services = listOf(
         ServiceGridItem(
@@ -255,57 +261,35 @@ fun MikrotikOperationsScreen(
             }
         }
 
-        // 1. Live Hardware Telemetry Card (MkCards header style)
+        // 1. Live Internet Speedometer & Traffic Waveform Cards (Matching MkCards Screenshot 2)
+        item {
+            LiveInternetTrafficCard(
+                interfaceTraffic = selectedIface,
+                allInterfaces = liveInterfaces,
+                onSelectInterface = { viewModel.selectTrafficInterface(it) }
+            )
+        }
+
+        // 2. MkCards Live Telemetry Quad Row (المتصلين الآن, البروباند, يوزرات الهوتسبوت, والمانجر)
+        item {
+            MkCardsLiveTelemetryQuadRow(
+                telemetry = cardQuota
+            )
+        }
+
+        // 3. Card Quota Telemetry & Expired Cards Breakdown (الكروت المنتهية الصلاحية والميجا بدقة)
+        item {
+            CardQuotaAndExpiredDetailsCard(
+                telemetry = cardQuota
+            )
+        }
+
+        // 4. Live Hardware Telemetry Card (MkCards hardware card: Uptime, OS, CPU%, Temp with fan alert, RAM)
         item {
             RouterHealthTelemetryCard(
                 telemetry = telemetry,
                 onRefresh = { networkRepository.refreshTelemetry() }
             )
-        }
-
-        // 2. Hotspot Cards 4 Stat Cards (MkCards style)
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OperationStatCard(
-                        title = "الكروت المولدة",
-                        value = "7,690",
-                        subtitle = "الكروت خلال 30 يوماً: 7,690",
-                        accentColor = MikroTikCyan,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OperationStatCard(
-                        title = "إجمالي البيع",
-                        value = "1,420,000 ر.ي",
-                        subtitle = "نظام الهوتسبوت واليوزرمجر",
-                        accentColor = SemanticIncomeGreen,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OperationStatCard(
-                        title = "الكروت المتبقية",
-                        value = "7,690",
-                        subtitle = "كروت الهوتسبوت: 7,690",
-                        accentColor = Color(0xFF38BDF8),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OperationStatCard(
-                        title = "الكروت المباعة",
-                        value = "1,850",
-                        subtitle = "كروت نشطة: 1,850",
-                        accentColor = StatusOnline,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
         }
 
         // 3. Live Announcement Banner

@@ -116,6 +116,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val liveTrafficManager = com.example.data.network.LiveTrafficManager(viewModelScope)
+    val liveInterfaces: StateFlow<List<com.example.data.network.NetworkInterfaceTraffic>> = liveTrafficManager.interfaces
+    val selectedInterfaceTraffic: StateFlow<com.example.data.network.NetworkInterfaceTraffic> = liveTrafficManager.selectedInterface
+    val cardQuotaTelemetry: StateFlow<com.example.data.network.CardAndQuotaTelemetry> = liveTrafficManager.cardQuota
+
+    fun selectTrafficInterface(interfaceId: String) {
+        liveTrafficManager.selectInterface(interfaceId)
+    }
+
     val statementsUseCase = FinancialStatementsUseCase(db)
     val statementOfAccountUseCase = StatementOfAccountUseCase(db)
     val backupRestoreUseCase = BackupRestoreUseCase(db, deviceDao = networkRepository, networkRepository = networkRepository, context = application)
