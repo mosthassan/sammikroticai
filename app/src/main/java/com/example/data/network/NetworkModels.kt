@@ -511,19 +511,16 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
         devicesFile.writeText(array.toString(2))
     }
 
+    fun updateRealTelemetry(realTelemetry: RouterTelemetry) {
+        _telemetry.value = realTelemetry
+    }
+
+    fun updateArpDevices(realDevices: List<NetworkDevice>) {
+        _arpDiscoveredDevices.value = realDevices
+    }
+
     fun refreshTelemetry(): RouterTelemetry {
-        val current = _telemetry.value
-        val simulatedCpu = (8..24).random()
-        val simulatedTemp = (42..49).random()
-        val simulatedUsers = (48..75).random()
-        val updated = current.copy(
-            cpuLoadPercent = simulatedCpu,
-            temperatureCelsius = simulatedTemp,
-            activeUsersCount = simulatedUsers,
-            lastUpdated = System.currentTimeMillis()
-        )
-        _telemetry.value = updated
-        return updated
+        return _telemetry.value
     }
 
     private fun loadArpDevices(): List<NetworkDevice> {

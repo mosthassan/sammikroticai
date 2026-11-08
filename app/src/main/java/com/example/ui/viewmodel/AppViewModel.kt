@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import com.example.core.ledger.AccountConstants
 import com.example.core.model.CurrencyCode
@@ -111,6 +112,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 _userMessage.emit("تم تفعيل الاتصال بالراوتر: ${active.name} (${active.host}:${active.apiPort})")
+                refreshRealRouterData()
             }
             onConnected()
         }
@@ -120,9 +122,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val liveInterfaces: StateFlow<List<com.example.data.network.NetworkInterfaceTraffic>> = liveTrafficManager.interfaces
     val selectedInterfaceTraffic: StateFlow<com.example.data.network.NetworkInterfaceTraffic> = liveTrafficManager.selectedInterface
     val cardQuotaTelemetry: StateFlow<com.example.data.network.CardAndQuotaTelemetry> = liveTrafficManager.cardQuota
+    val isRouterLiveConnected: StateFlow<Boolean> = liveTrafficManager.isLiveConnected
+    val routerConnectionStatusText: StateFlow<String> = liveTrafficManager.connectionStatusMessage
 
     fun selectTrafficInterface(interfaceId: String) {
         liveTrafficManager.selectInterface(interfaceId)
+    }
+
+    fun refreshRealRouterData() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = activeRouterProfile.value
+            if (active == null) {
+                liveTrafficManager.setOfflineState("لا يوجد ملف راوتر نشط محدد")
+                return@launch
+            }
+            liveTrafficManager.setConnectingState("جاري الاتصال وقراءة البيانات الحقيقية من ${active.host}:${active.apiPort}...")
+            val client = com.example.data.network.MikrotikApiClient(
+                host = active.host,
+                apiPort = active.apiPort,
+                httpPort = active.webPort,
+                username = active.username,
+                password = active.password
+            )
+            val result = client.fetchRealRouterState()
+            if (result.isSuccess) {
+                val realData = result.getOrThrow()
+                networkRepository.updateRealTelemetry(realData.telemetry)
+                if (realData.arpDevices.isNotEmpty()) {
+                    networkRepository.updateArpDevices(realData.arpDevices)
+                }
+                liveTrafficManager.updateRealData(
+                    realInterfaces = realData.interfaces,
+                    realCardQuota = realData.cardQuota,
+                    isLive = true,
+                    desc = realData.dataSourceDescription
+                )
+                val primaryName = liveTrafficManager.selectedInterface.value.name
+                liveTrafficManager.startRealInterfacePolling(client, primaryName)
+                _userMessage.emit("✅ تم استلام بيانات الراوتر الحقيقية (${realData.interfaces.size} واجهات، ${realData.cardQuota.totalGeneratedCards} كرت، ${realData.cardQuota.onlineUsersNow} متصل)")
+            } else {
+                val errorMsg = result.exceptionOrNull()?.message ?: "فشل الاتصال"
+                liveTrafficManager.setOfflineState("تعذر الاتصال بالراوتر (${active.host}:${active.apiPort}): $errorMsg")
+            }
+        }
     }
 
     val statementsUseCase = FinancialStatementsUseCase(db)
@@ -267,6 +309,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         refreshDashboard()
         runInvariantCheck()
+        refreshRealRouterData()
         licenseManager.currentUserEmail = currentUser.value?.email
         viewModelScope.launch {
             currentUser.collect { u ->

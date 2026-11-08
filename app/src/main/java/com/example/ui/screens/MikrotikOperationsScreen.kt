@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Style
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -104,6 +106,7 @@ fun MikrotikOperationsScreen(
     val liveInterfaces by viewModel.liveInterfaces.collectAsState()
     val selectedIface by viewModel.selectedInterfaceTraffic.collectAsState()
     val cardQuota by viewModel.cardQuotaTelemetry.collectAsState()
+    val isLiveConnected by viewModel.isRouterLiveConnected.collectAsState()
 
     val services = listOf(
         ServiceGridItem(
@@ -239,23 +242,44 @@ fun MikrotikOperationsScreen(
                                 color = TextPrimaryDark
                             )
                             Text(
-                                text = "${activeRouter?.host ?: "10.0.0.1"}:${activeRouter?.apiPort ?: 8728} • متصل ومفعل",
+                                text = if (isLiveConnected) {
+                                    "${activeRouter?.host ?: "10.0.0.1"}:${activeRouter?.apiPort ?: 8728} • قراءة حية (RouterOS API)"
+                                } else {
+                                    "${activeRouter?.host ?: "10.0.0.1"}:${activeRouter?.apiPort ?: 8728} • غير متصل بالراوتر الفيزيائي"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MikroTikCyan
+                                color = if (isLiveConnected) StatusOnline else SemanticWarningAmber
                             )
                         }
                     }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = CyberDarkSurface,
-                        border = BorderStroke(1.dp, CyberBorder)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            text = "تبديل الراوتر ▾",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextPrimaryDark,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
+                        IconButton(
+                            onClick = { viewModel.refreshRealRouterData() },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "تحديث القراءة من الراوتر",
+                                tint = if (isLiveConnected) StatusOnline else SemanticWarningAmber,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = CyberDarkSurface,
+                            border = BorderStroke(1.dp, CyberBorder),
+                            modifier = Modifier.clickable { onNavigateToRouterLogin() }
+                        ) {
+                            Text(
+                                text = "تبديل الراوتر ▾",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextPrimaryDark,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -266,7 +290,9 @@ fun MikrotikOperationsScreen(
             LiveInternetTrafficCard(
                 interfaceTraffic = selectedIface,
                 allInterfaces = liveInterfaces,
-                onSelectInterface = { viewModel.selectTrafficInterface(it) }
+                onSelectInterface = { viewModel.selectTrafficInterface(it) },
+                isLiveConnected = isLiveConnected,
+                onRefreshFromRouter = { viewModel.refreshRealRouterData() }
             )
         }
 
@@ -288,7 +314,7 @@ fun MikrotikOperationsScreen(
         item {
             RouterHealthTelemetryCard(
                 telemetry = telemetry,
-                onRefresh = { networkRepository.refreshTelemetry() }
+                onRefresh = { viewModel.refreshRealRouterData() }
             )
         }
 

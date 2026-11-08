@@ -18,9 +18,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,20 +33,28 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.HourglassDisabled
 import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Style
+import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -66,6 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.network.CardAndQuotaTelemetry
+import com.example.data.network.InterfaceCategory
 import com.example.data.network.NetworkInterfaceTraffic
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberDarkCardElevated
@@ -89,9 +102,20 @@ fun LiveInternetTrafficCard(
     interfaceTraffic: NetworkInterfaceTraffic,
     allInterfaces: List<NetworkInterfaceTraffic>,
     onSelectInterface: (String) -> Unit,
+    isLiveConnected: Boolean = false,
+    onRefreshFromRouter: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var isInterfaceDropdownOpen by remember { mutableStateOf(false) }
+    var showInterfacePickerSheet by remember { mutableStateOf(false) }
+
+    if (showInterfacePickerSheet) {
+        MikrotikInterfaceSelectorDialog(
+            allInterfaces = allInterfaces,
+            selectedInterfaceId = interfaceTraffic.id,
+            onSelectInterface = onSelectInterface,
+            onDismiss = { showInterfacePickerSheet = false }
+        )
+    }
 
     // Pulsing green dot animation for live stream
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -111,7 +135,7 @@ fun LiveInternetTrafficCard(
             .testTag("live_internet_traffic_card"),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1B2B)),
-        border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.35f))
+        border = BorderStroke(1.dp, if (isLiveConnected) MikroTikCyan.copy(alpha = 0.45f) else Color(0xFFD97706).copy(alpha = 0.35f))
     ) {
         Column(
             modifier = Modifier
@@ -119,7 +143,7 @@ fun LiveInternetTrafficCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // 1. Header: "سرعة الإنترنت" + Live Stream Badge + Interface Selector Dropdown
+            // 1. Header: "سرعة الإنترنت" + Live Stream Badge + Interface Selector Capsule
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -133,7 +157,7 @@ fun LiveInternetTrafficCard(
                     Icon(
                         imageVector = Icons.Default.Speed,
                         contentDescription = null,
-                        tint = MikroTikCyan,
+                        tint = if (isLiveConnected) MikroTikCyan else SemanticWarningAmber,
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
@@ -144,8 +168,9 @@ fun LiveInternetTrafficCard(
                     )
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF064E3B).copy(alpha = 0.7f),
-                        border = BorderStroke(1.dp, StatusOnline.copy(alpha = 0.6f))
+                        color = if (isLiveConnected) Color(0xFF064E3B).copy(alpha = 0.7f) else Color(0xFF451A03).copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, if (isLiveConnected) StatusOnline.copy(alpha = 0.6f) else SemanticWarningAmber.copy(alpha = 0.6f)),
+                        modifier = Modifier.clickable { onRefreshFromRouter() }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -156,90 +181,46 @@ fun LiveInternetTrafficCard(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(StatusOnline.copy(alpha = pulseAlpha))
+                                    .background(if (isLiveConnected) StatusOnline.copy(alpha = pulseAlpha) else SemanticWarningAmber)
                             )
                             Text(
-                                text = "بث مباشر",
+                                text = if (isLiveConnected) "قراءة حية (API 8728)" else "غير متصل (انقر للتحديث)",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = StatusOnline,
+                                color = if (isLiveConnected) StatusOnline else SemanticWarningAmber,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 }
 
-                // Interface Selector Dropdown
-                Box {
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { isInterfaceDropdownOpen = true }
-                            .testTag("btn_select_interface"),
-                        color = Color(0xFF132A3E),
-                        border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f))
+                // Interface Selector Button Capsule (Matching MKCards Screenshot 2: 114 واجهات)
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { showInterfacePickerSheet = true }
+                        .testTag("btn_select_interface"),
+                    color = Color(0xFF132A3E),
+                    border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lan,
-                                contentDescription = null,
-                                tint = MikroTikCyan,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = interfaceTraffic.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextPrimaryDark,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                            Text(text = "▾", color = MikroTikCyan, fontSize = 12.sp)
-                        }
-                    }
-
-                    DropdownMenu(
-                        expanded = isInterfaceDropdownOpen,
-                        onDismissRequest = { isInterfaceDropdownOpen = false },
-                        modifier = Modifier.background(CyberDarkCardElevated)
-                    ) {
-                        Text(
-                            text = "واجهات شبكة الميكروتك (${allInterfaces.size})",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MikroTikCyan,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        Icon(
+                            imageVector = Icons.Default.Lan,
+                            contentDescription = null,
+                            tint = MikroTikCyan,
+                            modifier = Modifier.size(15.dp)
                         )
-                        allInterfaces.forEach { iface ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = iface.displayName,
-                                            color = TextPrimaryDark,
-                                            fontWeight = if (iface.id == interfaceTraffic.id) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                        if (iface.id == interfaceTraffic.id) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = MikroTikCyan,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    onSelectInterface(iface.id)
-                                    isInterfaceDropdownOpen = false
-                                }
-                            )
-                        }
+                        Text(
+                            text = "${allInterfaces.size} واجهات : ${interfaceTraffic.name}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextPrimaryDark,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Text(text = "▾", color = MikroTikCyan, fontSize = 12.sp)
                     }
                 }
             }
@@ -825,4 +806,267 @@ private fun MkQuickStatCard(
             }
         }
     }
+}
+
+/**
+ * Searchable & Filterable Full Interface Selector Dialog (Displays all 114 interfaces)
+ */
+@Composable
+fun MikrotikInterfaceSelectorDialog(
+    allInterfaces: List<NetworkInterfaceTraffic>,
+    selectedInterfaceId: String,
+    onSelectInterface: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(InterfaceCategory.ALL) }
+
+    val filteredList = remember(searchQuery, selectedCategory, allInterfaces) {
+        allInterfaces.filter { iface ->
+            val matchesCategory = (selectedCategory == InterfaceCategory.ALL || iface.category == selectedCategory)
+            val matchesSearch = searchQuery.isBlank() ||
+                    iface.name.contains(searchQuery, ignoreCase = true) ||
+                    iface.displayName.contains(searchQuery, ignoreCase = true) ||
+                    iface.macAddress.contains(searchQuery, ignoreCase = true)
+            matchesCategory && matchesSearch
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {},
+        title = null,
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "واجهات شبكة الميكروتك (${allInterfaces.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Text(
+                            text = "اختر واجهة لمراقبة سرعة الرفع والتحميل الحية",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark
+                        )
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = TextMutedDark)
+                    }
+                }
+
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_search_interfaces"),
+                    placeholder = { Text("بحث بالاسم، البورت، أو MAC...", color = TextMutedDark, fontSize = 12.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MikroTikCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear",
+                                    tint = TextMutedDark,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MikroTikCyan,
+                        unfocusedBorderColor = CyberBorder,
+                        focusedTextColor = TextPrimaryDark,
+                        unfocusedTextColor = TextPrimaryDark
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                // Category Filter Chips
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(InterfaceCategory.values()) { cat ->
+                        val isCatSelected = cat == selectedCategory
+                        val count = if (cat == InterfaceCategory.ALL) allInterfaces.size else allInterfaces.count { it.category == cat }
+                        Surface(
+                            modifier = Modifier.clickable { selectedCategory = cat },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isCatSelected) Color(0xFF0E5B6E) else CyberDarkSurface,
+                            border = BorderStroke(1.dp, if (isCatSelected) MikroTikCyan else CyberBorder)
+                        ) {
+                            Text(
+                                text = "${cat.labelArabic} ($count)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isCatSelected) TextPrimaryDark else TextSecondaryDark,
+                                fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Interfaces List
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (filteredList.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "لا توجد واجهات مطابقة لنتائج البحث",
+                                    color = TextMutedDark,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    } else {
+                        items(filteredList, key = { it.id }) { iface ->
+                            val isSelected = iface.id == selectedInterfaceId
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSelectInterface(iface.id)
+                                        onDismiss()
+                                    }
+                                    .testTag("iface_item_${iface.id}"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF0C2B34) else CyberDarkSurface
+                                ),
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) MikroTikCyan else CyberBorder
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        // Icon for category
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = when (iface.category) {
+                                                InterfaceCategory.ETHERNET -> Color(0xFF0C243C)
+                                                InterfaceCategory.BRIDGE -> Color(0xFF451A03)
+                                                InterfaceCategory.VLAN -> Color(0xFF2E1065)
+                                                InterfaceCategory.WIRELESS -> Color(0xFF064E3B)
+                                                InterfaceCategory.PPP_VPN -> Color(0xFF1E3A8A)
+                                                else -> Color(0xFF1E293B)
+                                            },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = when (iface.category) {
+                                                        InterfaceCategory.ETHERNET -> Icons.Default.Lan
+                                                        InterfaceCategory.BRIDGE -> Icons.Default.Router
+                                                        InterfaceCategory.VLAN -> Icons.Default.Layers
+                                                        InterfaceCategory.WIRELESS -> Icons.Default.Wifi
+                                                        InterfaceCategory.PPP_VPN -> Icons.Default.VpnKey
+                                                        else -> Icons.Default.Person
+                                                    },
+                                                    contentDescription = null,
+                                                    tint = when (iface.category) {
+                                                        InterfaceCategory.ETHERNET -> MikroTikCyan
+                                                        InterfaceCategory.BRIDGE -> SemanticWarningAmber
+                                                        InterfaceCategory.VLAN -> Color(0xFFA855F7)
+                                                        InterfaceCategory.WIRELESS -> StatusOnline
+                                                        InterfaceCategory.PPP_VPN -> Color(0xFF60A5FA)
+                                                        else -> TextSecondaryDark
+                                                    },
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Column {
+                                            Text(
+                                                text = iface.displayName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimaryDark,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = "${iface.category.labelArabic} • MAC: ${iface.macAddress}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = TextMutedDark,
+                                                fontSize = 10.sp
+                                            )
+                                            Text(
+                                                text = "⤓ ${iface.rxMbps} Mbps • ⤒ ${iface.txMbps} Mbps • GB ${iface.totalTxGb}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (isSelected) MikroTikCyan else TextSecondaryDark,
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    if (isSelected) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MikroTikCyan,
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Selected",
+                                                    tint = Color(0xFF03252E),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        containerColor = CyberDarkCardElevated,
+        shape = RoundedCornerShape(20.dp)
+    )
 }

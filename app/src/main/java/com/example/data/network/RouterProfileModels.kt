@@ -185,21 +185,21 @@ class RouterProfilesRepository(private val context: Context) {
         val startTime = System.currentTimeMillis()
         try {
             val socket = Socket()
-            socket.connect(InetSocketAddress(host, port), 1200)
+            socket.connect(InetSocketAddress(host, port), 1500)
             val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
             socket.close()
             ConnectionTestResult(
                 success = true,
                 latencyMs = latency,
-                message = "تم الاتصال بنجاح بالراوتر (المنفذ $port) - الاستجابة: ${latency}ms"
+                message = "تم الاتصال الحقيقي بمنفذ الراوتر $port بنجاح - سرعة الاستجابة: ${latency}ms"
             )
-        } catch (_: Exception) {
-            // In Android sandbox without real hardware router, simulate responsive probe or show warning
-            val simulatedLatency = 12L
+        } catch (e: Exception) {
+            val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
             ConnectionTestResult(
-                success = true,
-                latencyMs = simulatedLatency,
-                message = "تم التحقق من المنفذ $port بنجاح (وضع الاستجابة الذاتي: ${simulatedLatency}ms)"
+                success = false,
+                latencyMs = latency,
+                message = "تعذر الاتصال بمنفذ الراوتر $host:$port (${e.message ?: "فشل فحص المنفذ"}). تأكد من اتصال الجهاز بشبكة الراوتر.",
+                errorCode = e.javaClass.simpleName
             )
         }
     }
