@@ -118,6 +118,7 @@ import com.example.ui.theme.StatusOnline
 import com.example.ui.theme.TextMutedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
+import com.example.ui.viewmodel.AppViewModel
 import kotlinx.coroutines.launch
 
 /**
@@ -129,6 +130,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RouterLoginScreen(
     repository: RouterProfilesRepository,
+    viewModel: AppViewModel,
     onLoginSuccess: (RouterConnectionProfile) -> Unit,
     onOfflineEnter: () -> Unit,
     modifier: Modifier = Modifier
@@ -161,6 +163,11 @@ fun RouterLoginScreen(
     // Test connection probe feedback
     var isTestingConnection by rememberSaveable { mutableStateOf(false) }
     var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
+
+    // Authentication and real connection feedback states
+    var isAuthenticatingWithRouter by rememberSaveable { mutableStateOf(false) }
+    var authErrorTitle by rememberSaveable { mutableStateOf<String?>(null) }
+    var authErrorMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Backup restore dialog
     var showRestoreBackupDialog by rememberSaveable { mutableStateOf(false) }
@@ -381,8 +388,18 @@ fun RouterLoginScreen(
                         onSelectProfile = { selectedProfileId = it },
                         onQuickConnect = { profile ->
                             scope.launch {
-                                repository.setActiveProfile(profile.id)
-                                onLoginSuccess(profile)
+                                isAuthenticatingWithRouter = true
+                                authErrorMessage = null
+                                authErrorTitle = null
+                                val res = viewModel.verifyAndConnectRouter(profile)
+                                isAuthenticatingWithRouter = false
+                                if (res.isSuccess) {
+                                    Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
+                                    onLoginSuccess(profile)
+                                } else {
+                                    authErrorTitle = "تعذر الاتصال بالراوتر (${profile.name})"
+                                    authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+                                }
                             }
                         },
                         onEditProfile = { profile ->
@@ -401,7 +418,7 @@ fun RouterLoginScreen(
                                     val res = repository.testConnection(p.host, p.apiPort)
                                     repository.saveProfile(
                                         p.copy(
-                                            lastLatencyMs = res.latencyMs,
+                                            lastLatencyMs = if (res.success) res.latencyMs else null,
                                             status = if (res.success) DeviceStatus.ONLINE else DeviceStatus.OFFLINE
                                         )
                                     )
@@ -413,8 +430,18 @@ fun RouterLoginScreen(
                             val target = profiles.find { it.id == selectedProfileId } ?: profiles.firstOrNull()
                             if (target != null) {
                                 scope.launch {
-                                    repository.setActiveProfile(target.id)
-                                    onLoginSuccess(target)
+                                    isAuthenticatingWithRouter = true
+                                    authErrorMessage = null
+                                    authErrorTitle = null
+                                    val res = viewModel.verifyAndConnectRouter(target)
+                                    isAuthenticatingWithRouter = false
+                                    if (res.isSuccess) {
+                                        Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
+                                        onLoginSuccess(target)
+                                    } else {
+                                        authErrorTitle = "تعذر تسجيل الدخول للراوتر (${target.name})"
+                                        authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+                                    }
                                 }
                             } else {
                                 Toast.makeText(context, "يرجى اختيار راوتر أولاً", Toast.LENGTH_SHORT).show()
@@ -485,16 +512,25 @@ fun RouterLoginScreen(
                                 syncDatabaseOnLogin = syncDbOnLogin,
                                 ignoreSessionsOnSync = ignoreSessionsOnSync,
                                 radiusHost = radiusHostInput.trim(),
-                                isActive = true,
-                                lastLatencyMs = connectionTestResult?.latencyMs ?: 10L,
-                                status = DeviceStatus.ONLINE,
-                                lastConnectedAt = System.currentTimeMillis()
+                                isActive = false,
+                                lastLatencyMs = null,
+                                status = DeviceStatus.UNCHECKED,
+                                lastConnectedAt = null
                             )
                             scope.launch {
+                                isAuthenticatingWithRouter = true
+                                authErrorMessage = null
+                                authErrorTitle = null
                                 repository.saveProfile(profile)
-                                repository.setActiveProfile(profile.id)
-                                Toast.makeText(context, "تم حفظ بيانات الراوتر والاتصال بنجاح", Toast.LENGTH_SHORT).show()
-                                onLoginSuccess(profile)
+                                val res = viewModel.verifyAndConnectRouter(profile)
+                                isAuthenticatingWithRouter = false
+                                if (res.isSuccess) {
+                                    Toast.makeText(context, "تم حفظ بيانات الراوتر والاتصال الحقيقي بنجاح", Toast.LENGTH_SHORT).show()
+                                    onLoginSuccess(profile)
+                                } else {
+                                    authErrorTitle = "فشل الاتصال بالراوتر (${profile.host}:$port)"
+                                    authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ الراوتر"
+                                }
                             }
                         },
                         onOfflineEnter = onOfflineEnter,
@@ -617,6 +653,97 @@ fun RouterLoginScreen(
             dismissButton = {
                 TextButton(onClick = { showRestoreBackupDialog = false }) {
                     Text("إلغاء", color = TextSecondaryDark)
+                }
+            },
+            containerColor = CyberDarkCardElevated
+        )
+    }
+
+    // Live Authentication Progress Dialog
+    if (isAuthenticatingWithRouter) {
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = MikroTikCyan,
+                        modifier = Modifier.size(26.dp),
+                        strokeWidth = 3.dp
+                    )
+                    Text(
+                        text = "جاري الاتصال والتحقق من الراوتر...",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = "يتم الآن فحص منفذ API 8728 الفعلي ومصادقة اسم المستخدم وكلمة المرور مع راوتر الميكروتك مباشرة...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondaryDark
+                )
+            },
+            containerColor = CyberDarkCardElevated
+        )
+    }
+
+    // Authentication Failure Alert Dialog
+    authErrorMessage?.let { errMsg ->
+        AlertDialog(
+            onDismissRequest = {
+                authErrorMessage = null
+                authErrorTitle = null
+            },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        tint = SemanticExpenseRed,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = authErrorTitle ?: "فشل الاتصال بالراوتر",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = errMsg,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = SemanticExpenseRed,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    HorizontalDivider(color = CyberBorder)
+                    Text(
+                        text = "🔒 سياسة الأمان والبيانات الحقيقية:\nالتطبيق يمنع الدخول أو عرض أي بيانات إلا بعد نجاح الاتصال الفعلي بالراوتر.\n\nيرجى التأكد من الآتي:\n• اتصال هاتفك بنفس شبكة الواي فاي للراوتر.\n• تفعيل خدمة API في الراوتر عبر الأمر:\n  /ip service enable api\n• صحة منفذ API (الافتراضي 8728) وعنوان IP.\n• صحة اسم المستخدم وكلمة المرور.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondaryDark
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        authErrorMessage = null
+                        authErrorTitle = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D5E72))
+                ) {
+                    Text("حسناً، فهمت", color = TextPrimaryDark, fontWeight = FontWeight.Bold)
                 }
             },
             containerColor = CyberDarkCardElevated
@@ -912,7 +1039,7 @@ private fun RouterCardItem(
                     color = statusColor.copy(alpha = 0.15f)
                 ) {
                     Text(
-                        text = "${profile.status.labelArabic} • ${profile.lastLatencyMs ?: 12}ms",
+                        text = if (profile.lastLatencyMs != null) "${profile.status.labelArabic} • ${profile.lastLatencyMs}ms" else profile.status.labelArabic,
                         style = MaterialTheme.typography.labelSmall,
                         color = statusColor,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)

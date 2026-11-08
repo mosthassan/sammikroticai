@@ -24,39 +24,39 @@ enum class InterfaceCategory(val labelArabic: String) {
 
 data class NetworkInterfaceTraffic(
     val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val displayName: String,
+    val name: String = "غير متصل",
+    val displayName: String = "في انتظار الاتصال بالراوتر...",
     val category: InterfaceCategory = InterfaceCategory.ETHERNET,
     val isWan: Boolean = false,
-    val isRunning: Boolean = true,
-    val rxMbps: Double = 1.24, // Download Speed
-    val txMbps: Double = 9.20, // Upload Speed
-    val totalRxGb: Double = 168.67, // Total Received Data (GB)
-    val totalTxGb: Double = 1415.17, // Total Transmitted Data (GB)
-    val macAddress: String = "B4:A9:4F:0C:AA:01",
+    val isRunning: Boolean = false,
+    val rxMbps: Double = 0.0,
+    val txMbps: Double = 0.0,
+    val totalRxGb: Double = 0.0,
+    val totalTxGb: Double = 0.0,
+    val macAddress: String = "00:00:00:00:00:00",
     val mtu: Int = 1500,
-    val rxHistory: List<Float> = listOf(0.2f, 0.8f, 1.4f, 4.0f, 0.1f, 1.8f, 2.6f, 1.24f),
-    val txHistory: List<Float> = listOf(4.2f, 12.0f, 41.0f, 16.5f, 9.8f, 22.4f, 14.1f, 9.20f)
+    val rxHistory: List<Float> = listOf(0f, 0f, 0f, 0f, 0f),
+    val txHistory: List<Float> = listOf(0f, 0f, 0f, 0f, 0f)
 )
 
 data class CardAndQuotaTelemetry(
-    val totalGeneratedCards: Int = 7690,
-    val soldActiveCards: Int = 1850,
-    val remainingCards: Int = 5420,
-    val expiredCards: Int = 420, // عدد الكروت المنتهية الصلاحية
-    val totalQuotaMb: Long = 2_000_000L, // 2,000,000 MB (1,953.1 GB)
-    val consumedQuotaMb: Long = 1_583_840L, // 1,583,840 MB (1,546.7 GB)
-    val remainingQuotaMb: Long = 416_160L, // 416,160 MB (406.4 GB)
-    val totalSalesYemenRial: Long = 1_420_000L,
-    val onlineUsersNow: Int = 53,
+    val totalGeneratedCards: Int = 0,
+    val soldActiveCards: Int = 0,
+    val remainingCards: Int = 0,
+    val expiredCards: Int = 0,
+    val totalQuotaMb: Long = 0L,
+    val consumedQuotaMb: Long = 0L,
+    val remainingQuotaMb: Long = 0L,
+    val totalSalesYemenRial: Long = 0L,
+    val onlineUsersNow: Int = 0,
     val broadbandUsers: String = "0 / 0",
-    val hotspotUsers: Int = 7691,
+    val hotspotUsers: Int = 0,
     val userManagerUsers: Int = 0
 ) {
     val consumedGb: Double get() = consumedQuotaMb / 1024.0
     val remainingGb: Double get() = remainingQuotaMb / 1024.0
     val totalGb: Double get() = totalQuotaMb / 1024.0
-    val consumedPercent: Int get() = ((consumedQuotaMb.toDouble() / totalQuotaMb.toDouble()) * 100).coerceIn(0.0, 100.0).toInt()
+    val consumedPercent: Int get() = if (totalQuotaMb > 0) ((consumedQuotaMb.toDouble() / totalQuotaMb.toDouble()) * 100).coerceIn(0.0, 100.0).toInt() else 0
 }
 
 /**
@@ -309,10 +309,10 @@ class LiveTrafficManager(private val scope: CoroutineScope) {
         }
     }
 
-    private val _interfaces = MutableStateFlow<List<NetworkInterfaceTraffic>>(fullMikrotikInterfaces)
+    private val _interfaces = MutableStateFlow<List<NetworkInterfaceTraffic>>(emptyList())
     val interfaces: StateFlow<List<NetworkInterfaceTraffic>> = _interfaces.asStateFlow()
 
-    private val _selectedInterface = MutableStateFlow<NetworkInterfaceTraffic>(fullMikrotikInterfaces.first())
+    private val _selectedInterface = MutableStateFlow<NetworkInterfaceTraffic>(NetworkInterfaceTraffic())
     val selectedInterface: StateFlow<NetworkInterfaceTraffic> = _selectedInterface.asStateFlow()
 
     private val _cardQuota = MutableStateFlow(CardAndQuotaTelemetry())
@@ -321,7 +321,7 @@ class LiveTrafficManager(private val scope: CoroutineScope) {
     private val _isLiveConnected = MutableStateFlow(false)
     val isLiveConnected: StateFlow<Boolean> = _isLiveConnected.asStateFlow()
 
-    private val _connectionStatusMessage = MutableStateFlow("في انتظار فحص الاتصال بالراوتر...")
+    private val _connectionStatusMessage = MutableStateFlow("غير متصل بأي راوتر - يرجى تسجيل الدخول أولاً")
     val connectionStatusMessage: StateFlow<String> = _connectionStatusMessage.asStateFlow()
 
     private var trafficPollJob: Job? = null

@@ -236,16 +236,18 @@ fun MikrotikOperationsScreen(
                         }
                         Column {
                             Text(
-                                text = "الراوتر النشط: ${activeRouter?.name ?: "10.0.0.1"}",
+                                text = if (activeRouter != null) "الراوتر النشط: ${activeRouter?.name}" else "لم يتم ربط راوتر بعد",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimaryDark
                             )
                             Text(
                                 text = if (isLiveConnected) {
-                                    "${activeRouter?.host ?: "10.0.0.1"}:${activeRouter?.apiPort ?: 8728} • قراءة حية (RouterOS API)"
+                                    "${activeRouter?.host}:${activeRouter?.apiPort} • قراءة حية حقيقية (RouterOS API)"
+                                } else if (activeRouter != null) {
+                                    "${activeRouter?.host}:${activeRouter?.apiPort} • غير متصل (تأكد من الشبكة)"
                                 } else {
-                                    "${activeRouter?.host ?: "10.0.0.1"}:${activeRouter?.apiPort ?: 8728} • غير متصل بالراوتر الفيزيائي"
+                                    "انقر لتسجيل الدخول إلى الراوتر"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (isLiveConnected) StatusOnline else SemanticWarningAmber

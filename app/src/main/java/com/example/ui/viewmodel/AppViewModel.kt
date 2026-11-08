@@ -129,6 +129,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         liveTrafficManager.selectInterface(interfaceId)
     }
 
+    suspend fun verifyAndConnectRouter(profile: com.example.data.network.RouterConnectionProfile): Result<com.example.data.network.MikrotikApiClient.RealRouterData> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        liveTrafficManager.setConnectingState("جاري الاتصال والتحقق من الراوتر ${profile.host}:${profile.apiPort}...")
+        val client = com.example.data.network.MikrotikApiClient(
+            host = profile.host,
+            apiPort = profile.apiPort,
+            httpPort = profile.webPort,
+            username = profile.username,
+            password = profile.password
+        )
+        val result = client.fetchRealRouterState()
+        if (result.isSuccess) {
+            val realData = result.getOrThrow()
+            val updatedProfile = profile.copy(
+                status = com.example.data.network.DeviceStatus.ONLINE,
+                lastLatencyMs = realData.latencyMs,
+                lastConnectedAt = System.currentTimeMillis(),
+                isActive = true
+            )
+            routerProfilesRepository.saveProfile(updatedProfile)
+            routerProfilesRepository.setActiveProfile(updatedProfile.id)
+            networkRepository.saveConfig(
+                networkRepository.config.value.copy(
+                    mainRouterModel = updatedProfile.name,
+                    adminPort = updatedProfile.apiPort
+                )
+            )
+            networkRepository.updateRealTelemetry(realData.telemetry)
+            if (realData.arpDevices.isNotEmpty()) {
+                networkRepository.updateArpDevices(realData.arpDevices)
+            }
+            liveTrafficManager.updateRealData(
+                realInterfaces = realData.interfaces,
+                realCardQuota = realData.cardQuota,
+                isLive = true,
+                desc = realData.dataSourceDescription
+            )
+            val primaryName = liveTrafficManager.selectedInterface.value.name
+            liveTrafficManager.startRealInterfacePolling(client, primaryName)
+            _userMessage.emit("✅ تم الاتصال الحقيقي بالراوتر بنجاح (${realData.interfaces.size} واجهات، ${realData.cardQuota.totalGeneratedCards} كرت)")
+            Result.success(realData)
+        } else {
+            val errorMsg = result.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+            val failedProfile = profile.copy(
+                status = com.example.data.network.DeviceStatus.OFFLINE,
+                lastLatencyMs = null,
+                isActive = false
+            )
+            routerProfilesRepository.saveProfile(failedProfile)
+            liveTrafficManager.setOfflineState("فشل الاتصال بالراوتر (${profile.host}:${profile.apiPort}): $errorMsg")
+            Result.failure(Exception(errorMsg))
+        }
+    }
+
     fun refreshRealRouterData() {
         viewModelScope.launch(Dispatchers.IO) {
             val active = activeRouterProfile.value
@@ -309,7 +362,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         refreshDashboard()
         runInvariantCheck()
-        refreshRealRouterData()
+        if (activeRouterProfile.value?.isActive == true) {
+            refreshRealRouterData()
+        }
         licenseManager.currentUserEmail = currentUser.value?.email
         viewModelScope.launch {
             currentUser.collect { u ->

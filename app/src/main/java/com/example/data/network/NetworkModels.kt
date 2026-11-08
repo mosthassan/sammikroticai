@@ -54,18 +54,18 @@ enum class DeviceStatus(val labelArabic: String) {
 }
 
 data class RouterTelemetry(
-    val routerIp: String = "10.0.0.1",
-    val routerModel: String = "MikroTik CCR2004-16G-2S+",
-    val routerOsVersion: String = "7.24.5 (stable)",
-    val uptime: String = "3d 22h 57m 11s",
-    val cpuLoadPercent: Int = 12,
-    val temperatureCelsius: Int = 46,
-    val memoryUsedMb: Float = 297.5f,
-    val memoryTotalMb: Float = 1024f,
-    val activeUsersCount: Int = 52,
-    val totalDiscoveredDevices: Int = 32,
-    val isCloudConnected: Boolean = true,
-    val lastUpdated: Long = System.currentTimeMillis()
+    val routerIp: String = "",
+    val routerModel: String = "غير متصل",
+    val routerOsVersion: String = "--",
+    val uptime: String = "--",
+    val cpuLoadPercent: Int = 0,
+    val temperatureCelsius: Int = 0,
+    val memoryUsedMb: Float = 0f,
+    val memoryTotalMb: Float = 0f,
+    val activeUsersCount: Int = 0,
+    val totalDiscoveredDevices: Int = 0,
+    val isCloudConnected: Boolean = false,
+    val lastUpdated: Long = 0L
 ) {
     val needsCoolingFanAlert: Boolean get() = temperatureCelsius >= 45
 }

@@ -35,8 +35,8 @@ data class RouterConnectionProfile(
     val radiusHost: String = "",
     val isDefault: Boolean = false,
     val isActive: Boolean = false,
-    val lastLatencyMs: Long? = 14L,
-    val status: DeviceStatus = DeviceStatus.ONLINE,
+    val lastLatencyMs: Long? = null,
+    val status: DeviceStatus = DeviceStatus.UNCHECKED,
     val lastConnectedAt: Long? = null
 )
 
@@ -55,7 +55,7 @@ class RouterProfilesRepository(private val context: Context) {
     val profiles: StateFlow<List<RouterConnectionProfile>> = _profiles.asStateFlow()
 
     private val _activeProfile = MutableStateFlow<RouterConnectionProfile?>(
-        _profiles.value.find { it.isActive } ?: _profiles.value.find { it.isDefault } ?: _profiles.value.firstOrNull()
+        _profiles.value.find { it.isActive }
     )
     val activeProfile: StateFlow<RouterConnectionProfile?> = _activeProfile.asStateFlow()
 
@@ -115,10 +115,10 @@ class RouterProfilesRepository(private val context: Context) {
                 isRememberPassword = true,
                 syncDatabaseOnLogin = true,
                 ignoreSessionsOnSync = false,
-                isDefault = true,
-                isActive = true,
-                lastLatencyMs = 8L,
-                status = DeviceStatus.ONLINE
+                isDefault = false,
+                isActive = false,
+                lastLatencyMs = null,
+                status = DeviceStatus.UNCHECKED
             ),
             RouterConnectionProfile(
                 id = "default-router-2",
@@ -134,8 +134,8 @@ class RouterProfilesRepository(private val context: Context) {
                 ignoreSessionsOnSync = false,
                 isDefault = false,
                 isActive = false,
-                lastLatencyMs = 15L,
-                status = DeviceStatus.ONLINE
+                lastLatencyMs = null,
+                status = DeviceStatus.UNCHECKED
             )
         )
         saveProfilesInternal(defaultList)

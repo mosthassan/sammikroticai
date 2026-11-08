@@ -204,15 +204,13 @@ class MainActivity : ComponentActivity() {
                     }
                     com.example.ui.screens.RouterLoginScreen(
                         repository = appViewModel.routerProfilesRepository,
+                        viewModel = appViewModel,
                         onLoginSuccess = { profile ->
-                            appViewModel.selectActiveRouter(profile.id) {
-                                isRouterSessionLoggedIn = true
-                                showRouterLoginScreen = false
-                                selectedTabIndex = 0
-                            }
+                            isRouterSessionLoggedIn = true
+                            showRouterLoginScreen = false
+                            selectedTabIndex = 0
                         },
                         onOfflineEnter = {
-                            isRouterSessionLoggedIn = true
                             showRouterLoginScreen = false
                             selectedTabIndex = 1
                         }
