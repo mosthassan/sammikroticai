@@ -96,6 +96,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val writer = repository.ledgerWriter
     val invariants = repository.invariants
     val networkRepository = NetworkRepository(application)
+    val routerProfilesRepository = com.example.data.network.RouterProfilesRepository(application)
+    val routerProfiles: StateFlow<List<com.example.data.network.RouterConnectionProfile>> = routerProfilesRepository.profiles
+    val activeRouterProfile: StateFlow<com.example.data.network.RouterConnectionProfile?> = routerProfilesRepository.activeProfile
+
+    fun selectActiveRouter(profileId: String, onConnected: () -> Unit = {}) {
+        viewModelScope.launch {
+            val active = routerProfilesRepository.setActiveProfile(profileId)
+            if (active != null) {
+                networkRepository.saveConfig(
+                    networkRepository.config.value.copy(
+                        mainRouterModel = active.name,
+                        adminPort = active.apiPort
+                    )
+                )
+                _userMessage.emit("تم تفعيل الاتصال بالراوتر: ${active.name} (${active.host}:${active.apiPort})")
+            }
+            onConnected()
+        }
+    }
 
     val statementsUseCase = FinancialStatementsUseCase(db)
     val statementOfAccountUseCase = StatementOfAccountUseCase(db)

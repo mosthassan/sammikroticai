@@ -177,6 +177,8 @@ class MainActivity : ComponentActivity() {
                 var showAdminDashboard by rememberSaveable { mutableStateOf(false) }
                 var showCardStudio by rememberSaveable { mutableStateOf(false) }
                 var showDeviceMonitorScreen by rememberSaveable { mutableStateOf(false) }
+                var showRouterLoginScreen by rememberSaveable { mutableStateOf(false) }
+                var isRouterSessionLoggedIn by rememberSaveable { mutableStateOf(false) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
                 // Listen for business feedback messages
@@ -193,7 +195,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (showAdminDashboard) {
+                if (showRouterLoginScreen || (selectedTabIndex == 0 && !isRouterSessionLoggedIn)) {
+                    BackHandler(enabled = isRouterSessionLoggedIn || selectedTabIndex != 0) {
+                        showRouterLoginScreen = false
+                        if (!isRouterSessionLoggedIn) {
+                            selectedTabIndex = 1
+                        }
+                    }
+                    com.example.ui.screens.RouterLoginScreen(
+                        repository = appViewModel.routerProfilesRepository,
+                        onLoginSuccess = { profile ->
+                            appViewModel.selectActiveRouter(profile.id) {
+                                isRouterSessionLoggedIn = true
+                                showRouterLoginScreen = false
+                                selectedTabIndex = 0
+                            }
+                        },
+                        onOfflineEnter = {
+                            isRouterSessionLoggedIn = true
+                            showRouterLoginScreen = false
+                            selectedTabIndex = 1
+                        }
+                    )
+                } else if (showAdminDashboard) {
                     com.example.ui.screens.AdminDashboardScreen(
                         viewModel = appViewModel,
                         onNavigateBack = { showAdminDashboard = false }
@@ -268,6 +292,37 @@ class MainActivity : ComponentActivity() {
                                             Text(
                                                 text = if (isBalanced) "IFRS متزن" else "خلل",
                                                 color = badgeColor,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    }
+
+                                    val activeRouter by appViewModel.activeRouterProfile.collectAsState()
+                                    Surface(
+                                        color = Color(0xFF0F3A47),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.5f)),
+                                        modifier = Modifier
+                                            .padding(end = 4.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { showRouterLoginScreen = true }
+                                            .testTag("top_bar_router_pill")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Router,
+                                                contentDescription = "Router",
+                                                tint = BrandCyanPrimary,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = activeRouter?.name ?: "10.0.0.1",
+                                                color = TextPrimaryDark,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 10.5.sp
                                             )
@@ -402,6 +457,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onNavigateToAiAssistant = { showAiAssistant = true },
                             onNavigateToCloudSync = { showCloudSyncSheet = true },
+                            onNavigateToRouterLogin = { showRouterLoginScreen = true },
                             modifier = modifier
                         )
                         1 -> DashboardScreen(

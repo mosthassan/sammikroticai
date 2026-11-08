@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lan
@@ -91,12 +92,22 @@ fun MikrotikOperationsScreen(
     onNavigateToWifiSpectrum: () -> Unit,
     onNavigateToAiAssistant: () -> Unit,
     onNavigateToCloudSync: () -> Unit,
+    onNavigateToRouterLogin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val telemetry by networkRepository.telemetry.collectAsState()
     val devices by networkRepository.devices.collectAsState()
+    val activeRouter by viewModel.activeRouterProfile.collectAsState()
 
     val services = listOf(
+        ServiceGridItem(
+            title = "بوابة تسجيل ودخول الراوترات",
+            icon = Icons.Default.VpnKey,
+            iconColor = SemanticWarningAmber,
+            iconBgColor = Color(0xFF451A03),
+            tag = "service_router_login",
+            onClick = onNavigateToRouterLogin
+        ),
         ServiceGridItem(
             title = "مراقبة الأجهزة والـ ARP",
             icon = Icons.Default.Router,
@@ -178,6 +189,72 @@ fun MikrotikOperationsScreen(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Active Router Quick Banner (Allows switching router profile anytime)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToRouterLogin() }
+                    .testTag("banner_active_router"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0C2B34)),
+                border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MikroTikCyan.copy(alpha = 0.2f),
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    tint = SemanticWarningAmber,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "الراوتر النشط: ${activeRouter?.name ?: "10.0.0.1"}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
+                            Text(
+                                text = "${activeRouter?.host ?: "10.0.0.1"}:${activeRouter?.apiPort ?: 8728} • متصل ومفعل",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MikroTikCyan
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = CyberDarkSurface,
+                        border = BorderStroke(1.dp, CyberBorder)
+                    ) {
+                        Text(
+                            text = "تبديل الراوتر ▾",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextPrimaryDark,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // 1. Live Hardware Telemetry Card (MkCards header style)
         item {
             RouterHealthTelemetryCard(
