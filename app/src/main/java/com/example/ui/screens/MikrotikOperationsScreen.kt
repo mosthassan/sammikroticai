@@ -25,13 +25,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.DeviceThermostat
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Wifi
@@ -40,6 +44,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,9 +54,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,7 +66,6 @@ import com.example.data.network.NetworkRepository
 import com.example.ui.components.CardQuotaAndExpiredDetailsCard
 import com.example.ui.components.LiveInternetTrafficCard
 import com.example.ui.components.MkCardsLiveTelemetryQuadRow
-import com.example.ui.components.RouterHealthTelemetryCard
 import com.example.ui.theme.AiGeminiPurple
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberDarkCanvas
@@ -198,89 +204,299 @@ fun MikrotikOperationsScreen(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Active Router Quick Banner (Allows switching router profile anytime)
+        // Unified Executive Router Telemetry Card (Merging Screenshot 1 hardware card into the upper section of Screenshot 2)
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onNavigateToRouterLogin() }
-                    .testTag("banner_active_router"),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0C2B34)),
-                border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f))
+                    .testTag("banner_active_router_telemetry"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF062C24)),
+                border = BorderStroke(1.dp, Color(0xFF0F5A47))
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF0A3B30),
+                                    Color(0xFF05221B)
+                                )
+                            )
+                        )
+                        .padding(12.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MikroTikCyan.copy(alpha = 0.2f),
-                            modifier = Modifier.size(38.dp)
+                        // ROW 1: Router IP & Icon | Live Status / Devices Badge | Refresh ↻ | Switch Router Button (NO Cloud)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Bolt,
-                                    contentDescription = null,
-                                    tint = SemanticWarningAmber,
-                                    modifier = Modifier.size(22.dp)
+                            // Router IP and Icon
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF0E5343)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Router,
+                                        contentDescription = null,
+                                        tint = Color(0xFF34D399),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = if (activeRouter != null) activeRouter?.host ?: "10.0.0.1" else "10.0.0.1",
+                                        color = Color.White,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                    Text(
+                                        text = if (isLiveConnected) "قراءة حية (API 8728)" else "غير متصل",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isLiveConnected) StatusOnline else SemanticWarningAmber,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            // Connected devices badge
+                            Surface(
+                                color = Color(0xFF0D4638),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF156955))
+                            ) {
+                                Text(
+                                    text = "${telemetry.totalDiscoveredDevices} الأجهزة المتصلة",
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
+
+                            // Actions: Refresh + Switch Router (NO Cloud Icon)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { viewModel.refreshRealRouterData() },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "تحديث القياسات من الراوتر",
+                                        tint = if (isLiveConnected) Color(0xFF6EE7B7) else SemanticWarningAmber,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF0D3E33),
+                                    border = BorderStroke(1.dp, Color(0xFF16604E)),
+                                    modifier = Modifier.clickable { onNavigateToRouterLogin() }
+                                ) {
+                                    Text(
+                                        text = "تبديل ▾",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFE2E8F0),
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
                         }
-                        Column {
-                            Text(
-                                text = if (activeRouter != null) "الراوتر النشط: ${activeRouter?.name}" else "لم يتم ربط راوتر بعد",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimaryDark
-                            )
-                            Text(
-                                text = if (isLiveConnected) {
-                                    "${activeRouter?.host}:${activeRouter?.apiPort} • قراءة حية حقيقية (RouterOS API)"
-                                } else if (activeRouter != null) {
-                                    "${activeRouter?.host}:${activeRouter?.apiPort} • غير متصل (تأكد من الشبكة)"
-                                } else {
-                                    "انقر لتسجيل الدخول إلى الراوتر"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isLiveConnected) StatusOnline else SemanticWarningAmber
-                            )
-                        }
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        IconButton(
-                            onClick = { viewModel.refreshRealRouterData() },
-                            modifier = Modifier.size(34.dp)
+
+                        // ROW 2: Uptime (مدة التشغيل) & RouterOS Version (إصدار الراوتر)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "تحديث القراءة من الراوتر",
-                                tint = if (isLiveConnected) StatusOnline else SemanticWarningAmber,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Surface(
+                                color = Color(0xFF0B2D24),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF165243)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF6EE7B7), modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "مدة التشغيل ${telemetry.uptime}",
+                                        color = Color(0xFFF1F5F9),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                color = Color(0xFF0B2D24),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF165243)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Speed, contentDescription = null, tint = Color(0xFF6EE7B7), modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "إصدار الراوتر ${telemetry.routerOsVersion}",
+                                        color = Color(0xFFF1F5F9),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                         }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = CyberDarkSurface,
-                            border = BorderStroke(1.dp, CyberBorder),
-                            modifier = Modifier.clickable { onNavigateToRouterLogin() }
+
+                        // ROW 3: CPU Load % & Temperature with Cooling Fan Warning
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = "تبديل الراوتر ▾",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextPrimaryDark,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
+                            Surface(
+                                color = Color(0xFF0B2D24),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF165243)),
+                                modifier = Modifier.weight(0.45f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Memory, contentDescription = null, tint = Color(0xFF6EE7B7), modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "المعالج ${telemetry.cpuLoadPercent}%",
+                                        color = Color(0xFFF1F5F9),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                color = Color(0xFF0B2D24),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF165243)),
+                                modifier = Modifier.weight(0.55f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.DeviceThermostat, contentDescription = null, tint = Color(0xFFF87171), modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "الحرارة ${telemetry.temperatureCelsius}°",
+                                            color = Color(0xFFF1F5F9),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    if (telemetry.needsCoolingFanAlert) {
+                                        Surface(
+                                            color = Color(0xFF114234),
+                                            shape = RoundedCornerShape(4.dp),
+                                            border = BorderStroke(0.5.dp, Color(0xFF1E6C56))
+                                        ) {
+                                            Text(
+                                                text = "تفعيل مروحة التبريد",
+                                                color = Color(0xFF6EE7B7),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ROW 4: Memory (RAM) Progress Bar & Active Users (المستخدمون النشطون - Pointed by red arrow in Screenshot 1!)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Active Users Count (المستخدمون النشطون)
+                            Surface(
+                                color = Color(0xFF0B2D24),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF165243)),
+                                modifier = Modifier.weight(0.45f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.People, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "المستخدمون النشطون ${telemetry.activeUsersCount}",
+                                        color = Color(0xFFF1F5F9),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // RAM usage progress bar with clean MB formatting
+                            Surface(
+                                color = Color(0xFF0B2D24),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF165243)),
+                                modifier = Modifier.weight(0.55f)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("الذاكرة", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                        val formattedRam = String.format(java.util.Locale.US, "%.1f MB / 1 GB", telemetry.memoryUsedMb)
+                                        Text(
+                                            text = formattedRam,
+                                            fontSize = 10.sp,
+                                            color = Color(0xFFF1F5F9),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    LinearProgressIndicator(
+                                        progress = { (telemetry.memoryUsedMb / telemetry.memoryTotalMb).coerceIn(0f, 1f) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = Color(0xFF10B981),
+                                        trackColor = Color(0xFF06221A),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -309,14 +525,6 @@ fun MikrotikOperationsScreen(
         item {
             CardQuotaAndExpiredDetailsCard(
                 telemetry = cardQuota
-            )
-        }
-
-        // 4. Live Hardware Telemetry Card (MkCards hardware card: Uptime, OS, CPU%, Temp with fan alert, RAM)
-        item {
-            RouterHealthTelemetryCard(
-                telemetry = telemetry,
-                onRefresh = { viewModel.refreshRealRouterData() }
             )
         }
 

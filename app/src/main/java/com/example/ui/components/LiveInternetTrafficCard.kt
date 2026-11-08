@@ -225,10 +225,11 @@ fun LiveInternetTrafficCard(
                 }
             }
 
-            // 2. Big Live Metrics: Download (تحميل) & Upload (رفع)
+            // 2. Compact Live Metrics: Download (تحميل) & Upload (رفع)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 // Upload Column (رفع ⤒) - Amber
                 Column(
@@ -239,18 +240,18 @@ fun LiveInternetTrafficCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(text = "رفع", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
-                        Icon(imageVector = Icons.Default.ArrowUpward, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
+                        Text(text = "رفع", style = MaterialTheme.typography.labelMedium, color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
+                        Icon(imageVector = Icons.Default.ArrowUpward, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(14.dp))
                     }
                     Text(
                         text = "Mbps ${interfaceTraffic.txMbps}",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.ExtraBold,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
                         color = Color(0xFFF59E0B)
                     )
                     Text(
                         text = "GB ${interfaceTraffic.totalTxGb}",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = TextSecondaryDark
                     )
                 }
@@ -264,27 +265,27 @@ fun LiveInternetTrafficCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(text = "تحميل", style = MaterialTheme.typography.bodyMedium, color = SemanticIncomeGreen, fontWeight = FontWeight.Bold)
-                        Icon(imageVector = Icons.Default.ArrowDownward, contentDescription = null, tint = SemanticIncomeGreen, modifier = Modifier.size(16.dp))
+                        Text(text = "تحميل", style = MaterialTheme.typography.labelMedium, color = SemanticIncomeGreen, fontWeight = FontWeight.Bold)
+                        Icon(imageVector = Icons.Default.ArrowDownward, contentDescription = null, tint = SemanticIncomeGreen, modifier = Modifier.size(14.dp))
                     }
                     Text(
                         text = "Mbps ${interfaceTraffic.rxMbps}",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.ExtraBold,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
                         color = SemanticIncomeGreen
                     )
                     Text(
                         text = "GB ${interfaceTraffic.totalRxGb}",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = TextSecondaryDark
                     )
                 }
             }
 
-            // 3. Dual Live Waveform Charts (Matching MkCards Screenshot 2)
+            // 3. Compact Dual Live Waveform Charts
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Upload Waveform Box (رفع)
                 WaveformBox(
@@ -315,7 +316,7 @@ fun LiveInternetTrafficCard(
 }
 
 /**
- * Reusable Waveform Chart Box with Canvas Grid and Cubic Curves
+ * Compact Waveform Chart Box with Canvas Grid and Cubic Curves
  */
 @Composable
 private fun WaveformBox(
@@ -329,15 +330,15 @@ private fun WaveformBox(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.height(130.dp),
-        shape = RoundedCornerShape(14.dp),
+        modifier = modifier.height(78.dp),
+        shape = RoundedCornerShape(10.dp),
         color = Color(0xFF091420),
-        border = BorderStroke(1.dp, waveColor.copy(alpha = 0.3f))
+        border = BorderStroke(1.dp, waveColor.copy(alpha = 0.25f))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(8.dp)
+                .padding(horizontal = 6.dp, vertical = 4.dp)
         ) {
             // Header: Value & Direction
             Row(
@@ -347,9 +348,10 @@ private fun WaveformBox(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color = waveColor
+                    color = waveColor,
+                    fontSize = 11.sp
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -358,18 +360,19 @@ private fun WaveformBox(
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.labelSmall,
-                        color = waveColor
+                        color = waveColor,
+                        fontSize = 10.sp
                     )
                     Icon(
                         imageVector = if (isUpload) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
                         contentDescription = null,
                         tint = waveColor,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(10.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             // Canvas Waveform with Grid and Area Gradient
             Box(modifier = Modifier.fillMaxSize()) {
@@ -377,18 +380,18 @@ private fun WaveformBox(
                 Column(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .padding(start = 2.dp),
+                        .padding(start = 1.dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "$maxScale", color = TextMutedDark, fontSize = 9.sp)
-                    Text(text = "$midScale", color = TextMutedDark, fontSize = 9.sp)
-                    Text(text = "0", color = TextMutedDark, fontSize = 9.sp)
+                    Text(text = "$maxScale", color = TextMutedDark, fontSize = 7.5.sp)
+                    Text(text = "$midScale", color = TextMutedDark, fontSize = 7.5.sp)
+                    Text(text = "0", color = TextMutedDark, fontSize = 7.5.sp)
                 }
 
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(start = 18.dp, end = 2.dp, top = 2.dp, bottom = 4.dp)
+                        .padding(start = 14.dp, end = 2.dp, top = 2.dp, bottom = 2.dp)
                 ) {
                     val w = size.width
                     val h = size.height

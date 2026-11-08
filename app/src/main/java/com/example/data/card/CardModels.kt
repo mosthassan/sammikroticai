@@ -59,11 +59,23 @@ enum class CardPreviewMode(val displayNameAr: String) {
 }
 
 /**
+ * Touch Interactive Position, Offset & Scale for individual card elements.
+ */
+data class ElementLayout(
+    val offsetX: Float = 0f,     // Offset in dp (-150f to 150f)
+    val offsetY: Float = 0f,     // Offset in dp (-100f to 100f)
+    val scale: Float = 1.0f,      // Scale multiplier (0.6f to 1.8f)
+    val isVisible: Boolean = true
+)
+
+/**
  * Card Template Definition with rich styling attributes
  */
 data class CardTemplate(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "قالب سايبر نيون 2026",
+    val targetPackageProfile: String = "2700M_35H", // e.g. "2700M_35H", "1G_1D", "5G_15D"
+    val targetPackageName: String = "باقة 500 ريال",
     val networkName: String = "شبكة طلقة نت",
     val priceText: String = "500 ر.ي",
     val quotaText: String = "2700 ميجا",
@@ -97,6 +109,14 @@ data class CardTemplate(
     val cardHeightMm: Int = 33,
     val cardsPerRow: Int = 3,
     val cardsPerCol: Int = 8,
+    // Interactive Touch Drag & Scale Layouts per Element:
+    val priceLayout: ElementLayout = ElementLayout(),
+    val networkLayout: ElementLayout = ElementLayout(),
+    val codeBoxLayout: ElementLayout = ElementLayout(),
+    val qrCodeLayout: ElementLayout = ElementLayout(),
+    val metaLayout: ElementLayout = ElementLayout(),
+    val supportPhoneLayout: ElementLayout = ElementLayout(),
+    val serialLayout: ElementLayout = ElementLayout(),
     val createdAt: Long = System.currentTimeMillis()
 )
 

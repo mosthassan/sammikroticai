@@ -435,4 +435,18 @@ object CardPdfDocumentGenerator {
         }
         context.startActivity(Intent.createChooser(intent, title))
     }
+
+    fun openOrSharePdfFile(context: Context, file: File, title: String = "معاينة كروت الميكروتك") {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(viewIntent)
+        } catch (_: Exception) {
+            sharePdfFile(context, file, title)
+        }
+    }
 }

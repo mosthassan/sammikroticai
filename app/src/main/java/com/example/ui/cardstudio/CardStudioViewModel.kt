@@ -11,6 +11,8 @@ import com.example.data.card.CardStudioRepository
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
 import com.example.data.card.CodeBoxStyle
+import com.example.data.card.ElementLayout
+import com.example.data.card.GeneratedCard
 import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
 import com.example.util.CardPdfDocumentGenerator
@@ -311,6 +313,138 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             MikroTikCardProvisioner.shareScriptFile(context, batch)
         } catch (e: Exception) {
             viewModelScope.launch { _userMessage.emit("خطأ في تصدير السكربت: ${e.message}") }
+        }
+    }
+
+    fun updateElementLayout(elementKey: String, layout: ElementLayout) {
+        val current = _uiState.value.editingTemplate
+        val updated = when (elementKey) {
+            "price" -> current.copy(priceLayout = layout)
+            "network" -> current.copy(networkLayout = layout)
+            "code_box" -> current.copy(codeBoxLayout = layout)
+            "qr" -> current.copy(qrCodeLayout = layout)
+            "meta" -> current.copy(metaLayout = layout)
+            "phone" -> current.copy(supportPhoneLayout = layout)
+            "serial" -> current.copy(serialLayout = layout)
+            else -> current
+        }
+        _uiState.value = _uiState.value.copy(editingTemplate = updated)
+    }
+
+    fun resetAllElementPositions() {
+        val current = _uiState.value.editingTemplate
+        val updated = current.copy(
+            priceLayout = ElementLayout(),
+            networkLayout = ElementLayout(),
+            codeBoxLayout = ElementLayout(),
+            qrCodeLayout = ElementLayout(),
+            metaLayout = ElementLayout(),
+            supportPhoneLayout = ElementLayout(),
+            serialLayout = ElementLayout()
+        )
+        _uiState.value = _uiState.value.copy(editingTemplate = updated)
+        viewModelScope.launch {
+            _userMessage.emit("تمت إعادة ضبط مواقع جميع العناصر للمواضع القياسية 🔄")
+        }
+    }
+
+    fun saveTemplateForPackage(
+        name: String,
+        targetPackageProfile: String,
+        targetPackageName: String,
+        priceText: String,
+        quotaText: String
+    ) {
+        viewModelScope.launch {
+            val current = _uiState.value.editingTemplate
+            val updated = current.copy(
+                name = name.ifBlank { current.name },
+                targetPackageProfile = targetPackageProfile,
+                targetPackageName = targetPackageName,
+                priceText = priceText.ifBlank { current.priceText },
+                quotaText = quotaText.ifBlank { current.quotaText }
+            )
+            _uiState.value = _uiState.value.copy(editingTemplate = updated)
+            repository.saveTemplate(updated)
+            _userMessage.emit("تم حفظ القالب '${updated.name}' وربطه بـ '${targetPackageName}' 💾✨")
+        }
+    }
+
+    fun selectPrintFormat(format: PrintPageFormat) {
+        _uiState.value = _uiState.value.copy(
+            selectedPrintFormat = format,
+            batchCountInput = format.cardsPerPage
+        )
+    }
+
+    fun selectPackageProfile(profile: String, packageName: String, price: String, quota: String) {
+        val matchingTemplate = templates.value.firstOrNull {
+            it.targetPackageProfile == profile || it.name.contains(price.filter { c -> c.isDigit() })
+        }
+        if (matchingTemplate != null) {
+            _uiState.value = _uiState.value.copy(
+                editingTemplate = matchingTemplate,
+                batchProfileInput = profile,
+                batchTitleInput = "كرت $price - $packageName"
+            )
+            viewModelScope.launch {
+                _userMessage.emit("تم تفعيل قالب '${matchingTemplate.name}' المربوط بباقة $packageName 🎨")
+            }
+        } else {
+            val current = _uiState.value.editingTemplate
+            val updated = current.copy(
+                targetPackageProfile = profile,
+                targetPackageName = packageName,
+                priceText = "$price ر.ي",
+                quotaText = quota
+            )
+            _uiState.value = _uiState.value.copy(
+                editingTemplate = updated,
+                batchProfileInput = profile,
+                batchTitleInput = "كرت $price - $packageName"
+            )
+        }
+    }
+
+    fun previewAndSaveSamplePdf(context: Context) {
+        viewModelScope.launch {
+            try {
+                val template = _uiState.value.editingTemplate
+                val format = _uiState.value.selectedPrintFormat
+                val sampleCards = (1..format.cardsPerPage).map { i ->
+                    val code = String.format(java.util.Locale.US, "%06d", 820000 + i)
+                    GeneratedCard(
+                        serialNumber = String.format(java.util.Locale.US, "%06d", i),
+                        username = code,
+                        password = code,
+                        priceText = template.priceText,
+                        quotaText = template.quotaText,
+                        validityText = template.validityText,
+                        networkName = template.networkName,
+                        supportPhone = template.supportPhone,
+                        loginUrlWithCredentials = "${template.hotspotLoginUrl}?username=$code&password=$code",
+                        batchId = "preview_sheet"
+                    )
+                }
+                val sampleBatch = CardBatch(
+                    batchNumber = 101,
+                    batchTitle = "معاينة ${template.name}",
+                    templateId = template.id,
+                    templateSnapshot = template,
+                    profileName = template.targetPackageProfile.ifBlank { "default" },
+                    cardCount = sampleCards.size,
+                    prefix = "82",
+                    usernameLength = 6,
+                    passwordPattern = PasswordPattern.SAME_AS_USERNAME,
+                    cards = sampleCards
+                )
+                val file = CardPdfDocumentGenerator.generateBatchPdf(context, sampleBatch, format)
+                _uiState.value = _uiState.value.copy(generatedPdfFile = file)
+                CardPdfDocumentGenerator.openOrSharePdfFile(context, file, "معاينة كروت ${template.name} - ورقة ${format.cardsPerPage} كرت")
+                _userMessage.emit("تم توليد وحفظ ملف PDF الاحترافي بنجاح! جاهز للمعاينة والطباعة 🖨️📄")
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ أثناء إنشاء ملف PDF: ${e.message}")
+            }
         }
     }
 

@@ -367,23 +367,6 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
-
-                                    IconButton(
-                                        onClick = { showCloudSyncSheet = true },
-                                        modifier = Modifier.testTag("top_bar_cloud_sync_btn")
-                                    ) {
-                                        Icon(
-                                            imageVector = when (syncState) {
-                                                is SyncState.InProgress -> Icons.Default.Sync
-                                                is SyncState.Success -> Icons.Default.CloudDone
-                                                is SyncState.Error -> Icons.Default.CloudOff
-                                                else -> Icons.Default.Cloud
-                                            },
-                                            contentDescription = "المزامنة السحابية",
-                                            tint = BrandCyanPrimary,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
                                 },
                                 colors = TopAppBarDefaults.topAppBarColors(
                                     containerColor = CyberDarkSurface
