@@ -103,6 +103,8 @@ import com.example.ui.screens.PurchasesAssetsScreen
 import com.example.ui.screens.ReportsScreen
 import com.example.ui.screens.SalesScreen
 import com.example.ui.screens.VouchersScreen
+import com.example.ui.screens.CardsAndPackagesMainScreen
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
@@ -132,13 +134,14 @@ sealed class MainTab(val title: String, val icon: ImageVector, val tag: String) 
     object Sales : MainTab("المبيعات", Icons.Default.Receipt, "tab_sales")
     object Vouchers : MainTab("السندات", Icons.Default.AccountBalanceWallet, "tab_vouchers")
     object Purchases : MainTab("المشتريات", Icons.Default.ShoppingCart, "tab_purchases")
-    object PartiesAndStock : MainTab("العملاء والبقالات", Icons.Default.Store, "tab_parties_stock")
+    object Parties : MainTab("العملاء والبقالات", Icons.Default.Store, "tab_parties")
+    object CardsAndPackages : MainTab("الكروت والباقات", Icons.Default.Style, "tab_cards_packages")
     object NetworkHub : MainTab("الشبكة", Icons.Default.Settings, "tab_network_hub")
     object Reports : MainTab("التقارير", Icons.Default.Assessment, "tab_reports")
     object Audit : MainTab("الرقابة", Icons.Default.Security, "tab_audit")
 
     companion object {
-        val all = listOf(Operations, Dashboard, Sales, Vouchers, Purchases, PartiesAndStock, NetworkHub, Reports, Audit)
+        val all = listOf(Operations, Dashboard, Sales, Vouchers, Purchases, Parties, CardsAndPackages, NetworkHub, Reports, Audit)
     }
 }
 
@@ -450,10 +453,10 @@ class MainActivity : ComponentActivity() {
                             networkRepository = appViewModel.networkRepository,
                             viewModel = appViewModel,
                             onNavigateToDeviceMonitor = { showDeviceMonitorScreen = true },
-                            onNavigateToCardStudio = { showCardStudio = true },
+                            onNavigateToCardStudio = { selectedTabIndex = 6 },
                             onNavigateToWifiSpectrum = {
                                 networkHubInitialTab = 5
-                                selectedTabIndex = 6
+                                selectedTabIndex = 7
                             },
                             onNavigateToAiAssistant = { showAiAssistant = true },
                             onNavigateToCloudSync = { showCloudSyncSheet = true },
@@ -472,29 +475,30 @@ class MainActivity : ComponentActivity() {
                                 vouchersInitialTab = 1
                                 selectedTabIndex = 3
                             },
-                            onNavigateToReports = { selectedTabIndex = 7 },
+                            onNavigateToReports = { selectedTabIndex = 8 },
                             onNavigateToWifiSpectrum = {
                                 networkHubInitialTab = 5
-                                selectedTabIndex = 6
+                                selectedTabIndex = 7
                             },
                             onNavigateToAiAssistant = { showAiAssistant = true },
-                            onNavigateToCardStudio = { showCardStudio = true },
+                            onNavigateToCardStudio = { selectedTabIndex = 6 },
                             modifier = modifier
                         )
                         2 -> SalesScreen(viewModel = appViewModel, modifier = modifier)
                         3 -> VouchersScreen(viewModel = appViewModel, initialTab = vouchersInitialTab, modifier = modifier)
                         4 -> PurchasesAssetsScreen(viewModel = appViewModel, modifier = modifier)
-                        5 -> PartiesAndStockCombinedScreen(viewModel = appViewModel, modifier = modifier)
-                        6 -> NetworkHubScreen(
+                        5 -> PartiesScreen(viewModel = appViewModel, modifier = modifier)
+                        6 -> CardsAndPackagesMainScreen(viewModel = appViewModel, modifier = modifier)
+                        7 -> NetworkHubScreen(
                             networkRepository = appViewModel.networkRepository,
                             viewModel = appViewModel,
                             initialTab = networkHubInitialTab,
                             onNavigateToSubscription = { showSubscriptionScreen = true },
-                            onNavigateToCardStudio = { showCardStudio = true },
+                            onNavigateToCardStudio = { selectedTabIndex = 6 },
                             modifier = modifier
                         )
-                        7 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)
-                        8 -> AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
+                        8 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)
+                        9 -> AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
                     }
                 }
             }
@@ -675,46 +679,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/**
- * Host screen combining Parties (Customers, Agents, Vendors) and Card Packages / Physical Stock.
- */
-@Composable
-private fun PartiesAndStockCombinedScreen(
-    viewModel: AppViewModel,
-    modifier: Modifier = Modifier
-) {
-    var subTab by rememberSaveable { mutableIntStateOf(0) }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        TabRow(
-            selectedTabIndex = subTab,
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ) {
-            Tab(
-                selected = subTab == 0,
-                onClick = { subTab = 0 },
-                text = { Text("الأطراف والوكلاء والديون", fontWeight = FontWeight.Bold) },
-                icon = { Icon(Icons.Default.Store, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                modifier = Modifier.testTag("subtab_parties")
-            )
-            Tab(
-                selected = subTab == 1,
-                onClick = { subTab = 1 },
-                text = { Text("باقات الكروت والمخزون", fontWeight = FontWeight.Bold) },
-                icon = { Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                modifier = Modifier.testTag("subtab_packages_stock")
-            )
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (subTab == 0) {
-                PartiesScreen(viewModel = viewModel)
-            } else {
-                PackagesStockScreen(viewModel = viewModel)
-            }
-        }
-    }
-}
 
 /**
  * Audit & Inspector Host screen with direct access to Core Double-Entry accounting verification tools.

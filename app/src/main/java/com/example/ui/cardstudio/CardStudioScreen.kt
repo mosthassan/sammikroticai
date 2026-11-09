@@ -142,6 +142,9 @@ import com.example.data.card.ElementLayout
 import com.example.data.card.GeneratedCard
 import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
+import com.example.data.card.quotaMb
+import com.example.data.card.profileName
+import com.example.data.local.entity.CardPackageEntity
 import com.example.ui.theme.BrandCyanPrimary
 import com.example.ui.theme.CyberDarkCardElevated
 import com.example.ui.theme.CyberDarkSurface
@@ -165,6 +168,7 @@ fun CardStudioScreen(
     val uiState by viewModel.uiState.collectAsState()
     val templates by viewModel.templates.collectAsState()
     val batches by viewModel.batches.collectAsState()
+    val availablePackages by viewModel.availablePackages.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showSavePackageDialog by remember { mutableStateOf(false) }
 
@@ -350,6 +354,8 @@ fun CardStudioScreen(
                     CardStudioTab.GENERATOR -> GeneratorParametersTab(
                         uiState = uiState,
                         savedTemplates = templates,
+                        availablePackages = availablePackages,
+                        onSelectPackage = { viewModel.selectPackageForGeneration(it) },
                         onSelectSavedTemplate = { viewModel.setEditingTemplate(it) },
                         onSelectPackageProfile = { profile, name, price, quota ->
                             viewModel.selectPackageProfile(profile, name, price, quota)
@@ -1783,6 +1789,8 @@ private fun SaveTemplateForPackageDialog(
 private fun GeneratorParametersTab(
     uiState: CardStudioUiState,
     savedTemplates: List<CardTemplate>,
+    availablePackages: List<CardPackageEntity> = emptyList(),
+    onSelectPackage: ((CardPackageEntity) -> Unit)? = null,
     onSelectSavedTemplate: (CardTemplate) -> Unit,
     onSelectPackageProfile: (profile: String, packageName: String, price: String, quota: String) -> Unit,
     onSelectPrintFormat: (PrintPageFormat) -> Unit,
@@ -1839,6 +1847,49 @@ private fun GeneratorParametersTab(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.LightGray
                 )
+            }
+        }
+
+        // Section 0: Live System Packages (ربط مباشر مع باقات الكروت المعرفة)
+        if (availablePackages.isNotEmpty()) {
+            Text(
+                text = "اختر باقة للربط والتوليد التلقائي 📦:",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = BrandCyanPrimary
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                availablePackages.forEach { pkg ->
+                    val isSelected = template.targetPackageName == pkg.name || template.targetPackageProfile == pkg.profileName
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSelected) BrandCyanPrimary.copy(alpha = 0.25f) else Color(0xFF1E293B),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) BrandCyanPrimary else Color.Gray.copy(alpha = 0.3f)
+                        ),
+                        modifier = Modifier.clickable { onSelectPackage?.invoke(pkg) }
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text(
+                                text = pkg.name,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) BrandCyanPrimary else Color.White,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "${pkg.retailPriceMinor / 100L} ر.ي • ${if (pkg.quotaMb > 0) "${pkg.quotaMb}M" else "مفتوحة"}",
+                                color = Color.LightGray,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
             }
         }
 

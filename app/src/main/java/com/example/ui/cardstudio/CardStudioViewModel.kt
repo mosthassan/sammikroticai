@@ -16,6 +16,10 @@ import com.example.data.card.GeneratedCard
 import com.example.data.card.CardCharacterSet
 import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
+import com.example.data.card.quotaMb
+import com.example.data.card.uptimeHours
+import com.example.data.card.profileName
+import com.example.data.local.entity.CardPackageEntity
 import com.example.util.CardPdfDocumentGenerator
 import com.example.util.MikroTikCardProvisioner
 import kotlinx.coroutines.Dispatchers
@@ -75,11 +79,36 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     val batches: StateFlow<List<CardBatch>> = repository.batches
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val availablePackages: StateFlow<List<com.example.data.local.entity.CardPackageEntity>> = com.example.data.local.AppDatabase.getInstance(application).cardPackageDao().getAllPackagesFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _uiState = MutableStateFlow(CardStudioUiState())
     val uiState: StateFlow<CardStudioUiState> = _uiState.asStateFlow()
 
     private val _userMessage = MutableSharedFlow<String>()
     val userMessage: SharedFlow<String> = _userMessage.asSharedFlow()
+
+    fun selectPackageForGeneration(pkg: CardPackageEntity) {
+        val q = pkg.quotaMb
+        val u = pkg.uptimeHours
+        val p = pkg.profileName
+        val priceText = "${pkg.retailPriceMinor / 100L} ر.ي"
+
+        _uiState.update { current ->
+            current.copy(
+                activeTab = CardStudioTab.GENERATOR,
+                batchTitleInput = "كروت ${pkg.name}",
+                batchProfileInput = p,
+                editingTemplate = current.editingTemplate.copy(
+                    targetPackageName = pkg.name,
+                    targetPackageProfile = p,
+                    priceText = priceText,
+                    quotaText = if (q > 0) "$q ميجا" else "سعة مفتوحة",
+                    validityText = if (u > 0) "$u ساعة" else "وقت مفتوح"
+                )
+            )
+        }
+    }
 
     init {
         viewModelScope.launch {

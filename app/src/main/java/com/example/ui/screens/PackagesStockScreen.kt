@@ -35,8 +35,14 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
+import com.example.data.card.quotaMb
+import com.example.data.card.uptimeHours
+import com.example.data.card.validityDays
+import com.example.data.card.profileName
+import com.example.data.card.formatDurationOrQuota
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -108,6 +114,7 @@ import com.example.ui.viewmodel.AppViewModel
 @Composable
 fun PackagesStockScreen(
     viewModel: AppViewModel,
+    onNavigateToCardStudioWithPackage: ((CardPackageEntity) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val packages by viewModel.allPackages.collectAsState()
@@ -406,9 +413,9 @@ fun PackagesStockScreen(
                                                 }
                                             }
                                             Spacer(modifier = Modifier.width(10.dp))
-                                            Column {
+                                             Column {
                                                 Text(pkg.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimaryDark)
-                                                Text("سعة وصلاحية: ${pkg.durationOrQuota}", fontSize = 11.sp, color = TextSecondaryDark)
+                                                Text("بروفايل المايكروتك: ${pkg.profileName}", fontSize = 11.sp, color = MikroTikCyan)
                                             }
                                         }
 
@@ -439,27 +446,52 @@ fun PackagesStockScreen(
                                         }
                                     }
 
-                                    // Row 2: Stock Level Progress Indicator (Green / Amber / Red)
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    // Row 2: Technical & Quota Specs (حجم الميجا، الوقت، الصلاحية)
+                                    Surface(
+                                        color = CyberDarkCanvas,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, CyberBorder),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text(text = "مستوى التوفر: $statusText", fontSize = 10.sp, color = statusColor, fontWeight = FontWeight.SemiBold)
-                                            Text(text = "إجمالي المبيعات السابقة: $soldCount كرت", fontSize = 10.sp, color = TextMutedDark)
+                                            Column {
+                                                Text("حجم الميجا:", fontSize = 10.sp, color = TextSecondaryDark)
+                                                Text(
+                                                    if (pkg.quotaMb > 0) "${pkg.quotaMb} MB" else "مفتوحة",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = MikroTikCyan,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text("الوقت:", fontSize = 10.sp, color = TextSecondaryDark)
+                                                Text(
+                                                    if (pkg.uptimeHours > 0) "${pkg.uptimeHours} ساعة" else "مفتوح",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = TextPrimaryDark,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                            Column(horizontalAlignment = Alignment.End) {
+                                                Text("الصلاحية:", fontSize = 10.sp, color = TextSecondaryDark)
+                                                Text(
+                                                    if (pkg.validityDays > 0) "${pkg.validityDays} يوم" else "غير محدد",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = SemanticIncomeGreen,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
                                         }
-                                        LinearProgressIndicator(
-                                            progress = { progress },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(6.dp)
-                                                .clip(RoundedCornerShape(3.dp)),
-                                            color = statusColor,
-                                            trackColor = CyberDarkCardElevated
-                                        )
                                     }
 
-                                    // Row 3: Pricing Profile Matrix
+                                    // Row 3: Pricing Profile Matrix (سعر البيع، سعر الجملة، هامش الربح)
                                     Surface(
                                         color = CyberDarkCardElevated,
                                         shape = RoundedCornerShape(10.dp),
@@ -481,7 +513,7 @@ fun PackagesStockScreen(
                                                 )
                                             }
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text("سعر التجزئة المطبوع:", fontSize = 10.sp, color = TextSecondaryDark)
+                                                Text("سعر البيع (تجزئة):", fontSize = 10.sp, color = TextSecondaryDark)
                                                 Text(
                                                     Money(pkg.retailPriceMinor, CurrencyCode.YER).format(),
                                                     fontWeight = FontWeight.Bold,
@@ -504,13 +536,45 @@ fun PackagesStockScreen(
                                         }
                                     }
 
-                                    // Row 4: Direct Quick-Action Buttons (تعديل السعر, استلام/توليد كروت, كشف حركة الصنف, تسوية جرد)
+                                    // Row 4: Stock Level Progress Indicator (Green / Amber / Red)
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(text = "مستوى التوفر: $statusText", fontSize = 10.sp, color = statusColor, fontWeight = FontWeight.SemiBold)
+                                            Text(text = "إجمالي المبيعات السابقة: $soldCount كرت", fontSize = 10.sp, color = TextMutedDark)
+                                        }
+                                        LinearProgressIndicator(
+                                            progress = { progress },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(3.dp)),
+                                            color = statusColor,
+                                            trackColor = CyberDarkCardElevated
+                                        )
+                                    }
+
+                                    // Row 5: Action Buttons
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        // Button 1: تعديل السعر
+                                        // Button 1: توليد كروت (يربط الباقة مباشرة باستوديو وتوليد الكروت)
+                                        Button(
+                                            onClick = { onNavigateToCardStudioWithPackage?.invoke(pkg) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan, contentColor = CyberDarkCanvas),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1.2f).height(38.dp)
+                                        ) {
+                                            Icon(Icons.Default.Style, contentDescription = null, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("توليد كروت 🎨", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        // Button 2: تعديل الباقة
                                         OutlinedButton(
                                             onClick = { packageForPriceEdit = pkg },
                                             shape = RoundedCornerShape(10.dp),
@@ -520,35 +584,31 @@ fun PackagesStockScreen(
                                         ) {
                                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(13.dp), tint = MikroTikCyan)
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("تعديل السعر", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("تعديل", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
 
-                                        // Button 2: استلام / توريد كروت
-                                        Button(
+                                        // Button 3: استلام / توريد كروت
+                                        OutlinedButton(
                                             onClick = { showReceiveStockSheet = true },
-                                            colors = ButtonDefaults.buttonColors(containerColor = MikroTikPrimary),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimaryDark),
+                                            border = BorderStroke(1.dp, CyberBorder),
                                             shape = RoundedCornerShape(10.dp),
                                             modifier = Modifier.weight(1f).height(38.dp)
                                         ) {
-                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(13.dp))
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(13.dp), tint = MikroTikPrimary)
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("استلام كروت", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("استلام", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
 
-                                        // Button 3: كشف حركة الصنف
-                                        OutlinedButton(
+                                        // Button 4: كشف حركة الصنف
+                                        IconButton(
                                             onClick = { selectedPackageForHistory = pkg },
-                                            shape = RoundedCornerShape(10.dp),
-                                            border = BorderStroke(1.dp, CyberBorder),
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondaryDark),
-                                            modifier = Modifier.weight(1.1f).height(38.dp)
+                                            modifier = Modifier.size(38.dp).border(1.dp, CyberBorder, RoundedCornerShape(10.dp))
                                         ) {
-                                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(13.dp), tint = TextSecondaryDark)
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("كشف الحركة", fontSize = 11.sp)
+                                            Icon(Icons.Default.History, contentDescription = "كشف الحركة", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
                                         }
 
-                                        // Button 4: تسوية جرد
+                                        // Button 5: تسوية جرد
                                         IconButton(
                                             onClick = {
                                                 packageForAdjust = pkg
@@ -793,10 +853,15 @@ fun PackagesStockScreen(
         )
     }
 
-    // Price Edit Dialog (Direct quick-action)
+    // Package Edit Dialog (Direct quick-action for all 6 specifications)
     packageForPriceEdit?.let { pkg ->
+        var editName by remember { mutableStateOf(pkg.name) }
         var wholesaleStr by remember { mutableStateOf((pkg.wholesalePriceMinor / 100L).toString()) }
         var retailStr by remember { mutableStateOf((pkg.retailPriceMinor / 100L).toString()) }
+        var quotaMbStr by remember { mutableStateOf(if (pkg.quotaMb > 0) pkg.quotaMb.toString() else "") }
+        var uptimeHoursStr by remember { mutableStateOf(if (pkg.uptimeHours > 0) pkg.uptimeHours.toString() else "") }
+        var validityDaysStr by remember { mutableStateOf(if (pkg.validityDays > 0) pkg.validityDays.toString() else "") }
+        var profileNameStr by remember { mutableStateOf(pkg.profileName) }
 
         AlertDialog(
             onDismissRequest = { packageForPriceEdit = null },
@@ -804,26 +869,74 @@ fun PackagesStockScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Edit, contentDescription = null, tint = MikroTikCyan)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("تعديل تسعيرة باقة: ${pkg.name}", fontWeight = FontWeight.Bold, color = TextPrimaryDark)
+                    Text("تعديل تفاصيل باقة: ${pkg.name}", fontWeight = FontWeight.Bold, color = TextPrimaryDark)
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("عدل أسعار الجملة للبقالات والتجزئة للمستخدمين (بالريال اليمني):", fontSize = 12.sp, color = TextSecondaryDark)
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("عدل مواصفات وأسعار الباقة (تنعكس مباشرة على استوديو الكروت وحقن المايكروتك):", fontSize = 12.sp, color = TextSecondaryDark)
+                    
                     OutlinedTextField(
-                        value = wholesaleStr,
-                        onValueChange = { wholesaleStr = it },
-                        label = { Text("سعر الجملة للبقالات (ر.ي)") },
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("اسم الباقة (مثال: كرت 500)") },
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("input_edit_wholesale_price")
+                        modifier = Modifier.fillMaxWidth().testTag("input_edit_package_name")
                     )
-                    OutlinedTextField(
-                        value = retailStr,
-                        onValueChange = { retailStr = it },
-                        label = { Text("سعر التجزئة المقترح (ر.ي)") },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("input_edit_retail_price")
-                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = retailStr,
+                            onValueChange = { retailStr = it },
+                            label = { Text("سعر البيع/تجزئة (ر.ي)") },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).testTag("input_edit_retail_price")
+                        )
+                        OutlinedTextField(
+                            value = wholesaleStr,
+                            onValueChange = { wholesaleStr = it },
+                            label = { Text("سعر الجملة (ر.ي)") },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).testTag("input_edit_wholesale_price")
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = quotaMbStr,
+                            onValueChange = { quotaMbStr = it },
+                            label = { Text("حجم الميجا (MB)") },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).testTag("input_edit_quota_mb")
+                        )
+                        OutlinedTextField(
+                            value = uptimeHoursStr,
+                            onValueChange = { uptimeHoursStr = it },
+                            label = { Text("الوقت (ساعة)") },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).testTag("input_edit_uptime_hours")
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = validityDaysStr,
+                            onValueChange = { validityDaysStr = it },
+                            label = { Text("الصلاحية (يوم)") },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).testTag("input_edit_validity_days")
+                        )
+                        OutlinedTextField(
+                            value = profileNameStr,
+                            onValueChange = { profileNameStr = it },
+                            label = { Text("بروفايل المايكروتك") },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).testTag("input_edit_profile_name")
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -831,8 +944,18 @@ fun PackagesStockScreen(
                     onClick = {
                         val w = (wholesaleStr.toLongOrNull() ?: 0L) * 100L
                         val r = (retailStr.toLongOrNull() ?: 0L) * 100L
-                        if (w > 0L && r >= w) {
-                            val updated = pkg.copy(wholesalePriceMinor = w, retailPriceMinor = r)
+                        val qMb = quotaMbStr.toLongOrNull() ?: 0L
+                        val upH = uptimeHoursStr.toIntOrNull() ?: 0
+                        val valD = validityDaysStr.toIntOrNull() ?: 0
+                        val formattedDuration = formatDurationOrQuota(qMb, upH, valD, profileNameStr)
+
+                        if (editName.isNotBlank() && w > 0L && r >= w) {
+                            val updated = pkg.copy(
+                                name = editName.trim(),
+                                durationOrQuota = formattedDuration,
+                                wholesalePriceMinor = w,
+                                retailPriceMinor = r
+                            )
                             viewModel.insertPackage(updated) {
                                 packageForPriceEdit = null
                             }
@@ -841,7 +964,7 @@ fun PackagesStockScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan, contentColor = CyberDarkCanvas),
                     modifier = Modifier.testTag("btn_confirm_edit_package_price")
                 ) {
-                    Text("حفظ الأسعار الجديدة", fontWeight = FontWeight.Bold)
+                    Text("حفظ التعديلات", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -928,9 +1051,12 @@ fun AddPackageBottomSheet(
     onSubmit: (name: String, quota: String, wholesaleMinor: Long, retailMinor: Long) -> Unit
 ) {
     var name by rememberSaveable { mutableStateOf("") }
-    var quota by rememberSaveable { mutableStateOf("") }
-    var wholesaleText by rememberSaveable { mutableStateOf("") }
     var retailText by rememberSaveable { mutableStateOf("") }
+    var wholesaleText by rememberSaveable { mutableStateOf("") }
+    var quotaMbText by rememberSaveable { mutableStateOf("") }
+    var uptimeHoursText by rememberSaveable { mutableStateOf("") }
+    var validityDaysText by rememberSaveable { mutableStateOf("") }
+    var profileNameText by rememberSaveable { mutableStateOf("") }
 
     val scrollState = rememberScrollState()
 
@@ -965,31 +1091,65 @@ fun AddPackageBottomSheet(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("اسم الباقة (مثال: باقة اليوم الواحد)") },
+                    label = { Text("اسم الباقة (مثال: كرت 1,000 ريال)") },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth().testTag("input_package_name")
                 )
-                OutlinedTextField(
-                    value = quota,
-                    onValueChange = { quota = it },
-                    label = { Text("السعة / المدة (مثال: 1GB / 24 ساعة)") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("input_package_quota")
-                )
-                OutlinedTextField(
-                    value = wholesaleText,
-                    onValueChange = { wholesaleText = it },
-                    label = { Text("سعر الجملة للبقالات (ر.ي)") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("input_wholesale_price")
-                )
-                OutlinedTextField(
-                    value = retailText,
-                    onValueChange = { retailText = it },
-                    label = { Text("سعر التجزئة المقترح للمستخدم (ر.ي)") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("input_retail_price")
-                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = retailText,
+                        onValueChange = { retailText = it },
+                        label = { Text("سعر البيع/تجزئة (ر.ي)") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("input_retail_price")
+                    )
+                    OutlinedTextField(
+                        value = wholesaleText,
+                        onValueChange = { wholesaleText = it },
+                        label = { Text("سعر الجملة للبقالات (ر.ي)") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("input_wholesale_price")
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = quotaMbText,
+                        onValueChange = { quotaMbText = it },
+                        label = { Text("حجم الميجا (MB)") },
+                        placeholder = { Text("مثال: 2700") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("input_package_quota_mb")
+                    )
+                    OutlinedTextField(
+                        value = uptimeHoursText,
+                        onValueChange = { uptimeHoursText = it },
+                        label = { Text("الوقت (ساعة)") },
+                        placeholder = { Text("مثال: 35") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("input_package_uptime_hours")
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = validityDaysText,
+                        onValueChange = { validityDaysText = it },
+                        label = { Text("الصلاحية (يوم)") },
+                        placeholder = { Text("مثال: 7") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("input_package_validity_days")
+                    )
+                    OutlinedTextField(
+                        value = profileNameText,
+                        onValueChange = { profileNameText = it },
+                        label = { Text("بروفايل المايكروتك") },
+                        placeholder = { Text("مثال: prof_1000") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("input_package_profile_name")
+                    )
+                }
             }
 
             HorizontalDivider(color = CyberBorder)
@@ -1005,14 +1165,18 @@ fun AddPackageBottomSheet(
                         if (name.isNotBlank()) {
                             val w = (wholesaleText.toLongOrNull() ?: 0L) * 100L
                             val r = (retailText.toLongOrNull() ?: 0L) * 100L
-                            onSubmit(name, quota, w, r)
+                            val qMb = quotaMbText.toLongOrNull() ?: 0L
+                            val upH = uptimeHoursText.toIntOrNull() ?: 0
+                            val valD = validityDaysText.toIntOrNull() ?: 0
+                            val formattedDuration = formatDurationOrQuota(qMb, upH, valD, profileNameText)
+                            onSubmit(name.trim(), formattedDuration, w, r)
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan, contentColor = CyberDarkCanvas),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.weight(1f).height(48.dp).testTag("btn_save_package")
                 ) {
-                    Text("حفظ الباقة", fontWeight = FontWeight.Bold)
+                    Text("حفظ الباقة والمواصفات", fontWeight = FontWeight.Bold)
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) {
                     Text("إلغاء", color = TextSecondaryDark)
