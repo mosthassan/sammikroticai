@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -405,6 +406,31 @@ fun CardStudioScreen(
             }
         )
     }
+
+    if (uiState.isGeneratingPdf) {
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            containerColor = CyberDarkCardElevated,
+            title = {
+                Text("تجهيز ورقة PDF الاحترافية 📄", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    CircularProgressIndicator(color = BrandCyanPrimary, modifier = Modifier.size(32.dp))
+                    Text(
+                        text = "جاري إنشاء وتجهيز ورقة ${uiState.selectedPrintFormat.cardsPerPage} كرت بجودة عالية وحفظها للمعاينة...",
+                        color = Color.LightGray,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        )
+    }
 }
 
 /**
@@ -567,61 +593,47 @@ private fun A4SheetPreview(
         HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Dynamic Sample Cards Grid based on selected format
-        val sampleCards = listOf(
-            Triple("821171", template.priceText, template.quotaText),
-            Triple("495370", template.priceText, template.quotaText),
-            Triple("125149", template.priceText, template.quotaText),
-            Triple("950324", template.priceText, template.quotaText),
-            Triple("580614", template.priceText, template.quotaText),
-            Triple("732981", template.priceText, template.quotaText),
-            Triple("341902", template.priceText, template.quotaText),
-            Triple("612845", template.priceText, template.quotaText),
-            Triple("294711", template.priceText, template.quotaText),
-            Triple("883109", template.priceText, template.quotaText),
-            Triple("452018", template.priceText, template.quotaText),
-            Triple("720491", template.priceText, template.quotaText)
-        )
-
         val cols = format.cols
-        val visibleRows = when (format) {
-            PrintPageFormat.A4_GRID_42 -> 4 // 12 cards preview
-            PrintPageFormat.A4_GRID_24 -> 3 // 9 cards preview
-            PrintPageFormat.A4_GRID_18 -> 2 // 6 cards preview
-            PrintPageFormat.A4_GRID_10 -> 2 // 4 cards preview
-            PrintPageFormat.THERMAL_ROLL_80MM -> 1 // 1 ticket
-        }
+        val rows = format.rows
+        val totalCards = format.cardsPerPage
         val cardHeightDp = when (format) {
-            PrintPageFormat.A4_GRID_42 -> 38.dp // Compact strip cards
-            PrintPageFormat.A4_GRID_24 -> 54.dp
-            PrintPageFormat.A4_GRID_18 -> 66.dp
-            PrintPageFormat.A4_GRID_10 -> 78.dp
+            PrintPageFormat.A4_GRID_42 -> 34.dp // Compact strip cards
+            PrintPageFormat.A4_GRID_24 -> 48.dp
+            PrintPageFormat.A4_GRID_18 -> 60.dp
+            PrintPageFormat.A4_GRID_10 -> 72.dp
             PrintPageFormat.THERMAL_ROLL_80MM -> 96.dp
         }
 
-        Column(
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 380.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            for (row in 0 until visibleRows) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    for (col in 0 until cols) {
-                        val cardIndex = (row * cols) + col
-                        val cardData = sampleCards[cardIndex % sampleCards.size]
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(cardHeightDp)
-                        ) {
-                            MiniCardTile(
-                                template = template,
-                                code = cardData.first,
-                                price = cardData.second,
-                                quota = cardData.third,
-                                isCompactStrip = format == PrintPageFormat.A4_GRID_42
-                            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                for (row in 0 until rows) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        for (col in 0 until cols) {
+                            val cardIndex = (row * cols) + col
+                            val sampleCode = (821101 + cardIndex).toString()
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(cardHeightDp)
+                            ) {
+                                MiniCardTile(
+                                    template = template,
+                                    code = sampleCode,
+                                    price = template.priceText,
+                                    quota = template.quotaText,
+                                    isCompactStrip = format == PrintPageFormat.A4_GRID_42
+                                )
+                            }
                         }
                     }
                 }
@@ -635,10 +647,10 @@ private fun A4SheetPreview(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "• • • شبكة كاملة (${format.cols} أعمدة × ${format.rows} صفوف = ${format.cardsPerPage} كرت لكل ورقة) • • •",
-                fontSize = 8.sp,
+                text = "• • • ورقة كاملة (${format.cols} أعمدة × ${format.rows} صف = ${totalCards} كرت ظاهر بالكامل قابلة للتمرير 📄) • • •",
+                fontSize = 8.5.sp,
                 color = Color(0xFF64748B),
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -1015,12 +1027,30 @@ private fun SingleCardWYSIWYG(
                                         else Modifier.padding(2.dp)
                                     )
                             ) {
-                                Text(
-                                    text = formattedDate,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = (10 * serialLayout.scale).sp,
-                                    color = if (customBitmap != null || !isCleanWhite) Color.LightGray else Color(0xFF64748B)
-                                )
+                                Surface(
+                                    color = if (customBitmap != null || isCleanWhite) Color(0xFF0F172A).copy(alpha = 0.88f) else Color(0xFF0F1E2E).copy(alpha = 0.92f),
+                                    shape = RoundedCornerShape(5.dp),
+                                    border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.7f)),
+                                    shadowElevation = 3.dp
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(
+                                            horizontal = (6 * serialLayout.scale * serialLayout.widthScale.coerceIn(0.5f, 2.0f)).dp,
+                                            vertical = (3 * serialLayout.scale).dp
+                                        )
+                                    ) {
+                                        Text("📅", fontSize = (9 * serialLayout.scale).sp)
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = formattedDate,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = (10 * serialLayout.scale).sp,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1140,15 +1170,18 @@ private fun SingleCardWYSIWYG(
                                                     onUpdateLayout("code_box", codeLayout.copy(offsetX = newX, offsetY = newY))
                                                 }
                                             )
-                                        }
-                                        .clickable { selectedElementKey = "code_box" }
-                                        .then(
-                                            if (selectedElementKey == "code_box") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(6.dp)).padding(2.dp)
-                                            else Modifier.padding(2.dp)
-                                        ),
+                                        },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Box(modifier = Modifier.fillMaxWidth(boxWidthFraction)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(boxWidthFraction)
+                                            .clickable { selectedElementKey = "code_box" }
+                                            .then(
+                                                if (selectedElementKey == "code_box") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(8.dp)).padding(3.dp)
+                                                else Modifier.padding(3.dp)
+                                            )
+                                    ) {
                                         when (template.codeBoxStyle) {
                                             CodeBoxStyle.PILL_BADGE -> {
                                                 Surface(

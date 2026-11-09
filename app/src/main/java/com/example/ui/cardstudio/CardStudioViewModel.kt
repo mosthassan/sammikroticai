@@ -17,6 +17,7 @@ import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
 import com.example.util.CardPdfDocumentGenerator
 import com.example.util.MikroTikCardProvisioner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
@@ -49,7 +51,8 @@ data class CardStudioUiState(
     val batchUserLengthInput: Int = 6,
     val batchPasswordPattern: PasswordPattern = PasswordPattern.SAME_AS_USERNAME,
     val selectedPrintFormat: PrintPageFormat = PrintPageFormat.A4_GRID_24,
-    val generatedPdfFile: File? = null
+    val generatedPdfFile: File? = null,
+    val isGeneratingPdf: Boolean = false
 )
 
 class CardStudioViewModel(application: Application) : AndroidViewModel(application) {
@@ -298,11 +301,15 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
 
     fun exportAndSharePdf(context: Context, batch: CardBatch, format: PrintPageFormat = _uiState.value.selectedPrintFormat) {
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isGeneratingPdf = true)
             try {
-                val file = CardPdfDocumentGenerator.generateBatchPdf(context, batch, format)
-                _uiState.value = _uiState.value.copy(generatedPdfFile = file)
+                val file = withContext(Dispatchers.IO) {
+                    CardPdfDocumentGenerator.generateBatchPdf(context, batch, format)
+                }
+                _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false)
                 CardPdfDocumentGenerator.sharePdfFile(context, file, "كروت الميكروتك - دفعة #${batch.batchNumber}")
             } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isGeneratingPdf = false)
                 _userMessage.emit("خطأ أثناء إنشاء ملف PDF: ${e.message}")
             }
         }
@@ -408,41 +415,45 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
 
     fun previewAndSaveSamplePdf(context: Context) {
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isGeneratingPdf = true)
             try {
                 val template = _uiState.value.editingTemplate
                 val format = _uiState.value.selectedPrintFormat
-                val sampleCards = (1..format.cardsPerPage).map { i ->
-                    val code = String.format(java.util.Locale.US, "%06d", 820000 + i)
-                    GeneratedCard(
-                        serialNumber = String.format(java.util.Locale.US, "%06d", i),
-                        username = code,
-                        password = code,
-                        priceText = template.priceText,
-                        quotaText = template.quotaText,
-                        validityText = template.validityText,
-                        networkName = template.networkName,
-                        supportPhone = template.supportPhone,
-                        loginUrlWithCredentials = "${template.hotspotLoginUrl}?username=$code&password=$code",
-                        batchId = "preview_sheet"
+                val file = withContext(Dispatchers.IO) {
+                    val sampleCards = (1..format.cardsPerPage).map { i ->
+                        val code = String.format(java.util.Locale.US, "%06d", 820000 + i)
+                        GeneratedCard(
+                            serialNumber = String.format(java.util.Locale.US, "%06d", i),
+                            username = code,
+                            password = code,
+                            priceText = template.priceText,
+                            quotaText = template.quotaText,
+                            validityText = template.validityText,
+                            networkName = template.networkName,
+                            supportPhone = template.supportPhone,
+                            loginUrlWithCredentials = "${template.hotspotLoginUrl}?username=$code&password=$code",
+                            batchId = "preview_sheet"
+                        )
+                    }
+                    val sampleBatch = CardBatch(
+                        batchNumber = 101,
+                        batchTitle = "معاينة ${template.name}",
+                        templateId = template.id,
+                        templateSnapshot = template,
+                        profileName = template.targetPackageProfile.ifBlank { "default" },
+                        cardCount = sampleCards.size,
+                        prefix = "82",
+                        usernameLength = 6,
+                        passwordPattern = PasswordPattern.SAME_AS_USERNAME,
+                        cards = sampleCards
                     )
+                    CardPdfDocumentGenerator.generateBatchPdf(context, sampleBatch, format)
                 }
-                val sampleBatch = CardBatch(
-                    batchNumber = 101,
-                    batchTitle = "معاينة ${template.name}",
-                    templateId = template.id,
-                    templateSnapshot = template,
-                    profileName = template.targetPackageProfile.ifBlank { "default" },
-                    cardCount = sampleCards.size,
-                    prefix = "82",
-                    usernameLength = 6,
-                    passwordPattern = PasswordPattern.SAME_AS_USERNAME,
-                    cards = sampleCards
-                )
-                val file = CardPdfDocumentGenerator.generateBatchPdf(context, sampleBatch, format)
-                _uiState.value = _uiState.value.copy(generatedPdfFile = file)
+                _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false)
                 CardPdfDocumentGenerator.openOrSharePdfFile(context, file, "معاينة كروت ${template.name} - ورقة ${format.cardsPerPage} كرت")
                 _userMessage.emit("تم توليد وحفظ ملف PDF الاحترافي بنجاح! جاهز للمعاينة والطباعة 🖨️📄")
             } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isGeneratingPdf = false)
                 _userMessage.emit("خطأ أثناء إنشاء ملف PDF: ${e.message}")
             }
         }

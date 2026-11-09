@@ -56,77 +56,94 @@ object CardPdfDocumentGenerator {
             pathEffect = DashPathEffect(floatArrayOf(4f, 3f), 0f)
         }
 
-        if (pageFormat == PrintPageFormat.THERMAL_ROLL_80MM) {
-            val ticketHeight = 220
-            cards.forEachIndexed { index, card ->
-                val pageInfo = PdfDocument.PageInfo.Builder(THERMAL_80MM_WIDTH, ticketHeight, index + 1).create()
-                val page = document.startPage(pageInfo)
-                drawThermalCard(page.canvas, card, template, THERMAL_80MM_WIDTH.toFloat(), ticketHeight.toFloat())
-                document.finishPage(page)
-            }
-        } else {
-            val cols = pageFormat.cols
-            val rows = pageFormat.rows
-            val cardsPerPage = cols * rows
-
-            val marginH = 16f
-            val marginV = 22f
-            val gridWidth = A4_WIDTH_POINTS - (marginH * 2)
-            val gridHeight = A4_HEIGHT_POINTS - (marginV * 2)
-
-            val cardWidth = gridWidth / cols
-            val cardHeight = gridHeight / rows
-
-            val totalPages = kotlin.math.max(1, (cards.size + cardsPerPage - 1) / cardsPerPage)
-
-            for (pageIndex in 0 until totalPages) {
-                val pageInfo = PdfDocument.PageInfo.Builder(A4_WIDTH_POINTS, A4_HEIGHT_POINTS, pageIndex + 1).create()
-                val page = document.startPage(pageInfo)
-                val canvas = page.canvas
-
-                // Header info matching sammikroticnew
-                textPaint.color = Color.parseColor("#0F172A")
-                textPaint.textSize = 8f
-                textPaint.textAlign = Paint.Align.LEFT
-                canvas.drawText("${template.networkName} • هاتف الدعم: ${template.supportPhone} • صفحة ${pageIndex + 1} من $totalPages", marginH, 14f, textPaint)
-
-                textPaint.textAlign = Paint.Align.RIGHT
-                val formatTitle = "ورقة A4 (297 × 210 مم) • ${cols} أعمدة × ${rows} صفوف (${cardsPerPage} كرت/ورقة) • خطوط القص ✂️"
-                canvas.drawText(formatTitle, A4_WIDTH_POINTS - marginH, 14f, textPaint)
-
-                val startIndex = pageIndex * cardsPerPage
-                val endIndex = kotlin.math.min(startIndex + cardsPerPage, cards.size)
-
-                for (i in startIndex until endIndex) {
-                    val localIndex = i - startIndex
-                    val col = localIndex % cols
-                    val row = localIndex / cols
-
-                    val left = marginH + (col * cardWidth)
-                    val top = marginV + (row * cardHeight)
-                    val right = left + cardWidth
-                    val bottom = top + cardHeight
-
-                    val cardRect = RectF(left + 2f, top + 2f, right - 2f, bottom - 2f)
-                    drawA4Card(canvas, cards[i], template, cardRect, pageFormat)
-
-                    if (template.showCutLines) {
-                        canvas.drawRect(left, top, right, bottom, cutLinePaint)
+        val preloadedBgBitmap: Bitmap? = if (!template.customBackgroundImagePath.isNullOrBlank()) {
+            val bgFile = File(template.customBackgroundImagePath)
+            if (bgFile.exists() && bgFile.length() > 0) {
+                try {
+                    val options = android.graphics.BitmapFactory.Options().apply {
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
                     }
+                    android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath, options)
+                } catch (_: Exception) {
+                    null
                 }
+            } else null
+        } else null
 
-                document.finishPage(page)
+        try {
+            if (pageFormat == PrintPageFormat.THERMAL_ROLL_80MM) {
+                val ticketHeight = 220
+                cards.forEachIndexed { index, card ->
+                    val pageInfo = PdfDocument.PageInfo.Builder(THERMAL_80MM_WIDTH, ticketHeight, index + 1).create()
+                    val page = document.startPage(pageInfo)
+                    drawThermalCard(page.canvas, card, template, THERMAL_80MM_WIDTH.toFloat(), ticketHeight.toFloat())
+                    document.finishPage(page)
+                }
+            } else {
+                val cols = pageFormat.cols
+                val rows = pageFormat.rows
+                val cardsPerPage = cols * rows
+
+                val marginH = 16f
+                val marginV = 22f
+                val gridWidth = A4_WIDTH_POINTS - (marginH * 2)
+                val gridHeight = A4_HEIGHT_POINTS - (marginV * 2)
+
+                val cardWidth = gridWidth / cols
+                val cardHeight = gridHeight / rows
+
+                val totalPages = kotlin.math.max(1, (cards.size + cardsPerPage - 1) / cardsPerPage)
+
+                for (pageIndex in 0 until totalPages) {
+                    val pageInfo = PdfDocument.PageInfo.Builder(A4_WIDTH_POINTS, A4_HEIGHT_POINTS, pageIndex + 1).create()
+                    val page = document.startPage(pageInfo)
+                    val canvas = page.canvas
+
+                    // Header info matching sammikroticnew
+                    textPaint.color = Color.parseColor("#0F172A")
+                    textPaint.textSize = 8f
+                    textPaint.textAlign = Paint.Align.LEFT
+                    canvas.drawText("${template.networkName} • هاتف الدعم: ${template.supportPhone} • صفحة ${pageIndex + 1} من $totalPages", marginH, 14f, textPaint)
+
+                    textPaint.textAlign = Paint.Align.RIGHT
+                    val formatTitle = "ورقة A4 (297 × 210 مم) • ${cols} أعمدة × ${rows} صفوف (${cardsPerPage} كرت/ورقة) • خطوط القص ✂️"
+                    canvas.drawText(formatTitle, A4_WIDTH_POINTS - marginH, 14f, textPaint)
+
+                    val startIndex = pageIndex * cardsPerPage
+                    val endIndex = kotlin.math.min(startIndex + cardsPerPage, cards.size)
+
+                    for (i in startIndex until endIndex) {
+                        val localIndex = i - startIndex
+                        val col = localIndex % cols
+                        val row = localIndex / cols
+
+                        val left = marginH + (col * cardWidth)
+                        val top = marginV + (row * cardHeight)
+                        val right = left + cardWidth
+                        val bottom = top + cardHeight
+
+                        val cardRect = RectF(left + 2f, top + 2f, right - 2f, bottom - 2f)
+                        drawA4Card(canvas, cards[i], template, cardRect, pageFormat, preloadedBgBitmap)
+
+                        if (template.showCutLines) {
+                            canvas.drawRect(left, top, right, bottom, cutLinePaint)
+                        }
+                    }
+
+                    document.finishPage(page)
+                }
             }
-        }
 
-        val cacheDir = File(context.cacheDir, "cards_pdf").apply { mkdirs() }
-        val file = File(cacheDir, "cards_batch_${batch.batchNumber}_${System.currentTimeMillis()}.pdf")
-        FileOutputStream(file).use { out ->
-            document.writeTo(out)
+            val cacheDir = File(context.cacheDir, "cards_pdf").apply { mkdirs() }
+            val file = File(cacheDir, "cards_batch_${batch.batchNumber}_${System.currentTimeMillis()}.pdf")
+            FileOutputStream(file).use { out ->
+                document.writeTo(out)
+            }
+            document.close()
+            return file
+        } finally {
+            preloadedBgBitmap?.recycle()
         }
-        document.close()
-
-        return file
     }
 
     private fun drawA4Card(
@@ -134,32 +151,22 @@ object CardPdfDocumentGenerator {
         card: GeneratedCard,
         template: CardTemplate,
         rect: RectF,
-        format: PrintPageFormat
+        format: PrintPageFormat,
+        preloadedBgBitmap: Bitmap? = null
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val isCleanWhite = template.themePreset == CardThemePreset.CLEAN_WHITE
 
         // 1. Background Fill: Custom Gallery Image OR Theme Solid/Gradient
         var hasCustomBg = false
-        if (!template.customBackgroundImagePath.isNullOrBlank()) {
-            val bgFile = File(template.customBackgroundImagePath)
-            if (bgFile.exists() && bgFile.length() > 0) {
-                try {
-                    val options = android.graphics.BitmapFactory.Options().apply {
-                        inPreferredConfig = Bitmap.Config.ARGB_8888
-                    }
-                    val customBitmap = android.graphics.BitmapFactory.decodeFile(bgFile.absolutePath, options)
-                    if (customBitmap != null) {
-                        canvas.drawBitmap(customBitmap, null, rect, null)
-                        hasCustomBg = true
-                        if (template.overlayAlpha > 0f) {
-                            paint.color = Color.BLACK
-                            paint.alpha = (template.overlayAlpha * 255).toInt().coerceIn(0, 255)
-                            canvas.drawRoundRect(rect, 6f, 6f, paint)
-                            paint.alpha = 255
-                        }
-                    }
-                } catch (_: Exception) {}
+        if (preloadedBgBitmap != null) {
+            canvas.drawBitmap(preloadedBgBitmap, null, rect, null)
+            hasCustomBg = true
+            if (template.overlayAlpha > 0f) {
+                paint.color = Color.BLACK
+                paint.alpha = (template.overlayAlpha * 255).toInt().coerceIn(0, 255)
+                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                paint.alpha = 255
             }
         }
 
@@ -456,16 +463,23 @@ object CardPdfDocumentGenerator {
     }
 
     fun openOrSharePdfFile(context: Context, file: File, title: String = "معاينة كروت الميكروتك") {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/pdf")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
         try {
-            context.startActivity(viewIntent)
-        } catch (_: Exception) {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val pm = context.packageManager
+            if (viewIntent.resolveActivity(pm) != null) {
+                context.startActivity(viewIntent)
+                return
+            }
             sharePdfFile(context, file, title)
+        } catch (_: Exception) {
+            try {
+                sharePdfFile(context, file, title)
+            } catch (_: Exception) {}
         }
     }
 }
