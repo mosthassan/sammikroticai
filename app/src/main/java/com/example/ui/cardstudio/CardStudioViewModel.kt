@@ -13,6 +13,7 @@ import com.example.data.card.CardThemePreset
 import com.example.data.card.CodeBoxStyle
 import com.example.data.card.ElementLayout
 import com.example.data.card.GeneratedCard
+import com.example.data.card.CardCharacterSet
 import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
 import com.example.util.CardPdfDocumentGenerator
@@ -47,8 +48,9 @@ data class CardStudioUiState(
     val batchTitleInput: String = "كرت 500 - باقة 2700 ميجا",
     val batchCountInput: Int = 24,
     val batchProfileInput: String = "2700M_35H",
-    val batchPrefixInput: String = "77",
+    val batchPrefixInput: String = "",
     val batchUserLengthInput: Int = 6,
+    val batchCharacterSet: CardCharacterSet = CardCharacterSet.NUMBERS_ONLY,
     val batchPasswordPattern: PasswordPattern = PasswordPattern.SAME_AS_USERNAME,
     val selectedPrintFormat: PrintPageFormat = PrintPageFormat.A4_GRID_24,
     val generatedPdfFile: File? = null,
@@ -250,6 +252,7 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         prefix: String? = null,
         userLength: Int? = null,
         pattern: PasswordPattern? = null,
+        characterSet: CardCharacterSet? = null,
         format: PrintPageFormat? = null
     ) {
         _uiState.value = _uiState.value.copy(
@@ -259,6 +262,7 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             batchPrefixInput = prefix ?: _uiState.value.batchPrefixInput,
             batchUserLengthInput = userLength ?: _uiState.value.batchUserLengthInput,
             batchPasswordPattern = pattern ?: _uiState.value.batchPasswordPattern,
+            batchCharacterSet = characterSet ?: _uiState.value.batchCharacterSet,
             selectedPrintFormat = format ?: _uiState.value.selectedPrintFormat
         )
     }
@@ -280,7 +284,8 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                     count = state.batchCountInput,
                     prefix = state.batchPrefixInput,
                     usernameLength = state.batchUserLengthInput,
-                    passwordPattern = state.batchPasswordPattern
+                    passwordPattern = state.batchPasswordPattern,
+                    characterSet = state.batchCharacterSet
                 )
                 _uiState.value = _uiState.value.copy(
                     isGenerating = false,
@@ -292,6 +297,48 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                 _uiState.value = _uiState.value.copy(isGenerating = false)
                 _userMessage.emit("تعذر توليد الدفعة: ${e.message}")
             }
+        }
+    }
+
+    fun duplicateTemplate(template: CardTemplate) {
+        viewModelScope.launch {
+            val copy = template.copy(
+                id = java.util.UUID.randomUUID().toString(),
+                name = "${template.name} (نسخة)",
+                createdAt = System.currentTimeMillis()
+            )
+            repository.saveTemplate(copy)
+            _uiState.value = _uiState.value.copy(editingTemplate = copy)
+            _userMessage.emit("تم تكرار القالب '${template.name}' بنجاح 📋")
+        }
+    }
+
+    fun updateTemplateMetadata(
+        templateId: String,
+        name: String,
+        priceText: String,
+        quotaText: String,
+        validityText: String,
+        networkName: String,
+        supportPhone: String,
+        profile: String
+    ) {
+        viewModelScope.launch {
+            val target = templates.value.firstOrNull { it.id == templateId } ?: _uiState.value.editingTemplate
+            val updated = target.copy(
+                name = name.ifBlank { target.name },
+                priceText = priceText.ifBlank { target.priceText },
+                quotaText = quotaText.ifBlank { target.quotaText },
+                validityText = validityText.ifBlank { target.validityText },
+                networkName = networkName.ifBlank { target.networkName },
+                supportPhone = supportPhone.ifBlank { target.supportPhone },
+                targetPackageProfile = profile.ifBlank { target.targetPackageProfile }
+            )
+            repository.saveTemplate(updated)
+            if (_uiState.value.editingTemplate.id == templateId) {
+                _uiState.value = _uiState.value.copy(editingTemplate = updated)
+            }
+            _userMessage.emit("تم تحديث بيانات القالب '${updated.name}' بنجاح ✏️✨")
         }
     }
 

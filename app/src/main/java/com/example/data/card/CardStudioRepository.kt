@@ -94,6 +94,7 @@ class CardStudioRepository(
         prefix: String,
         usernameLength: Int,
         passwordPattern: PasswordPattern,
+        characterSet: CardCharacterSet = CardCharacterSet.NUMBERS_ONLY,
         targetMikrotikHost: String = ""
     ): CardBatch = withContext(ioDispatcher) {
         val nextBatchNum = (_batches.value.maxOfOrNull { it.batchNumber } ?: 0L) + 1L
@@ -103,12 +104,13 @@ class CardStudioRepository(
         val existingUsernames = mutableSetOf<String>()
 
         for (i in 1..count) {
-            val username = generateUniqueUsername(prefix, usernameLength, existingUsernames)
+            val username = generateUniqueUsername(prefix, usernameLength, existingUsernames, characterSet)
             existingUsernames.add(username)
 
             val password = when (passwordPattern) {
                 PasswordPattern.SAME_AS_USERNAME -> username
                 PasswordPattern.NUMBERS_ONLY -> generateRandomNumeric(6)
+                PasswordPattern.NO_PASSWORD -> ""
                 PasswordPattern.ALPHANUMERIC -> generateRandomAlphanumeric(6)
             }
 
@@ -172,12 +174,21 @@ class CardStudioRepository(
         saveBatchesSync(updated)
     }
 
-    private fun generateUniqueUsername(prefix: String, length: Int, existing: Set<String>): String {
+    private fun generateUniqueUsername(
+        prefix: String,
+        length: Int,
+        existing: Set<String>,
+        characterSet: CardCharacterSet = CardCharacterSet.NUMBERS_ONLY
+    ): String {
         val cleanPrefix = prefix.trim()
         val randomLen = (length - cleanPrefix.length).coerceAtLeast(3)
         var candidate: String
         do {
-            val randomPart = generateRandomAlphanumeric(randomLen)
+            val randomPart = if (characterSet == CardCharacterSet.NUMBERS_ONLY) {
+                generateRandomNumeric(randomLen)
+            } else {
+                generateRandomAlphanumeric(randomLen)
+            }
             candidate = "$cleanPrefix$randomPart"
         } while (existing.contains(candidate))
         return candidate

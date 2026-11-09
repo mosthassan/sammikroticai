@@ -26,12 +26,21 @@ enum class CodeBoxStyle(val displayNameAr: String) {
 }
 
 /**
+ * Character set for card codes (matching Yemen / Arab network standards)
+ */
+enum class CardCharacterSet(val displayNameAr: String, val subtitleAr: String) {
+    NUMBERS_ONLY("أرقام فقط (0 - 9)", "الأسهل في الإدخال بالهاتف"),
+    UPPERCASE_ALPHANUMERIC("أرقام وحروف كبيرة", "0-9 + A-Z (أمان أعلى)")
+}
+
+/**
  * Password generation pattern for cards
  */
-enum class PasswordPattern(val displayNameAr: String) {
-    SAME_AS_USERNAME("نفس اسم المستخدم (اسم فقط)"),
-    NUMBERS_ONLY("أرقام سرية منفصلة (PIN)"),
-    ALPHANUMERIC("أحرف وأرقام عشوائية معقدة")
+enum class PasswordPattern(val displayNameAr: String, val subtitleAr: String = "") {
+    SAME_AS_USERNAME("نفس المستخدم", "User = Password"),
+    NUMBERS_ONLY("PIN منفصل", "كلمة سر مخصصة"),
+    NO_PASSWORD("بدون كلمة سر", "اسم مستخدم فقط"),
+    ALPHANUMERIC("أحرف وأرقام عشوائية معقدة", "أمان فائق")
 }
 
 /**

@@ -16,6 +16,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,6 +63,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.Tune
@@ -127,6 +130,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.card.CardBatch
+import com.example.data.card.CardCharacterSet
 import com.example.data.card.CardPreviewMode
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
@@ -348,8 +352,8 @@ fun CardStudioScreen(
                             viewModel.selectPackageProfile(profile, name, price, quota)
                         },
                         onSelectPrintFormat = { viewModel.selectPrintFormat(it) },
-                        onUpdateConfig = { t, c, p, pr, ul, pat, f ->
-                            viewModel.updateBatchConfig(t, c, p, pr, ul, pat, f)
+                        onUpdateConfig = { t, c, p, pr, ul, pat, cs, f ->
+                            viewModel.updateBatchConfig(t, c, p, pr, ul, pat, cs, f)
                         },
                         onGenerate = { viewModel.generateBatch() }
                     )
@@ -357,6 +361,16 @@ fun CardStudioScreen(
                         currentTemplate = uiState.editingTemplate,
                         savedTemplates = templates,
                         onSelectTemplate = { viewModel.setEditingTemplate(it) },
+                        onEditTemplate = { tmpl ->
+                            viewModel.setEditingTemplate(tmpl)
+                            viewModel.selectTab(CardStudioTab.DESIGNER)
+                        },
+                        onDuplicateTemplate = { viewModel.duplicateTemplate(it) },
+                        onDeleteTemplate = { viewModel.deleteTemplate(it.id) },
+                        onUpdateTemplateDetails = { id, name, price, quota, validity, net, phone, prof ->
+                            viewModel.updateTemplateMetadata(id, name, price, quota, validity, net, phone, prof)
+                        },
+                        onSaveCurrentAsNew = { showSavePackageDialog = true },
                         onApplyPreset = { viewModel.applyThemePreset(it) },
                         onPickCustomImage = {
                             photoPickerLauncher.launch(
@@ -1769,7 +1783,7 @@ private fun GeneratorParametersTab(
     onSelectSavedTemplate: (CardTemplate) -> Unit,
     onSelectPackageProfile: (profile: String, packageName: String, price: String, quota: String) -> Unit,
     onSelectPrintFormat: (PrintPageFormat) -> Unit,
-    onUpdateConfig: (String?, Int?, String?, String?, Int?, PasswordPattern?, PrintPageFormat?) -> Unit,
+    onUpdateConfig: (String?, Int?, String?, String?, Int?, PasswordPattern?, CardCharacterSet?, PrintPageFormat?) -> Unit,
     onGenerate: () -> Unit
 ) {
     Column(
@@ -1779,7 +1793,7 @@ private fun GeneratorParametersTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Summary & Total Box (matching sammikroticnew)
+        // Summary & Total Box
         val template = uiState.editingTemplate
         val priceNumeric = template.priceText.filter { it.isDigit() }.toIntOrNull() ?: 500
         val totalRevenue = priceNumeric * uiState.batchCountInput
@@ -1807,7 +1821,7 @@ private fun GeneratorParametersTab(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "الإجمالي: $totalRevenue ر.ي",
+                            text = "الإجمالي: %,d ر.ي".format(totalRevenue),
                             fontWeight = FontWeight.Bold,
                             color = BrandCyanPrimary,
                             fontSize = 12.sp,
@@ -1879,7 +1893,7 @@ private fun GeneratorParametersTab(
             }
         }
 
-        // Section 2: Quick Package Presets (Internet speed & package linked to card)
+        // Section 2: Quick Package Presets
         Text("باقة وسرعة الإنترنت المربوطة بالكرت:", style = MaterialTheme.typography.labelMedium, color = Color.White)
         Row(
             modifier = Modifier
@@ -1907,7 +1921,7 @@ private fun GeneratorParametersTab(
             }
         }
 
-        // Section 3: Paper Sheet Setup & Card Grid Format (Updates Canvas instantly)
+        // Section 3: Paper Sheet Setup & Card Grid Format
         Text("إعداد الورقة ومقاس الطباعة (تحديث فوري للمعاينة 📄):", style = MaterialTheme.typography.labelMedium, color = Color.White)
         Row(
             modifier = Modifier
@@ -1935,85 +1949,521 @@ private fun GeneratorParametersTab(
             }
         }
 
-        // Section 4: Card Count Presets
-        Text("عدد الكروت المطلوبة للدفعة:", style = MaterialTheme.typography.labelMedium, color = Color.White)
-        Row(
+        // ★ Section 4: Interactive Card Count Box (Matching User's Attached Screenshot)
+        val step = uiState.selectedPrintFormat.cardsPerPage
+        var showDirectCountDialog by remember { mutableStateOf(false) }
+
+        if (showDirectCountDialog) {
+            var tempCountStr by remember { mutableStateOf(uiState.batchCountInput.toString()) }
+            AlertDialog(
+                onDismissRequest = { showDirectCountDialog = false },
+                title = { Text("اكتب عدد الكروت المطلوب مباشرة ✏️", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("يمكنك إدخال أي رقم من 1 كرت حتى 10,000 كرت:", color = Color.LightGray, fontSize = 12.sp)
+                        OutlinedTextField(
+                            value = tempCountStr,
+                            onValueChange = { tempCountStr = it.filter { c -> c.isDigit() } },
+                            label = { Text("عدد الكروت") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrandCyanPrimary,
+                                unfocusedBorderColor = Color.Gray,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val count = tempCountStr.toIntOrNull()?.coerceIn(1, 10000) ?: uiState.batchCountInput
+                            onUpdateConfig(null, count, null, null, null, null, null, null)
+                            showDirectCountDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary)
+                    ) {
+                        Text("تأكيد", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDirectCountDialog = false }) {
+                        Text("إلغاء", color = Color.LightGray)
+                    }
+                },
+                containerColor = CyberDarkCardElevated
+            )
+        }
+
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF071224)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.2.dp, BrandCyanPrimary.copy(alpha = 0.5f))
         ) {
-            listOf(
-                uiState.selectedPrintFormat.cardsPerPage to "${uiState.selectedPrintFormat.cardsPerPage} كرت (ورقة كاملة)",
-                (uiState.selectedPrintFormat.cardsPerPage * 2) to "${uiState.selectedPrintFormat.cardsPerPage * 2} كرت (ورقتين)",
-                100 to "100 كرت"
-            ).forEach { (count, label) ->
-                FilterChip(
-                    selected = uiState.batchCountInput == count,
-                    onClick = { onUpdateConfig(null, count, null, null, null, null, null) },
-                    label = { Text(label, fontSize = 11.sp) },
-                    modifier = Modifier.weight(1f),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = BrandCyanPrimary,
-                        selectedLabelColor = Color.Black
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Top Header Badge
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val sheetsCount = (uiState.batchCountInput + step - 1) / step
+                    Surface(
+                        color = Color(0xFF0E3042),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, BrandCyanPrimary)
+                    ) {
+                        Text(
+                            text = "${uiState.batchCountInput} كرت  •  $sheetsCount ورقة A4",
+                            color = Color(0xFF67E8F9),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "عدد الكروت المطلوب توليدها:",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Layers,
+                            contentDescription = null,
+                            tint = BrandCyanPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = "✏️ اكتب العدد المطلوب مباشرة (مثال: 500، مرونة من 1 حتى 10,000 كرت):",
+                    fontSize = 11.sp,
+                    color = Color.LightGray
+                )
+
+                // Direct Display Box & Stepper Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Steppers on the left
+                    listOf(
+                        -step to "-$step",
+                        step to "+$step",
+                        100 to "+100",
+                        500 to "+500"
+                    ).forEach { (diff, label) ->
+                        Surface(
+                            color = Color(0xFF13253B),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clickable {
+                                    val newCount = (uiState.batchCountInput + diff).coerceIn(1, 10000)
+                                    onUpdateConfig(null, newCount, null, null, null, null, null, null)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = label,
+                                    color = if (diff > 0) Color(0xFF38BDF8) else Color(0xFFCBD5E1),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Prominent Direct Display Box on Right (Click to edit directly)
+                    Surface(
+                        color = Color(0xFF0F2538),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.5.dp, BrandCyanPrimary),
+                        modifier = Modifier
+                            .weight(1.5f)
+                            .height(44.dp)
+                            .clickable { showDirectCountDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${uiState.batchCountInput}",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF38BDF8)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "كرت",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
+                // Quick Buttons by sheet capacity (Row 1: multiples of sheet; Row 2: 240, 500, 1000, 2500, 5000)
+                Text(
+                    text = "أزرار سريعة للأعداد الشائعة بحسب سعة الورقة:",
+                    fontSize = 11.sp,
+                    color = Color.LightGray
+                )
+
+                // Row 1: Sheet Multipliers
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(1, 2, 3, 4, 5).forEach { mult ->
+                        val countVal = step * mult
+                        val isSel = uiState.batchCountInput == countVal
+                        Surface(
+                            color = if (isSel) BrandCyanPrimary.copy(alpha = 0.25f) else Color(0xFF132030),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isSel) BrandCyanPrimary else Color(0xFF1E293B)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp)
+                                .clickable {
+                                    onUpdateConfig(null, countVal, null, null, null, null, null, null)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "$countVal",
+                                    color = if (isSel) BrandCyanPrimary else Color.White,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Row 2: Standard Quantities
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(240, 500, 1000, 2500, 5000).forEach { countVal ->
+                        val isSel = uiState.batchCountInput == countVal
+                        val isSpecial = countVal in listOf(1000, 2500, 5000)
+                        Surface(
+                            color = if (isSel) BrandCyanPrimary.copy(alpha = 0.25f) else Color(0xFF132030),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSel) BrandCyanPrimary else if (isSpecial) Color(0xFFD97706).copy(alpha = 0.6f) else Color(0xFF1E293B)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp)
+                                .clickable {
+                                    onUpdateConfig(null, countVal, null, null, null, null, null, null)
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                val formatted = if (countVal >= 1000) "%,d".format(countVal) else "$countVal"
+                                Text(
+                                    text = formatted,
+                                    color = if (isSel) BrandCyanPrimary else if (isSpecial) Color(0xFFFBBF24) else Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Slider 1 to 5000
+                Slider(
+                    value = uiState.batchCountInput.toFloat().coerceIn(1f, 5000f),
+                    onValueChange = {
+                        onUpdateConfig(null, it.toInt().coerceAtLeast(1), null, null, null, null, null, null)
+                    },
+                    valueRange = 1f..5000f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = BrandCyanPrimary,
+                        activeTrackColor = BrandCyanPrimary,
+                        inactiveTrackColor = Color(0xFF1E293B)
                     )
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("1 كرت", fontSize = 10.sp, color = Color.Gray)
+                    Text("2,500 كرت", fontSize = 10.sp, color = Color.Gray)
+                    Text("5,000 كرت", fontSize = 10.sp, color = Color.Gray)
+                }
+
+                // Financial Estimation Banner
+                val retailTotal = priceNumeric * uiState.batchCountInput
+                val wholesaleTotal = (priceNumeric * 0.75).toInt() * uiState.batchCountInput
+                Surface(
+                    color = Color(0xFF0F1E2E),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFF1E3A5F)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("تقدير مالي للدفعة:", fontSize = 11.5.sp, color = Color.LightGray)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("تجزئة : ", fontSize = 11.5.sp, color = Color.LightGray)
+                        Text("%,d ر.ي".format(retailTotal), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF34D399))
+                        Text("  •  ", color = Color.Gray)
+                        Text("جملة : ", fontSize = 11.5.sp, color = Color.LightGray)
+                        Text("%,d ر.ي".format(wholesaleTotal), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFBBF24))
+                    }
+                }
             }
         }
 
-        // Section 5: Password Pattern Selector
-        Text("نمط توليد بيانات الدخول (Credentials):", style = MaterialTheme.typography.labelMedium, color = Color.White)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(
-                PasswordPattern.SAME_AS_USERNAME to "اسم فقط (دخول سهل)",
-                PasswordPattern.NUMBERS_ONLY to "اسم + أرقام PIN"
-            ).forEach { (pattern, label) ->
-                FilterChip(
-                    selected = uiState.batchPasswordPattern == pattern,
-                    onClick = { onUpdateConfig(null, null, null, null, null, pattern, null) },
-                    label = { Text(label, fontSize = 11.sp) },
-                    modifier = Modifier.weight(1f),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = BrandCyanPrimary,
-                        selectedLabelColor = Color.Black
+        // ★ Section 5: Character Set (Matching Screenshot)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    color = BrandCyanPrimary.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = if (uiState.batchCharacterSet == CardCharacterSet.NUMBERS_ONLY) "أرقام 0-9" else "أرقام وحروف",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = BrandCyanPrimary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
+                }
+                Text(
+                    text = "نوع ونمط محارف الكود (Character Set)",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Option 1: NUMBERS_ONLY
+                val isNum = uiState.batchCharacterSet == CardCharacterSet.NUMBERS_ONLY
+                Surface(
+                    color = if (isNum) Color(0xFF0F2C3F) else Color(0xFF0B1422),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, if (isNum) BrandCyanPrimary else Color(0xFF1E293B)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onUpdateConfig(null, null, null, null, null, null, CardCharacterSet.NUMBERS_ONLY, null) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "أرقام فقط (0 - 9)",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isNum) Color.White else Color.LightGray
+                            )
+                            Text(
+                                text = "الأسهل في الإدخال بالهاتف",
+                                fontSize = 10.sp,
+                                color = if (isNum) BrandCyanPrimary else Color.Gray
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isNum) BrandCyanPrimary.copy(alpha = 0.2f) else Color(0xFF1E293B),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "#",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isNum) BrandCyanPrimary else Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Option 2: UPPERCASE_ALPHANUMERIC
+                val isAlpha = uiState.batchCharacterSet == CardCharacterSet.UPPERCASE_ALPHANUMERIC
+                Surface(
+                    color = if (isAlpha) Color(0xFF0F2C3F) else Color(0xFF0B1422),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, if (isAlpha) BrandCyanPrimary else Color(0xFF1E293B)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onUpdateConfig(null, null, null, null, null, null, CardCharacterSet.UPPERCASE_ALPHANUMERIC, null) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "أرقام وحروف كبيرة",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isAlpha) Color.White else Color.LightGray
+                            )
+                            Text(
+                                text = "0-9 + A-Z (أمان أعلى)",
+                                fontSize = 10.sp,
+                                color = if (isAlpha) BrandCyanPrimary else Color.Gray
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isAlpha) BrandCyanPrimary.copy(alpha = 0.2f) else Color(0xFF1E293B),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "T",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isAlpha) BrandCyanPrimary else Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // Prefix and Length
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+        // ★ Section 6: Prefix
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("بادئة الرمز (Prefix)", style = MaterialTheme.typography.labelMedium, color = Color.White)
             OutlinedTextField(
                 value = uiState.batchPrefixInput,
-                onValueChange = { onUpdateConfig(null, null, null, it, null, null, null) },
-                label = { Text("بادئة الكروت (Prefix)") },
-                modifier = Modifier.weight(1f),
+                onValueChange = { onUpdateConfig(null, null, null, it, null, null, null, null) },
+                placeholder = { Text("اتركه فارغاً لأرقام صافية 100%", fontSize = 13.sp, color = Color.Gray) },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = BrandCyanPrimary,
-                    unfocusedBorderColor = Color.Gray,
+                    unfocusedBorderColor = Color(0xFF1E293B),
                     focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
+                    unfocusedTextColor = Color.White,
+                    focusedContainerColor = Color(0xFF091220),
+                    unfocusedContainerColor = Color(0xFF091220)
                 )
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (uiState.batchPrefixInput.isBlank()) {
+                    Icon(Icons.Default.Check, contentDescription = null, tint = SemanticIncomeGreen, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("أرقام صافية 100% بدون أي حروف (مطابق لليوزر مانجر)", fontSize = 11.sp, color = SemanticIncomeGreen)
+                } else {
+                    Text("بادئة مخصصة: '${uiState.batchPrefixInput}' ستبدأ بها جميع الأكواد", fontSize = 11.sp, color = BrandCyanPrimary)
+                }
+            }
+        }
 
+        // ★ Section 7: Code Length
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("طول خانات الكود", style = MaterialTheme.typography.labelMedium, color = Color.White)
             OutlinedTextField(
                 value = uiState.batchUserLengthInput.toString(),
-                onValueChange = { onUpdateConfig(null, null, null, null, it.toIntOrNull() ?: 6, null, null) },
-                label = { Text("طول الرمز (خانات)") },
-                modifier = Modifier.weight(1f),
+                onValueChange = {
+                    val l = it.filter { c -> c.isDigit() }.toIntOrNull()?.coerceIn(3, 16) ?: 6
+                    onUpdateConfig(null, null, null, null, l, null, null, null)
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = BrandCyanPrimary,
-                    unfocusedBorderColor = Color.Gray,
+                    unfocusedBorderColor = Color(0xFF1E293B),
                     focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
+                    unfocusedTextColor = Color.White,
+                    focusedContainerColor = Color(0xFF091220),
+                    unfocusedContainerColor = Color(0xFF091220)
                 )
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Security, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("توليد مشفر غير قابل للتخمين (Anti-Guessing CSPRNG)", fontSize = 11.sp, color = BrandCyanPrimary)
+            }
+        }
+
+        // ★ Section 8: Password Pattern Selector
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("نوع كلمة المرور (Password Type)", style = MaterialTheme.typography.labelMedium, color = Color.White)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    Triple(PasswordPattern.SAME_AS_USERNAME, "نفس المستخدم", "User = Password"),
+                    Triple(PasswordPattern.NUMBERS_ONLY, "PIN منفصل", "كلمة سر مخصصة"),
+                    Triple(PasswordPattern.NO_PASSWORD, "بدون كلمة سر", "اسم مستخدم فقط")
+                ).forEach { (pattern, title, sub) ->
+                    val isSelected = uiState.batchPasswordPattern == pattern
+                    Surface(
+                        color = if (isSelected) Color(0xFF0F2C3F) else Color(0xFF0B1422),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.2.dp, if (isSelected) BrandCyanPrimary else Color(0xFF1E293B)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onUpdateConfig(null, null, null, null, null, pattern, null, null) }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = title,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) Color.White else Color.LightGray,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = sub,
+                                fontSize = 9.sp,
+                                color = if (isSelected) BrandCyanPrimary else Color.Gray,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -2053,11 +2503,211 @@ private fun TemplatesGalleryTab(
     currentTemplate: CardTemplate,
     savedTemplates: List<CardTemplate>,
     onSelectTemplate: (CardTemplate) -> Unit,
+    onEditTemplate: (CardTemplate) -> Unit,
+    onDuplicateTemplate: (CardTemplate) -> Unit,
+    onDeleteTemplate: (CardTemplate) -> Unit,
+    onUpdateTemplateDetails: (id: String, name: String, price: String, quota: String, validity: String, net: String, phone: String, profile: String) -> Unit,
+    onSaveCurrentAsNew: () -> Unit,
     onApplyPreset: (CardThemePreset) -> Unit,
     onPickCustomImage: () -> Unit,
     onRemoveCustomImage: () -> Unit,
     onResetDefaults: () -> Unit
 ) {
+    var templateToEditDetails by remember { mutableStateOf<CardTemplate?>(null) }
+    var templateToDelete by remember { mutableStateOf<CardTemplate?>(null) }
+
+    // Dialog 1: Edit Template Metadata (Name, Price, Quota, etc.)
+    templateToEditDetails?.let { tmpl ->
+        var editName by remember(tmpl) { mutableStateOf(tmpl.name) }
+        var editPrice by remember(tmpl) { mutableStateOf(tmpl.priceText) }
+        var editQuota by remember(tmpl) { mutableStateOf(tmpl.quotaText) }
+        var editValidity by remember(tmpl) { mutableStateOf(tmpl.validityText) }
+        var editNetwork by remember(tmpl) { mutableStateOf(tmpl.networkName) }
+        var editPhone by remember(tmpl) { mutableStateOf(tmpl.supportPhone) }
+        var editProfile by remember(tmpl) { mutableStateOf(tmpl.targetPackageProfile) }
+
+        AlertDialog(
+            onDismissRequest = { templateToEditDetails = null },
+            containerColor = CyberDarkCardElevated,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Edit, contentDescription = null, tint = BrandCyanPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("تعديل بيانات القالب ✏️", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("اسم القالب") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrandCyanPrimary,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = editPrice,
+                            onValueChange = { editPrice = it },
+                            label = { Text("السعر (مثال: 500 ر.ي)") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrandCyanPrimary,
+                                unfocusedBorderColor = Color.Gray,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editQuota,
+                            onValueChange = { editQuota = it },
+                            label = { Text("الرصيد (2700 ميجا)") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrandCyanPrimary,
+                                unfocusedBorderColor = Color.Gray,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = editValidity,
+                            onValueChange = { editValidity = it },
+                            label = { Text("الصلاحية (35 ساعة)") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrandCyanPrimary,
+                                unfocusedBorderColor = Color.Gray,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editProfile,
+                            onValueChange = { editProfile = it },
+                            label = { Text("باقة الميكروتك") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrandCyanPrimary,
+                                unfocusedBorderColor = Color.Gray,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = editNetwork,
+                        onValueChange = { editNetwork = it },
+                        label = { Text("اسم الشبكة على الكرت") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrandCyanPrimary,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = editPhone,
+                        onValueChange = { editPhone = it },
+                        label = { Text("هاتف الدعم الفني") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BrandCyanPrimary,
+                            unfocusedBorderColor = Color.Gray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdateTemplateDetails(
+                            tmpl.id,
+                            editName,
+                            editPrice,
+                            editQuota,
+                            editValidity,
+                            editNetwork,
+                            editPhone,
+                            editProfile
+                        )
+                        templateToEditDetails = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary)
+                ) {
+                    Text("حفظ التعديلات 💾", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { templateToEditDetails = null }) {
+                    Text("إلغاء", color = Color.LightGray)
+                }
+            }
+        )
+    }
+
+    // Dialog 2: Delete Confirmation Dialog
+    templateToDelete?.let { tmpl ->
+        AlertDialog(
+            onDismissRequest = { templateToDelete = null },
+            containerColor = CyberDarkCardElevated,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = SemanticExpenseRed)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("حذف قالب الكرت 🗑️", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Text(
+                    text = "هل أنت متأكد من حذف قالب '${tmpl.name}' نهائياً؟\nسيتم حذف القالب من القائمة المحفوظة مع إمكانية استعادة القوالب الافتراضية لاحقاً.",
+                    color = Color.LightGray,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteTemplate(tmpl)
+                        templateToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SemanticExpenseRed)
+                ) {
+                    Text("تأكيد الحذف", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { templateToDelete = null }) {
+                    Text("إلغاء", color = Color.LightGray)
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2065,7 +2715,244 @@ private fun TemplatesGalleryTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // ★ Section 1: Custom Background Image from Phone Gallery (Requested by User)
+        // ★ Section 0: Saved Templates Management (Requested: Full flexibility to edit and delete)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.2.dp, BrandCyanPrimary.copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = null,
+                            tint = BrandCyanPrimary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "قوالب الكروت المحفوظة 💾",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Surface(
+                        color = BrandCyanPrimary.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "${savedTemplates.size} قوالب",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BrandCyanPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = "مرونة كاملة لإدارة قوالب الكروت: يمكنك تعديل التصميم، تعديل الأسعار، تكرار القالب، أو حذفه بسهولة.",
+                    fontSize = 11.5.sp,
+                    color = Color.LightGray
+                )
+
+                Button(
+                    onClick = onSaveCurrentAsNew,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F3A47)),
+                    border = BorderStroke(1.dp, BrandCyanPrimary),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("حفظ التصميم المفتوح حالياً كقالب جديد 💾", color = Color(0xFF67E8F9), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // List of saved templates
+                if (savedTemplates.isEmpty()) {
+                    Surface(
+                        color = Color(0xFF0B1422),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "لا توجد قوالب مخصصة محفوظة بعد. يمكنك تصميم أي كرت وحفظه هنا.",
+                            color = Color.Gray,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                } else {
+                    savedTemplates.forEach { tmpl ->
+                        val isCurrent = tmpl.id == currentTemplate.id
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCurrent) Color(0xFF0F2636) else Color(0xFF0B1422)
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isCurrent) BrandCyanPrimary else Color(0xFF1E293B)
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Title & Price Row
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = tmpl.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color.White
+                                        )
+                                        if (isCurrent) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = SemanticIncomeGreen.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "النشط حالياً ✓",
+                                                    color = SemanticIncomeGreen,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Surface(
+                                        color = Color(0xFF1E293B),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${tmpl.priceText} • ${tmpl.quotaText}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF38BDF8),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+
+                                // Details line
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "الشبكة: ${tmpl.networkName} • الصلاحية: ${tmpl.validityText}",
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray
+                                    )
+                                    Text(
+                                        text = if (!tmpl.customBackgroundImagePath.isNullOrBlank()) "خلفية من الاستديو 🖼️" else tmpl.themePreset.displayNameAr,
+                                        fontSize = 10.sp,
+                                        color = BrandCyanPrimary
+                                    )
+                                }
+
+                                HorizontalDivider(color = Color(0xFF1E293B), thickness = 0.8.dp)
+
+                                // Actions row: Edit Design, Edit Details, Duplicate, Delete
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // 1. Edit Design in Designer Tab
+                                    Surface(
+                                        color = Color(0xFF0F3A47),
+                                        shape = RoundedCornerShape(6.dp),
+                                        border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.6f)),
+                                        modifier = Modifier
+                                            .weight(1.3f)
+                                            .height(34.dp)
+                                            .clickable { onEditTemplate(tmpl) }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.FitScreen, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("تعديل التصميم 🎨", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+
+                                    // 2. Edit Metadata
+                                    Surface(
+                                        color = Color(0xFF1E293B),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier
+                                            .weight(1.2f)
+                                            .height(34.dp)
+                                            .clickable { templateToEditDetails = tmpl }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Edit, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("تعديل البيانات ✏️", fontSize = 11.sp, color = Color.LightGray)
+                                        }
+                                    }
+
+                                    // 3. Duplicate
+                                    Surface(
+                                        color = Color(0xFF1E293B),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clickable { onDuplicateTemplate(tmpl) }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = "تكرار القالب", tint = Color(0xFF38BDF8), modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+
+                                    // 4. Delete
+                                    Surface(
+                                        color = Color(0xFF261214),
+                                        shape = RoundedCornerShape(6.dp),
+                                        border = BorderStroke(0.8.dp, SemanticExpenseRed.copy(alpha = 0.5f)),
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clickable { templateToDelete = tmpl }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Delete, contentDescription = "حذف القالب", tint = SemanticExpenseRed, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 1: Custom Background Image from Phone Gallery
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
@@ -2073,9 +2960,7 @@ private fun TemplatesGalleryTab(
             border = androidx.compose.foundation.BorderStroke(1.5.dp, BrandCyanPrimary)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.AddPhotoAlternate,
                         contentDescription = null,
@@ -2101,7 +2986,6 @@ private fun TemplatesGalleryTab(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 if (!currentTemplate.customBackgroundImagePath.isNullOrBlank()) {
-                    // Show active imported image info
                     Surface(
                         color = Color(0xFF0F172A),
                         shape = RoundedCornerShape(8.dp),
@@ -2155,7 +3039,7 @@ private fun TemplatesGalleryTab(
             }
         }
 
-        // Section 2: Built-in High-Fidelity Presets (Matching Web Engine)
+        // Section 2: Built-in High-Fidelity Presets
         Text(
             text = "الثيمات الرقمية الجاهزة (Built-in Themes) 🎨",
             style = MaterialTheme.typography.titleSmall,
