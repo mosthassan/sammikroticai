@@ -156,6 +156,7 @@ object CardPdfDocumentGenerator {
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val isCleanWhite = template.themePreset == CardThemePreset.CLEAN_WHITE
+        val isCompact = format == PrintPageFormat.A4_GRID_42 || format == PrintPageFormat.A4_GRID_24
 
         // 1. Background Fill: Custom Gallery Image OR Theme Solid/Gradient
         var hasCustomBg = false
@@ -165,21 +166,19 @@ object CardPdfDocumentGenerator {
             if (template.overlayAlpha > 0f) {
                 paint.color = Color.BLACK
                 paint.alpha = (template.overlayAlpha * 255).toInt().coerceIn(0, 255)
-                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                canvas.drawRoundRect(rect, 4f, 4f, paint)
                 paint.alpha = 255
             }
-        }
-
-        if (!hasCustomBg) {
+        } else {
             if (isCleanWhite) {
                 paint.color = Color.WHITE
                 paint.shader = null
-                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                canvas.drawRoundRect(rect, 4f, 4f, paint)
 
                 paint.color = Color.parseColor("#CBD5E1")
                 paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1f
-                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                paint.strokeWidth = 0.75f
+                canvas.drawRoundRect(rect, 4f, 4f, paint)
                 paint.style = Paint.Style.FILL
             } else {
                 val bgShader = LinearGradient(
@@ -190,197 +189,231 @@ object CardPdfDocumentGenerator {
                 )
                 paint.shader = bgShader
                 paint.style = Paint.Style.FILL
-                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                canvas.drawRoundRect(rect, 4f, 4f, paint)
                 paint.shader = null
 
                 // Subtle border
                 paint.color = template.primaryColorHex.toInt()
                 paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1.2f
-                canvas.drawRoundRect(rect, 6f, 6f, paint)
+                paint.strokeWidth = 0.8f
+                canvas.drawRoundRect(rect, 4f, 4f, paint)
                 paint.style = Paint.Style.FILL
             }
         }
 
         val w = rect.width()
         val h = rect.height()
-        val isCompact = format == PrintPageFormat.A4_GRID_24 || format == PrintPageFormat.A4_GRID_42
 
-        // 2. Top Header Bar
-        val headerHeight = if (isCompact) 18f else 22f
-        val headerRect = RectF(rect.left, rect.top, rect.right, rect.top + headerHeight)
-
-        if (isCleanWhite) {
-            paint.color = Color.parseColor("#F1F5F9")
-            canvas.drawRoundRect(headerRect, 6f, 6f, paint)
-            canvas.drawRect(RectF(rect.left, rect.top + 6f, rect.right, rect.top + headerHeight), paint)
-        } else {
-            paint.color = Color.BLACK
-            paint.alpha = 80
-            canvas.drawRoundRect(headerRect, 6f, 6f, paint)
-            canvas.drawRect(RectF(rect.left, rect.top + 6f, rect.right, rect.top + headerHeight), paint)
-            paint.alpha = 255
-        }
-
-        // Network Name (Right side of header)
-        if (template.showNetworkName) {
+        // 2. Elements Layout: Proportional positioning matching WYSIWYG canvas
+        // (A) Network Name
+        if (template.showNetworkName && template.networkLayout.isVisible) {
+            val netLayout = template.networkLayout
             val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = if (isCleanWhite) Color.parseColor("#0F172A") else Color.WHITE
-                textSize = if (isCompact) 8f else 10f
+                color = if (hasCustomBg || !isCleanWhite) Color.WHITE else Color.parseColor("#0F172A")
+                textSize = (if (isCompact) 7.5f else 9.5f) * netLayout.scale
                 typeface = Typeface.DEFAULT_BOLD
                 textAlign = Paint.Align.RIGHT
             }
-            canvas.drawText(card.networkName, rect.right - 6f, rect.top + headerHeight - 6f, titlePaint)
+            val netX = rect.right - 6f + (netLayout.offsetX / 170f) * (w / 2)
+            val netY = rect.top + (if (isCompact) 11f else 15f) + (netLayout.offsetY / 90f) * (h / 2)
+            canvas.drawText(card.networkName, netX, netY, titlePaint)
         }
 
-        // Price Badge (Left side of header)
-        if (template.showPrice) {
-            val baseBadgeWidth = if (isCompact) 40f else 48f
-            val badgeWidth = (baseBadgeWidth * template.priceLayout.widthScale.coerceIn(0.4f, 2.0f))
-            val badgeRect = RectF(rect.left + 5f, rect.top + 2f, rect.left + 5f + badgeWidth, rect.top + headerHeight - 2f)
-            paint.color = template.badgeBgColorHex.toInt()
-            canvas.drawRoundRect(badgeRect, 4f, 4f, paint)
-
-            val pricePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = template.badgeTextColorHex.toInt()
-                textSize = if (isCompact) 7.5f else 9f
-                typeface = Typeface.DEFAULT_BOLD
-                textAlign = Paint.Align.CENTER
-            }
-            canvas.drawText(card.priceText, badgeRect.centerX(), badgeRect.centerY() + 3f, pricePaint)
-        }
-
-        // 3. Middle Body: QR Code on Left, Credentials on Right
-        val qrSize = (h - headerHeight - 16f).toInt().coerceIn(24, 60)
-        val qrLeft = rect.left + 6f
-        val qrTop = rect.top + headerHeight + 4f
-
-        if (template.showQrCode) {
-            try {
-                // Draw QR container background
-                paint.color = Color.WHITE
-                canvas.drawRoundRect(RectF(qrLeft, qrTop, qrLeft + qrSize, qrTop + qrSize), 4f, 4f, paint)
-
-                val qrBitmap = QrCodeGenerator.generateQrBitmap(
-                    content = card.loginUrlWithCredentials,
-                    sizePx = qrSize
-                )
-                canvas.drawBitmap(qrBitmap, qrLeft, qrTop, null)
-            } catch (_: Exception) {}
-        }
-
-        // Info Column on Right
-        val infoRight = rect.right - 6f
-        var currentY = rect.top + headerHeight + 11f
-
-        // Quota & Validity
-        val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (isCleanWhite) Color.parseColor("#0284C7") else template.primaryColorHex.toInt()
-            textSize = if (isCompact) 6.5f else 8f
-            typeface = Typeface.DEFAULT_BOLD
-            textAlign = Paint.Align.RIGHT
-        }
-        val metaStr = listOf(card.quotaText, card.validityText).filter { it.isNotBlank() }.joinToString(" • ")
-        if (metaStr.isNotBlank()) {
-            canvas.drawText(metaStr, infoRight, currentY, metaPaint)
-            currentY += if (isCompact) 9f else 11f
-        }
-
-        // Code Box (User & Password) with adjustable widthScale
-        val baseBoxWidth = if (template.showQrCode) (w - qrSize - 20f) else (w - 14f)
-        val boxWidth = (baseBoxWidth * template.codeBoxLayout.widthScale.coerceIn(0.35f, 1.0f))
-        val boxHeight = if (isCompact) 18f else 22f
-        val boxRect = RectF(infoRight - boxWidth, currentY, infoRight, currentY + boxHeight)
-
-        // Draw Code Box background according to CodeBoxStyle
-        when (template.codeBoxStyle) {
-            CodeBoxStyle.PILL_BADGE -> {
-                paint.color = if (isCleanWhite) Color.parseColor("#F1F5F9") else 0x3300F0FF.toInt()
-                canvas.drawRoundRect(boxRect, boxHeight / 2, boxHeight / 2, paint)
-                paint.color = template.primaryColorHex.toInt()
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1f
-                canvas.drawRoundRect(boxRect, boxHeight / 2, boxHeight / 2, paint)
-                paint.style = Paint.Style.FILL
-            }
-            CodeBoxStyle.SCRATCH_FOIL -> {
-                paint.color = Color.parseColor("#D97706") // Gold foil look
-                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
-                paint.color = Color.parseColor("#FDE68A")
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 0.8f
-                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
-                paint.style = Paint.Style.FILL
-            }
-            CodeBoxStyle.TICKET_DASHED -> {
-                paint.color = if (isCleanWhite) Color.WHITE else 0x22FFFFFF.toInt()
-                canvas.drawRoundRect(boxRect, 3f, 3f, paint)
-                paint.color = template.primaryColorHex.toInt()
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1f
-                paint.pathEffect = DashPathEffect(floatArrayOf(3f, 2f), 0f)
-                canvas.drawRoundRect(boxRect, 3f, 3f, paint)
-                paint.pathEffect = null
-                paint.style = Paint.Style.FILL
-            }
-            else -> {
-                // MODERN_BOX or SPLIT_DIGITS
-                paint.color = if (isCleanWhite) Color.parseColor("#F8FAFC") else 0x330F172A.toInt()
-                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
-                paint.color = if (isCleanWhite) Color.parseColor("#CBD5E1") else template.primaryColorHex.toInt()
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1f
-                canvas.drawRoundRect(boxRect, 4f, 4f, paint)
-                paint.style = Paint.Style.FILL
-            }
-        }
-
-        // Code text inside box
-        val codeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (template.codeBoxStyle == CodeBoxStyle.SCRATCH_FOIL) Color.WHITE
-                    else if (isCleanWhite) Color.parseColor("#0F172A")
-                    else Color.WHITE
-            textSize = if (isCompact) 8.5f else 11f
-            typeface = Typeface.MONOSPACE
-            textAlign = Paint.Align.CENTER
-        }
-        val displayCode = if (card.password != card.username) "${card.username} : ${card.password}" else card.username
-        canvas.drawText(displayCode, boxRect.centerX(), boxRect.centerY() + 3.5f, codeTextPaint)
-
-        // 4. Footer Row
-        val footerY = rect.bottom - 4f
-        val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (isCleanWhite) Color.parseColor("#64748B") else 0xB3FFFFFF.toInt()
-            textSize = if (isCompact) 5.5f else 6.5f
-            textAlign = Paint.Align.RIGHT
-        }
-        val phoneStr = if (template.showSupportPhone && card.supportPhone.isNotBlank()) "خدمة العملاء: ${card.supportPhone}" else template.footerNote
-        canvas.drawText(phoneStr, infoRight, footerY, footerPaint)
-
-        // Serial Number and Creation Date on left of footer
-        val formattedDate = if (template.showCreationDate) {
-            try {
+        // (B) Creation Date Badge (Matches screen badge)
+        if (template.showCreationDate && template.serialLayout.isVisible) {
+            val dateLayout = template.serialLayout
+            val formattedDate = try {
                 SimpleDateFormat(template.dateFormatPattern, Locale.US).format(Date(template.createdAt))
             } catch (_: Exception) {
                 SimpleDateFormat("yyyy/MM/dd", Locale.US).format(Date(template.createdAt))
             }
-        } else null
 
-        val leftFooterText = when {
-            template.showSerialNumber && formattedDate != null -> "#${card.serialNumber} • $formattedDate"
-            template.showSerialNumber -> "#${card.serialNumber}"
-            formattedDate != null -> formattedDate
-            else -> ""
+            val dateTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = (if (isCompact) 6.5f else 7.5f) * dateLayout.scale
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.CENTER
+            }
+            val textWidth = dateTextPaint.measureText(formattedDate)
+            val badgeW = (textWidth + 8f) * dateLayout.widthScale.coerceIn(0.6f, 1.8f)
+            val badgeH = (if (isCompact) 10f else 13f) * dateLayout.scale
+
+            val dateCenterX = rect.centerX() + (dateLayout.offsetX / 170f) * (w / 2)
+            val dateCenterY = rect.top + (if (isCompact) 8f else 12f) + (dateLayout.offsetY / 90f) * (h / 2)
+            val dateBadgeRect = RectF(dateCenterX - badgeW / 2, dateCenterY - badgeH / 2, dateCenterX + badgeW / 2, dateCenterY + badgeH / 2)
+
+            paint.color = Color.parseColor("#0F172A")
+            paint.alpha = 230
+            canvas.drawRoundRect(dateBadgeRect, 3f, 3f, paint)
+            paint.color = template.primaryColorHex.toInt()
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 0.6f
+            canvas.drawRoundRect(dateBadgeRect, 3f, 3f, paint)
+            paint.style = Paint.Style.FILL
+
+            canvas.drawText(formattedDate, dateBadgeRect.centerX(), dateBadgeRect.centerY() + (badgeH * 0.28f), dateTextPaint)
         }
 
-        if (leftFooterText.isNotBlank()) {
+        // (C) Price Badge
+        if (template.showPrice && template.priceLayout.isVisible) {
+            val priceLayout = template.priceLayout
+            val baseBadgeWidth = if (isCompact) 34f else 44f
+            val badgeWidth = (baseBadgeWidth * priceLayout.scale * priceLayout.widthScale.coerceIn(0.4f, 2.0f))
+            val badgeH = (if (isCompact) 11f else 15f) * priceLayout.scale
+
+            val priceCenterX = rect.left + 5f + badgeWidth / 2 + (priceLayout.offsetX / 170f) * (w / 2)
+            val priceCenterY = rect.top + (if (isCompact) 9f else 13f) + (priceLayout.offsetY / 90f) * (h / 2)
+            val badgeRect = RectF(priceCenterX - badgeWidth / 2, priceCenterY - badgeH / 2, priceCenterX + badgeWidth / 2, priceCenterY + badgeH / 2)
+
+            paint.color = template.badgeBgColorHex.toInt()
+            canvas.drawRoundRect(badgeRect, 3f, 3f, paint)
+
+            val pricePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = template.badgeTextColorHex.toInt()
+                textSize = (if (isCompact) 7f else 8.5f) * priceLayout.scale
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText(card.priceText, badgeRect.centerX(), badgeRect.centerY() + (badgeH * 0.28f), pricePaint)
+        }
+
+        // (D) QR Code
+        if (template.showQrCode && template.qrCodeLayout.isVisible) {
+            val qrLayout = template.qrCodeLayout
+            val qrSize = ((if (isCompact) (h * 0.55f) else (h * 0.45f)) * qrLayout.scale).toInt().coerceIn(16, 50)
+            val qrLeft = rect.left + 6f + (qrLayout.offsetX / 170f) * (w / 2)
+            val qrTop = rect.centerY() - (qrSize / 2) + (qrLayout.offsetY / 90f) * (h / 2)
+
+            try {
+                paint.color = Color.WHITE
+                canvas.drawRoundRect(RectF(qrLeft, qrTop, qrLeft + qrSize, qrTop + qrSize), 3f, 3f, paint)
+                val qrBitmap = QrCodeGenerator.generateQrBitmap(card.loginUrlWithCredentials, sizePx = qrSize)
+                canvas.drawBitmap(qrBitmap, qrLeft, qrTop, null)
+            } catch (_: Exception) {}
+        }
+
+        // (E) Quota & Validity
+        if (template.showValidity && template.metaLayout.isVisible) {
+            val metaLayout = template.metaLayout
+            val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (hasCustomBg || !isCleanWhite) template.primaryColorHex.toInt() else Color.parseColor("#0284C7")
+                textSize = (if (isCompact) 6f else 7.5f) * metaLayout.scale
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.RIGHT
+            }
+            val metaStr = listOf(card.quotaText, card.validityText).filter { it.isNotBlank() }.joinToString(" • ")
+            if (metaStr.isNotBlank()) {
+                val metaX = rect.right - 6f + (metaLayout.offsetX / 170f) * (w / 2)
+                val metaY = rect.centerY() - (if (isCompact) 11f else 15f) + (metaLayout.offsetY / 90f) * (h / 2)
+                canvas.drawText(metaStr, metaX, metaY, metaPaint)
+            }
+        }
+
+        // (F) Code Box (Centered by default or offset by touch)
+        if (template.codeBoxLayout.isVisible) {
+            val codeLayout = template.codeBoxLayout
+            val maxAvailableWidth = if (template.showQrCode && template.qrCodeLayout.isVisible) (w * 0.65f) else (w * 0.88f)
+            val boxWidth = maxAvailableWidth * codeLayout.widthScale.coerceIn(0.35f, 1.0f)
+            val boxHeight = (if (isCompact) 16f else 22f) * codeLayout.scale.coerceIn(0.7f, 1.4f)
+
+            // Centered in card by default + touch drag offsets
+            val centerX = rect.centerX() + (codeLayout.offsetX / 170f) * (w / 2)
+            val centerY = rect.centerY() + (if (template.showValidity && template.metaLayout.isVisible && !hasCustomBg) 3f else 0f) + (codeLayout.offsetY / 90f) * (h / 2)
+            val boxRect = RectF(centerX - boxWidth / 2, centerY - boxHeight / 2, centerX + boxWidth / 2, centerY + boxHeight / 2)
+
+            when (template.codeBoxStyle) {
+                CodeBoxStyle.PILL_BADGE -> {
+                    paint.color = if (isCleanWhite) Color.parseColor("#F1F5F9") else Color.WHITE
+                    canvas.drawRoundRect(boxRect, boxHeight / 2, boxHeight / 2, paint)
+                    paint.color = template.primaryColorHex.toInt()
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 1f
+                    canvas.drawRoundRect(boxRect, boxHeight / 2, boxHeight / 2, paint)
+                    paint.style = Paint.Style.FILL
+                }
+                CodeBoxStyle.SCRATCH_FOIL -> {
+                    paint.color = Color.parseColor("#D97706")
+                    canvas.drawRoundRect(boxRect, 3f, 3f, paint)
+                    paint.color = Color.parseColor("#FDE68A")
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 0.8f
+                    canvas.drawRoundRect(boxRect, 3f, 3f, paint)
+                    paint.style = Paint.Style.FILL
+                }
+                CodeBoxStyle.SPLIT_DIGITS -> {
+                    val digits = card.username
+                    val count = digits.length.coerceAtLeast(1)
+                    val digitBoxW = (boxWidth / count) - 2f
+                    for (dIdx in 0 until count) {
+                        val dLeft = boxRect.left + (dIdx * (digitBoxW + 2f))
+                        val dRect = RectF(dLeft, boxRect.top, dLeft + digitBoxW, boxRect.bottom)
+                        paint.color = Color.WHITE
+                        canvas.drawRoundRect(dRect, 2.5f, 2.5f, paint)
+                        paint.color = template.primaryColorHex.toInt()
+                        paint.style = Paint.Style.STROKE
+                        paint.strokeWidth = 0.8f
+                        canvas.drawRoundRect(dRect, 2.5f, 2.5f, paint)
+                        paint.style = Paint.Style.FILL
+
+                        val digitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = Color.parseColor("#0F172A")
+                            textSize = (boxHeight * 0.65f)
+                            typeface = Typeface.MONOSPACE
+                            textAlign = Paint.Align.CENTER
+                        }
+                        canvas.drawText(digits[dIdx].toString(), dRect.centerX(), dRect.centerY() + (boxHeight * 0.24f), digitPaint)
+                    }
+                }
+                else -> {
+                    // MODERN_BOX
+                    paint.color = Color.WHITE
+                    canvas.drawRoundRect(boxRect, 4f, 4f, paint)
+                    paint.color = template.primaryColorHex.toInt()
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 1f
+                    canvas.drawRoundRect(boxRect, 4f, 4f, paint)
+                    paint.style = Paint.Style.FILL
+                }
+            }
+
+            // Draw text inside if not SPLIT_DIGITS (split digits handles its own text above)
+            if (template.codeBoxStyle != CodeBoxStyle.SPLIT_DIGITS) {
+                val codeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = if (template.codeBoxStyle == CodeBoxStyle.SCRATCH_FOIL) Color.WHITE else Color.parseColor("#0F172A")
+                    textSize = (boxHeight * 0.62f) * codeLayout.scale.coerceIn(0.8f, 1.3f)
+                    typeface = Typeface.MONOSPACE
+                    textAlign = Paint.Align.CENTER
+                }
+                val displayCode = if (card.password != card.username) "${card.username} : ${card.password}" else card.username
+                canvas.drawText(displayCode, boxRect.centerX(), boxRect.centerY() + (boxHeight * 0.24f), codeTextPaint)
+            }
+        }
+
+        // (G) Support Phone & Footer
+        if (template.showSupportPhone && template.supportPhoneLayout.isVisible && card.supportPhone.isNotBlank()) {
+            val phoneLayout = template.supportPhoneLayout
+            val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (hasCustomBg || !isCleanWhite) Color.parseColor("#E2E8F0") else Color.parseColor("#64748B")
+                textSize = (if (isCompact) 5f else 6.5f) * phoneLayout.scale
+                textAlign = Paint.Align.RIGHT
+            }
+            val phoneX = rect.right - 6f + (phoneLayout.offsetX / 170f) * (w / 2)
+            val phoneY = rect.bottom - 3f + (phoneLayout.offsetY / 90f) * (h / 2)
+            canvas.drawText("الدعم: ${card.supportPhone}", phoneX, phoneY, footerPaint)
+        }
+
+        // (H) Serial Number
+        if (template.showSerialNumber && template.serialLayout.isVisible) {
+            val snLayout = template.serialLayout
             val snPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = if (isCleanWhite) Color.parseColor("#94A3B8") else 0x80FFFFFF.toInt()
-                textSize = if (isCompact) 5.5f else 6.5f
+                color = if (hasCustomBg || !isCleanWhite) Color.parseColor("#CBD5E1") else Color.parseColor("#94A3B8")
+                textSize = (if (isCompact) 5f else 6.5f) * snLayout.scale
                 typeface = Typeface.MONOSPACE
                 textAlign = Paint.Align.LEFT
             }
-            canvas.drawText(leftFooterText, rect.left + 6f, footerY, snPaint)
+            val snX = rect.left + 6f + (snLayout.offsetX / 170f) * (w / 2)
+            val snY = rect.bottom - 3f + (snLayout.offsetY / 90f) * (h / 2)
+            canvas.drawText("#${card.serialNumber}", snX, snY, snPaint)
         }
     }
 

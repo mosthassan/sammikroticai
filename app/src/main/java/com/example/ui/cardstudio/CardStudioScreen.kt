@@ -226,7 +226,7 @@ fun CardStudioScreen(
                     }
                 },
                 actions = {
-                    // Top Action: Save & Preview as Professional PDF
+                    // Top Action: Preview Sheet as Professional PDF
                     Surface(
                         color = Color(0xFF064E3B),
                         shape = RoundedCornerShape(8.dp),
@@ -242,12 +242,12 @@ fun CardStudioScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Print,
-                                contentDescription = "حفظ كملف PDF احترافي",
+                                contentDescription = "معاينة ورقة الطباعة PDF",
                                 tint = Color(0xFF6EE7B7),
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = "حفظ PDF احترافي",
+                                text = "معاينة PDF 📄",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF6EE7B7)
@@ -413,7 +413,7 @@ fun CardStudioScreen(
             confirmButton = {},
             containerColor = CyberDarkCardElevated,
             title = {
-                Text("تجهيز ورقة PDF الاحترافية 📄", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("معاينة ورقة PDF للطباعة 📄", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             },
             text = {
                 Row(
@@ -423,7 +423,7 @@ fun CardStudioScreen(
                 ) {
                     CircularProgressIndicator(color = BrandCyanPrimary, modifier = Modifier.size(32.dp))
                     Text(
-                        text = "جاري إنشاء وتجهيز ورقة ${uiState.selectedPrintFormat.cardsPerPage} كرت بجودة عالية وحفظها للمعاينة...",
+                        text = "جاري تجهيز ورقة ${uiState.selectedPrintFormat.cardsPerPage} كرت للمعاينة الفورية وفق التصميم...",
                         color = Color.LightGray,
                         fontSize = 12.sp
                     )

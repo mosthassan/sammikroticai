@@ -451,10 +451,10 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false)
                 CardPdfDocumentGenerator.openOrSharePdfFile(context, file, "معاينة كروت ${template.name} - ورقة ${format.cardsPerPage} كرت")
-                _userMessage.emit("تم توليد وحفظ ملف PDF الاحترافي بنجاح! جاهز للمعاينة والطباعة 🖨️📄")
+                _userMessage.emit("تم تجهيز ورقة الطباعة للمعاينة الفورية 📄✨")
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isGeneratingPdf = false)
-                _userMessage.emit("خطأ أثناء إنشاء ملف PDF: ${e.message}")
+                _userMessage.emit("خطأ أثناء تجهيز ورقة المعاينة: ${e.message}")
             }
         }
     }
