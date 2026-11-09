@@ -138,7 +138,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             username = profile.username,
             password = profile.password
         )
-        val result = client.fetchRealRouterState()
+        val result = try {
+            kotlinx.coroutines.withTimeout(4000L) {
+                client.fetchRealRouterState()
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception(e.message ?: "تعذر الاتصال بالراوتر (تجاوز مهلة 4 ثوانٍ)"))
+        }
         if (result.isSuccess) {
             val realData = result.getOrThrow()
             val updatedProfile = profile.copy(

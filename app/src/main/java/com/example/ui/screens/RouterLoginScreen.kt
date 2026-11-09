@@ -165,9 +165,10 @@ fun RouterLoginScreen(
     var connectionTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
 
     // Authentication and real connection feedback states
-    var isAuthenticatingWithRouter by rememberSaveable { mutableStateOf(false) }
-    var authErrorTitle by rememberSaveable { mutableStateOf<String?>(null) }
-    var authErrorMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var isAuthenticatingWithRouter by remember { mutableStateOf(false) }
+    var authJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var authErrorTitle by remember { mutableStateOf<String?>(null) }
+    var authErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Backup restore dialog
     var showRestoreBackupDialog by rememberSaveable { mutableStateOf(false) }
@@ -387,18 +388,22 @@ fun RouterLoginScreen(
                         selectedProfileId = selectedProfileId,
                         onSelectProfile = { selectedProfileId = it },
                         onQuickConnect = { profile ->
-                            scope.launch {
-                                isAuthenticatingWithRouter = true
-                                authErrorMessage = null
-                                authErrorTitle = null
-                                val res = viewModel.verifyAndConnectRouter(profile)
-                                isAuthenticatingWithRouter = false
-                                if (res.isSuccess) {
-                                    Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
-                                    onLoginSuccess(profile)
-                                } else {
-                                    authErrorTitle = "تعذر الاتصال بالراوتر (${profile.name})"
-                                    authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+                            authJob?.cancel()
+                            authJob = scope.launch {
+                                try {
+                                    isAuthenticatingWithRouter = true
+                                    authErrorMessage = null
+                                    authErrorTitle = null
+                                    val res = viewModel.verifyAndConnectRouter(profile)
+                                    if (res.isSuccess) {
+                                        Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
+                                        onLoginSuccess(profile)
+                                    } else {
+                                        authErrorTitle = "تعذر الاتصال بالراوتر (${profile.name})"
+                                        authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+                                    }
+                                } finally {
+                                    isAuthenticatingWithRouter = false
                                 }
                             }
                         },
@@ -429,18 +434,22 @@ fun RouterLoginScreen(
                         onLoginSelected = {
                             val target = profiles.find { it.id == selectedProfileId } ?: profiles.firstOrNull()
                             if (target != null) {
-                                scope.launch {
-                                    isAuthenticatingWithRouter = true
-                                    authErrorMessage = null
-                                    authErrorTitle = null
-                                    val res = viewModel.verifyAndConnectRouter(target)
-                                    isAuthenticatingWithRouter = false
-                                    if (res.isSuccess) {
-                                        Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
-                                        onLoginSuccess(target)
-                                    } else {
-                                        authErrorTitle = "تعذر تسجيل الدخول للراوتر (${target.name})"
-                                        authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+                                authJob?.cancel()
+                                authJob = scope.launch {
+                                    try {
+                                        isAuthenticatingWithRouter = true
+                                        authErrorMessage = null
+                                        authErrorTitle = null
+                                        val res = viewModel.verifyAndConnectRouter(target)
+                                        if (res.isSuccess) {
+                                            Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
+                                            onLoginSuccess(target)
+                                        } else {
+                                            authErrorTitle = "تعذر تسجيل الدخول للراوتر (${target.name})"
+                                            authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+                                        }
+                                    } finally {
+                                        isAuthenticatingWithRouter = false
                                     }
                                 }
                             } else {
@@ -517,19 +526,23 @@ fun RouterLoginScreen(
                                 status = DeviceStatus.UNCHECKED,
                                 lastConnectedAt = null
                             )
-                            scope.launch {
-                                isAuthenticatingWithRouter = true
-                                authErrorMessage = null
-                                authErrorTitle = null
-                                repository.saveProfile(profile)
-                                val res = viewModel.verifyAndConnectRouter(profile)
-                                isAuthenticatingWithRouter = false
-                                if (res.isSuccess) {
-                                    Toast.makeText(context, "تم حفظ بيانات الراوتر والاتصال الحقيقي بنجاح", Toast.LENGTH_SHORT).show()
-                                    onLoginSuccess(profile)
-                                } else {
-                                    authErrorTitle = "فشل الاتصال بالراوتر (${profile.host}:$port)"
-                                    authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ الراوتر"
+                            authJob?.cancel()
+                            authJob = scope.launch {
+                                try {
+                                    isAuthenticatingWithRouter = true
+                                    authErrorMessage = null
+                                    authErrorTitle = null
+                                    repository.saveProfile(profile)
+                                    val res = viewModel.verifyAndConnectRouter(profile)
+                                    if (res.isSuccess) {
+                                        Toast.makeText(context, "تم حفظ بيانات الراوتر والاتصال الحقيقي بنجاح", Toast.LENGTH_SHORT).show()
+                                        onLoginSuccess(profile)
+                                    } else {
+                                        authErrorTitle = "فشل الاتصال بالراوتر (${profile.host}:$port)"
+                                        authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ الراوتر"
+                                    }
+                                } finally {
+                                    isAuthenticatingWithRouter = false
                                 }
                             }
                         },
@@ -662,8 +675,10 @@ fun RouterLoginScreen(
     // Live Authentication Progress Dialog
     if (isAuthenticatingWithRouter) {
         AlertDialog(
-            onDismissRequest = {},
-            confirmButton = {},
+            onDismissRequest = {
+                authJob?.cancel()
+                isAuthenticatingWithRouter = false
+            },
             title = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -671,8 +686,8 @@ fun RouterLoginScreen(
                 ) {
                     CircularProgressIndicator(
                         color = MikroTikCyan,
-                        modifier = Modifier.size(26.dp),
-                        strokeWidth = 3.dp
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.5.dp
                     )
                     Text(
                         text = "جاري الاتصال والتحقق من الراوتر...",
@@ -683,11 +698,40 @@ fun RouterLoginScreen(
                 }
             },
             text = {
-                Text(
-                    text = "يتم الآن فحص منفذ API 8728 الفعلي ومصادقة اسم المستخدم وكلمة المرور مع راوتر الميكروتك مباشرة...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondaryDark
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "يتم الآن فحص منفذ API 8728 الفعلي ومصادقة المستخدم مع الراوتر بمهلة سريعة (أقل من 3 ثوانٍ)...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondaryDark
+                    )
+                    Text(
+                        text = "💡 إذا كنت تعمل في بيئة اختبار سحابية أو الراوتر غير متاح على نفس شبكتك حالياً، يمكنك النقر على 'دخول بدون اتصال'.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MikroTikCyan
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        authJob?.cancel()
+                        isAuthenticatingWithRouter = false
+                        onOfflineEnter()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan)
+                ) {
+                    Text("دخول بدون اتصال (Offline) ⚡", color = Color(0xFF03252E), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        authJob?.cancel()
+                        isAuthenticatingWithRouter = false
+                    }
+                ) {
+                    Text("إلغاء", color = TextSecondaryDark)
+                }
             },
             containerColor = CyberDarkCardElevated
         )
@@ -729,7 +773,7 @@ fun RouterLoginScreen(
                     )
                     HorizontalDivider(color = CyberBorder)
                     Text(
-                        text = "🔒 سياسة الأمان والبيانات الحقيقية:\nالتطبيق يمنع الدخول أو عرض أي بيانات إلا بعد نجاح الاتصال الفعلي بالراوتر.\n\nيرجى التأكد من الآتي:\n• اتصال هاتفك بنفس شبكة الواي فاي للراوتر.\n• تفعيل خدمة API في الراوتر عبر الأمر:\n  /ip service enable api\n• صحة منفذ API (الافتراضي 8728) وعنوان IP.\n• صحة اسم المستخدم وكلمة المرور.",
+                        text = "🔒 سياسة الأمان والبيانات الحقيقية:\n• إذا كان هاتفك متصلاً بالراوتر مباشرة تأكد من تفعيل خدمة API عبر: /ip service enable api\n• أو يمكنك الدخول بوضع عدم الاتصال لاستعراض الشاشات والبيانات وتصميم الكروت بدون عائق.",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondaryDark
                     )
@@ -740,10 +784,21 @@ fun RouterLoginScreen(
                     onClick = {
                         authErrorMessage = null
                         authErrorTitle = null
+                        onOfflineEnter()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D5E72))
+                    colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan)
                 ) {
-                    Text("حسناً، فهمت", color = TextPrimaryDark, fontWeight = FontWeight.Bold)
+                    Text("الدخول بوضع عدم الاتصال 🚀", color = Color(0xFF03252E), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        authErrorMessage = null
+                        authErrorTitle = null
+                    }
+                ) {
+                    Text("إغلاق", color = TextSecondaryDark)
                 }
             },
             containerColor = CyberDarkCardElevated

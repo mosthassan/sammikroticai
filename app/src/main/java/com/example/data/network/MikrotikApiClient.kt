@@ -41,33 +41,44 @@ class MikrotikApiClient(
 
     /**
      * Executes real reading from the MikroTik router.
-     * Tries:
-     * 1. Official RouterOS API Socket Protocol (Port 8728).
-     * 2. RouterOS v7 REST API (Port 80 / 443).
-     * 3. If unreachable (offline / no physical route / timeout), returns clear Result.failure.
+     * Enforces strict fast timeout (max 3.5 seconds) so the UI never hangs.
      */
     suspend fun fetchRealRouterState(): Result<RealRouterData> = withContext(Dispatchers.IO) {
-        val startTime = System.currentTimeMillis()
+        kotlinx.coroutines.withTimeoutOrNull(3500L) {
+            val startTime = System.currentTimeMillis()
 
-        // 1. Try Native RouterOS API via TCP Socket (Port 8728)
-        val apiResult = runCatching { fetchViaRouterOsApiSocket() }
-        if (apiResult.isSuccess) {
-            val data = apiResult.getOrThrow()
-            val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
-            return@withContext Result.success(data.copy(latencyMs = latency))
+            // 1. Try Native RouterOS API via TCP Socket (Port 8728)
+            val apiResult = runCatching { fetchViaRouterOsApiSocket() }
+            if (apiResult.isSuccess) {
+                val data = apiResult.getOrThrow()
+                val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+                return@withTimeoutOrNull Result.success(data.copy(latencyMs = latency))
+            }
+
+            // 2. Only try REST API if httpPort is actually open (skip slow retries if host is unreachable)
+            if (isPortReachable(host, httpPort, 600)) {
+                val restResult = runCatching { fetchViaRouterOsRestApi() }
+                if (restResult.isSuccess) {
+                    val data = restResult.getOrThrow()
+                    val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+                    return@withTimeoutOrNull Result.success(data.copy(latencyMs = latency))
+                }
+            }
+
+            val socketErr = apiResult.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ API $apiPort"
+            Result.failure(Exception("تعذر الاتصال بالراوتر $host:$apiPort ($socketErr)"))
+        } ?: Result.failure(Exception("انتهت مهلة التحقق من الراوتر $host:$apiPort (تجاوزت 3.5 ثوانٍ). تأكد من اتصال الجهاز بشبكة الراوتر."))
+    }
+
+    private fun isPortReachable(host: String, port: Int, timeoutMs: Int = 600): Boolean {
+        return try {
+            Socket().use { s ->
+                s.connect(InetSocketAddress(host, port), timeoutMs)
+                true
+            }
+        } catch (_: Exception) {
+            false
         }
-
-        // 2. Try RouterOS v7 REST API (Port 80/443)
-        val restResult = runCatching { fetchViaRouterOsRestApi() }
-        if (restResult.isSuccess) {
-            val data = restResult.getOrThrow()
-            val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
-            return@withContext Result.success(data.copy(latencyMs = latency))
-        }
-
-        val socketErr = apiResult.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ API $apiPort"
-        val restErr = restResult.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ HTTP $httpPort"
-        Result.failure(Exception("تعذر الاتصال بالراوتر $host (API: $socketErr | REST: $restErr)"))
     }
 
     /**
@@ -75,8 +86,8 @@ class MikrotikApiClient(
      */
     private fun fetchViaRouterOsApiSocket(): RealRouterData {
         val socket = Socket()
-        socket.connect(InetSocketAddress(host, apiPort), 2500)
-        socket.soTimeout = 3500
+        socket.connect(InetSocketAddress(host, apiPort), 1800)
+        socket.soTimeout = 2000
 
         val inStream = socket.getInputStream()
         val outStream = socket.getOutputStream()
