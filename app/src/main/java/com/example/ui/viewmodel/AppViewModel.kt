@@ -129,7 +129,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         liveTrafficManager.selectInterface(interfaceId)
     }
 
-    suspend fun verifyAndConnectRouter(profile: com.example.data.network.RouterConnectionProfile): Result<com.example.data.network.MikrotikApiClient.RealRouterData> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+    suspend fun verifyAndConnectRouter(profile: com.example.data.network.RouterConnectionProfile): Result<com.example.data.network.MikrotikApiClient.QuickVerifyResult> = kotlinx.coroutines.withContext(Dispatchers.IO) {
         liveTrafficManager.setConnectingState("جاري الاتصال والتحقق من الراوتر ${profile.host}:${profile.apiPort}...")
         val client = com.example.data.network.MikrotikApiClient(
             host = profile.host,
@@ -138,18 +138,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             username = profile.username,
             password = profile.password
         )
+        // 1. Instant Verification (< 600ms) with generous 8s network headroom
         val result = try {
-            kotlinx.coroutines.withTimeout(4000L) {
-                client.fetchRealRouterState()
+            kotlinx.coroutines.withTimeout(8000L) {
+                client.quickVerifyLogin()
             }
         } catch (e: Exception) {
-            Result.failure(Exception(e.message ?: "تعذر الاتصال بالراوتر (تجاوز مهلة 4 ثوانٍ)"))
+            Result.failure(Exception(e.message ?: "تعذر التحقق من الراوتر"))
         }
+
         if (result.isSuccess) {
-            val realData = result.getOrThrow()
+            val quickData = result.getOrThrow()
             val updatedProfile = profile.copy(
+                name = if (quickData.identityName.isNotBlank() && quickData.identityName != profile.host) quickData.identityName else profile.name,
                 status = com.example.data.network.DeviceStatus.ONLINE,
-                lastLatencyMs = realData.latencyMs,
+                lastLatencyMs = quickData.latencyMs,
                 lastConnectedAt = System.currentTimeMillis(),
                 isActive = true
             )
@@ -157,24 +160,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             routerProfilesRepository.setActiveProfile(updatedProfile.id)
             networkRepository.saveConfig(
                 networkRepository.config.value.copy(
-                    mainRouterModel = updatedProfile.name,
+                    mainRouterModel = "${quickData.boardName} (${quickData.identityName})",
                     adminPort = updatedProfile.apiPort
                 )
             )
-            networkRepository.updateRealTelemetry(realData.telemetry)
-            if (realData.arpDevices.isNotEmpty()) {
-                networkRepository.updateArpDevices(realData.arpDevices)
-            }
-            liveTrafficManager.updateRealData(
-                realInterfaces = realData.interfaces,
-                realCardQuota = realData.cardQuota,
-                isLive = true,
-                desc = realData.dataSourceDescription
+            // Immediately initialize basic telemetry so dashboard shows real data instantly!
+            networkRepository.updateRealTelemetry(
+                com.example.data.network.RouterTelemetry(
+                    routerIp = profile.host,
+                    routerModel = quickData.boardName,
+                    routerOsVersion = quickData.version,
+                    uptime = quickData.uptime,
+                    cpuLoadPercent = quickData.cpuLoad,
+                    memoryUsedMb = (quickData.totalMemoryMb - quickData.freeMemoryMb).coerceAtLeast(0f),
+                    memoryTotalMb = quickData.totalMemoryMb,
+                    isCloudConnected = true,
+                    lastUpdated = System.currentTimeMillis()
+                )
             )
-            val primaryName = liveTrafficManager.selectedInterface.value.name
-            liveTrafficManager.startRealInterfacePolling(client, primaryName)
-            _userMessage.emit("✅ تم الاتصال الحقيقي بالراوتر بنجاح (${realData.interfaces.size} واجهات، ${realData.cardQuota.totalGeneratedCards} كرت)")
-            Result.success(realData)
+            liveTrafficManager.setConnectingState("تم الاتصال بالراوتر (${quickData.identityName}). جاري قراءة الواجهات...")
+            _userMessage.emit("✅ تم الاتصال الحقيقي بالراوتر: ${quickData.identityName} (${quickData.boardName})")
+
+            // 2. Launch background sync for 114 interfaces, traffic, and users without blocking login screen!
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    val fullData = client.fetchRealRouterState().getOrThrow()
+                    networkRepository.updateRealTelemetry(fullData.telemetry)
+                    if (fullData.arpDevices.isNotEmpty()) {
+                        networkRepository.updateArpDevices(fullData.arpDevices)
+                    }
+                    liveTrafficManager.updateRealData(
+                        realInterfaces = fullData.interfaces,
+                        realCardQuota = fullData.cardQuota,
+                        isLive = true,
+                        desc = fullData.dataSourceDescription
+                    )
+                    val primaryName = liveTrafficManager.selectedInterface.value.name
+                    liveTrafficManager.startRealInterfacePolling(client, primaryName)
+                }
+            }
+            Result.success(quickData)
         } else {
             val errorMsg = result.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
             val failedProfile = profile.copy(

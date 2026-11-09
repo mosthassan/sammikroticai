@@ -39,12 +39,117 @@ class MikrotikApiClient(
         val errorMessage: String? = null
     )
 
+    data class QuickVerifyResult(
+        val success: Boolean,
+        val boardName: String,
+        val identityName: String,
+        val version: String,
+        val cpuLoad: Int,
+        val uptime: String,
+        val freeMemoryMb: Float,
+        val totalMemoryMb: Float,
+        val latencyMs: Long,
+        val errorMessage: String? = null
+    )
+
     /**
-     * Executes real reading from the MikroTik router.
-     * Enforces strict fast timeout (max 3.5 seconds) so the UI never hangs.
+     * Fast login handshake and basic identity/resource fetch (takes ~300-600ms).
+     * Used for instantaneous authentication verification on login screen.
+     */
+    suspend fun quickVerifyLogin(): Result<QuickVerifyResult> = withContext(Dispatchers.IO) {
+        val startTime = System.currentTimeMillis()
+
+        // 1. Try Native RouterOS API Socket (Port 8728)
+        val socketResult = runCatching {
+            val socket = Socket()
+            socket.connect(InetSocketAddress(host, apiPort), 3000)
+            socket.soTimeout = 4000
+            val inStream = socket.getInputStream()
+            val outStream = socket.getOutputStream()
+            try {
+                loginRouterOs(inStream, outStream)
+                val resSentences = executeCommand(inStream, outStream, listOf("/system/resource/print"))
+                val resMap = resSentences.firstOrNull() ?: emptyMap()
+                val idSentences = runCatching {
+                    executeCommand(inStream, outStream, listOf("/system/identity/print"))
+                }.getOrDefault(emptyList())
+                val idName = idSentences.firstOrNull()?.get("name") ?: resMap["board-name"] ?: host
+
+                val uptime = resMap["uptime"] ?: "0m"
+                val version = resMap["version"] ?: "RouterOS"
+                val cpuLoad = resMap["cpu-load"]?.toIntOrNull() ?: 0
+                val freeMemBytes = resMap["free-memory"]?.toLongOrNull() ?: 0L
+                val totalMemBytes = resMap["total-memory"]?.toLongOrNull() ?: 0L
+                val boardName = resMap["board-name"] ?: resMap["model"] ?: "MikroTik RouterBOARD"
+                val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+
+                QuickVerifyResult(
+                    success = true,
+                    boardName = boardName,
+                    identityName = idName,
+                    version = version,
+                    cpuLoad = cpuLoad,
+                    uptime = uptime,
+                    freeMemoryMb = if (totalMemBytes > 0) ((totalMemBytes - freeMemBytes).toFloat() / (1024f * 1024f)) else 0f,
+                    totalMemoryMb = if (totalMemBytes > 0) (totalMemBytes.toFloat() / (1024f * 1024f)) else 0f,
+                    latencyMs = latency
+                )
+            } finally {
+                runCatching { inStream.close() }
+                runCatching { outStream.close() }
+                runCatching { socket.close() }
+            }
+        }
+        if (socketResult.isSuccess) {
+            return@withContext Result.success(socketResult.getOrThrow())
+        }
+
+        // 2. Try REST API if socket failed
+        val restResult = runCatching {
+            val authHeader = "Basic " + Base64.encodeToString("$username:$password".toByteArray(), Base64.NO_WRAP)
+            val resJson = httpGetJson("/rest/system/resource", authHeader)
+            val idJson = runCatching { httpGetJson("/rest/system/identity", authHeader) }.getOrNull()
+            val idName = idJson?.optString("name", host) ?: host
+            val uptime = resJson.optString("uptime", "0m")
+            val version = resJson.optString("version", "RouterOS v7")
+            val cpuLoad = resJson.optInt("cpu-load", 0)
+            val freeMem = resJson.optLong("free-memory", 0L)
+            val totalMem = resJson.optLong("total-memory", 0L)
+            val boardName = resJson.optString("board-name", resJson.optString("model", "MikroTik"))
+            val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+
+            QuickVerifyResult(
+                success = true,
+                boardName = boardName,
+                identityName = idName,
+                version = version,
+                cpuLoad = cpuLoad,
+                uptime = uptime,
+                freeMemoryMb = if (totalMem > 0) ((totalMem - freeMem).toFloat() / (1024f * 1024f)) else 0f,
+                totalMemoryMb = if (totalMem > 0) (totalMem.toFloat() / (1024f * 1024f)) else 0f,
+                latencyMs = latency
+            )
+        }
+        if (restResult.isSuccess) {
+            return@withContext Result.success(restResult.getOrThrow())
+        }
+
+        val socketErr = socketResult.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ API $apiPort"
+        val restErr = restResult.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ HTTP $httpPort"
+        val userFriendlyErr = if (socketErr.contains("trap") || socketErr.contains("password") || socketErr.contains("invalid") || socketErr.contains("كلمة المرور") || socketErr.contains("cannot log in")) {
+            "اسم المستخدم أو كلمة المرور غير صحيحة"
+        } else {
+            "تعذر الاتصال بمنفذ الراوتر $host:$apiPort ($socketErr)"
+        }
+        Result.failure(Exception(userFriendlyErr))
+    }
+
+    /**
+     * Executes real comprehensive reading from the MikroTik router (telemetry, 114 interfaces, quota, ARP).
+     * Runs asynchronously in the background.
      */
     suspend fun fetchRealRouterState(): Result<RealRouterData> = withContext(Dispatchers.IO) {
-        kotlinx.coroutines.withTimeoutOrNull(3500L) {
+        kotlinx.coroutines.withTimeoutOrNull(20000L) {
             val startTime = System.currentTimeMillis()
 
             // 1. Try Native RouterOS API via TCP Socket (Port 8728)
@@ -55,22 +160,20 @@ class MikrotikApiClient(
                 return@withTimeoutOrNull Result.success(data.copy(latencyMs = latency))
             }
 
-            // 2. Only try REST API if httpPort is actually open (skip slow retries if host is unreachable)
-            if (isPortReachable(host, httpPort, 600)) {
-                val restResult = runCatching { fetchViaRouterOsRestApi() }
-                if (restResult.isSuccess) {
-                    val data = restResult.getOrThrow()
-                    val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
-                    return@withTimeoutOrNull Result.success(data.copy(latencyMs = latency))
-                }
+            // 2. Try REST API
+            val restResult = runCatching { fetchViaRouterOsRestApi() }
+            if (restResult.isSuccess) {
+                val data = restResult.getOrThrow()
+                val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+                return@withTimeoutOrNull Result.success(data.copy(latencyMs = latency))
             }
 
             val socketErr = apiResult.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ API $apiPort"
-            Result.failure(Exception("تعذر الاتصال بالراوتر $host:$apiPort ($socketErr)"))
-        } ?: Result.failure(Exception("انتهت مهلة التحقق من الراوتر $host:$apiPort (تجاوزت 3.5 ثوانٍ). تأكد من اتصال الجهاز بشبكة الراوتر."))
+            Result.failure(Exception("تعذر استكمال قراءة بيانات الراوتر $host:$apiPort ($socketErr)"))
+        } ?: Result.failure(Exception("انتهت مهلة قراءة بيانات الراوتر ($host)."))
     }
 
-    private fun isPortReachable(host: String, port: Int, timeoutMs: Int = 600): Boolean {
+    private fun isPortReachable(host: String, port: Int, timeoutMs: Int = 1000): Boolean {
         return try {
             Socket().use { s ->
                 s.connect(InetSocketAddress(host, port), timeoutMs)
@@ -341,6 +444,11 @@ class MikrotikApiClient(
 
         if (firstWord.startsWith("!trap")) {
             val msg = resp.find { it.startsWith("=message=") }?.removePrefix("=message=") ?: "بيانات الدخول غير صحيحة"
+            // Consume remaining sentence until !done
+            while (true) {
+                val next = readSentence(inStream)
+                if (next.isEmpty() || next.firstOrNull() == "!done") break
+            }
             throw Exception("فشل التحقق من الراوتر: $msg")
         }
 
@@ -362,6 +470,7 @@ class MikrotikApiClient(
     private fun executeCommand(inStream: InputStream, outStream: OutputStream, words: List<String>): List<Map<String, String>> {
         writeSentence(outStream, words)
         val list = mutableListOf<Map<String, String>>()
+        var trapMsg: String? = null
         while (true) {
             val sentence = readSentence(inStream)
             if (sentence.isEmpty()) break
@@ -369,7 +478,7 @@ class MikrotikApiClient(
             if (type == "!done") break
             if (type == "!trap") {
                 val msg = sentence.find { it.startsWith("=message=") }?.removePrefix("=message=") ?: "API Trap"
-                throw Exception("خطأ من الراوتر: $msg")
+                trapMsg = msg
             }
             if (type == "!re") {
                 val map = mutableMapOf<String, String>()
@@ -385,6 +494,9 @@ class MikrotikApiClient(
                 }
                 list.add(map)
             }
+        }
+        if (trapMsg != null) {
+            throw Exception("خطأ من الراوتر: $trapMsg")
         }
         return list
     }
