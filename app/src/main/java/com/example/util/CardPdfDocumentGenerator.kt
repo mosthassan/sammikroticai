@@ -216,17 +216,20 @@ object CardPdfDocumentGenerator {
         }
 
         // Network Name (Right side of header)
-        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (isCleanWhite) Color.parseColor("#0F172A") else Color.WHITE
-            textSize = if (isCompact) 8f else 10f
-            typeface = Typeface.DEFAULT_BOLD
-            textAlign = Paint.Align.RIGHT
+        if (template.showNetworkName) {
+            val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (isCleanWhite) Color.parseColor("#0F172A") else Color.WHITE
+                textSize = if (isCompact) 8f else 10f
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.RIGHT
+            }
+            canvas.drawText(card.networkName, rect.right - 6f, rect.top + headerHeight - 6f, titlePaint)
         }
-        canvas.drawText(card.networkName, rect.right - 6f, rect.top + headerHeight - 6f, titlePaint)
 
         // Price Badge (Left side of header)
         if (template.showPrice) {
-            val badgeWidth = if (isCompact) 40f else 48f
+            val baseBadgeWidth = if (isCompact) 40f else 48f
+            val badgeWidth = (baseBadgeWidth * template.priceLayout.widthScale.coerceIn(0.4f, 2.0f))
             val badgeRect = RectF(rect.left + 5f, rect.top + 2f, rect.left + 5f + badgeWidth, rect.top + headerHeight - 2f)
             paint.color = template.badgeBgColorHex.toInt()
             canvas.drawRoundRect(badgeRect, 4f, 4f, paint)
@@ -276,8 +279,9 @@ object CardPdfDocumentGenerator {
             currentY += if (isCompact) 9f else 11f
         }
 
-        // Code Box (User & Password)
-        val boxWidth = if (template.showQrCode) (w - qrSize - 20f) else (w - 14f)
+        // Code Box (User & Password) with adjustable widthScale
+        val baseBoxWidth = if (template.showQrCode) (w - qrSize - 20f) else (w - 14f)
+        val boxWidth = (baseBoxWidth * template.codeBoxLayout.widthScale.coerceIn(0.35f, 1.0f))
         val boxHeight = if (isCompact) 18f else 22f
         val boxRect = RectF(infoRight - boxWidth, currentY, infoRight, currentY + boxHeight)
 
@@ -346,15 +350,30 @@ object CardPdfDocumentGenerator {
         val phoneStr = if (template.showSupportPhone && card.supportPhone.isNotBlank()) "خدمة العملاء: ${card.supportPhone}" else template.footerNote
         canvas.drawText(phoneStr, infoRight, footerY, footerPaint)
 
-        // Serial Number on left of footer
-        if (template.showSerialNumber) {
+        // Serial Number and Creation Date on left of footer
+        val formattedDate = if (template.showCreationDate) {
+            try {
+                SimpleDateFormat(template.dateFormatPattern, Locale.US).format(Date(template.createdAt))
+            } catch (_: Exception) {
+                SimpleDateFormat("yyyy/MM/dd", Locale.US).format(Date(template.createdAt))
+            }
+        } else null
+
+        val leftFooterText = when {
+            template.showSerialNumber && formattedDate != null -> "#${card.serialNumber} • $formattedDate"
+            template.showSerialNumber -> "#${card.serialNumber}"
+            formattedDate != null -> formattedDate
+            else -> ""
+        }
+
+        if (leftFooterText.isNotBlank()) {
             val snPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (isCleanWhite) Color.parseColor("#94A3B8") else 0x80FFFFFF.toInt()
                 textSize = if (isCompact) 5.5f else 6.5f
                 typeface = Typeface.MONOSPACE
                 textAlign = Paint.Align.LEFT
             }
-            canvas.drawText("#${card.serialNumber}", rect.left + 6f, footerY, snPaint)
+            canvas.drawText(leftFooterText, rect.left + 6f, footerY, snPaint)
         }
     }
 

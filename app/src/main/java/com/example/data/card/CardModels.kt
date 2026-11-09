@@ -65,6 +65,7 @@ data class ElementLayout(
     val offsetX: Float = 0f,     // Offset in dp (-150f to 150f)
     val offsetY: Float = 0f,     // Offset in dp (-100f to 100f)
     val scale: Float = 1.0f,      // Scale multiplier (0.6f to 1.8f)
+    val widthScale: Float = 1.0f, // Width / Length scale multiplier (0.4f to 2.2f)
     val isVisible: Boolean = true
 )
 
@@ -97,6 +98,9 @@ data class CardTemplate(
     val customBackgroundImagePath: String? = null,
     val customBackgroundImageUri: String? = null,
     val overlayAlpha: Float = 0.12f,
+    val showNetworkName: Boolean = true,
+    val showCreationDate: Boolean = true,
+    val dateFormatPattern: String = "yyyy/MM/dd",
     val showQrCode: Boolean = true,
     val showBarcode: Boolean = false,
     val showPrice: Boolean = true,

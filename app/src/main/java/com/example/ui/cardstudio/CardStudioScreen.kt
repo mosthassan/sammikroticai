@@ -740,7 +740,7 @@ private fun MiniCardTile(
                         )
                     }
                 }
-                if (template.networkLayout.isVisible) {
+                if (template.showNetworkName && template.networkLayout.isVisible) {
                     Text(
                         text = template.networkName,
                         fontSize = if (isCompactStrip) 5.5.sp else 6.5.sp,
@@ -787,8 +787,15 @@ private fun MiniCardTile(
                     )
                 }
                 if (template.serialLayout.isVisible) {
+                    val dateOrSn = if (template.showCreationDate) {
+                        try {
+                            SimpleDateFormat(template.dateFormatPattern, Locale.US).format(Date(template.createdAt))
+                        } catch (_: Exception) {
+                            "SN"
+                        }
+                    } else "SN"
                     Text(
-                        text = "SN",
+                        text = dateOrSn,
                         fontSize = 5.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.Gray
@@ -925,7 +932,10 @@ private fun SingleCardWYSIWYG(
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = (12 * priceLayout.scale).sp,
                                         color = Color(template.badgeTextColorHex),
-                                        modifier = Modifier.padding(horizontal = (8 * priceLayout.scale).dp, vertical = (4 * priceLayout.scale).dp)
+                                        modifier = Modifier.padding(
+                                            horizontal = (8 * priceLayout.scale * priceLayout.widthScale.coerceIn(0.4f, 2.5f)).dp,
+                                            vertical = (4 * priceLayout.scale).dp
+                                        )
                                     )
                                 }
                             }
@@ -934,7 +944,7 @@ private fun SingleCardWYSIWYG(
                         }
 
                         // Network Name (Touch-draggable)
-                        if (template.networkLayout.isVisible) {
+                        if (template.showNetworkName && template.networkLayout.isVisible) {
                             val netLayout = template.networkLayout
                             Box(
                                 modifier = Modifier
@@ -975,34 +985,43 @@ private fun SingleCardWYSIWYG(
                             }
                         }
 
-                        // Date (Touch-draggable)
-                        val serialLayout = template.serialLayout
-                        Box(
-                            modifier = Modifier
-                                .offset { IntOffset(serialLayout.offsetX.dp.roundToPx(), serialLayout.offsetY.dp.roundToPx()) }
-                                .pointerInput("serial") {
-                                    detectDragGestures(
-                                        onDragStart = { selectedElementKey = "serial" },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            val newX = (serialLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                            val newY = (serialLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                            onUpdateLayout("serial", serialLayout.copy(offsetX = newX, offsetY = newY))
-                                        }
-                                    )
+                        // Creation Date (Touch-draggable)
+                        if (template.showCreationDate && template.serialLayout.isVisible) {
+                            val serialLayout = template.serialLayout
+                            val formattedDate = remember(template.createdAt, template.dateFormatPattern) {
+                                try {
+                                    SimpleDateFormat(template.dateFormatPattern, Locale.US).format(Date(template.createdAt))
+                                } catch (_: Exception) {
+                                    SimpleDateFormat("yyyy/MM/dd", Locale.US).format(Date(template.createdAt))
                                 }
-                                .clickable { selectedElementKey = "serial" }
-                                .then(
-                                    if (selectedElementKey == "serial") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
-                                    else Modifier.padding(2.dp)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .offset { IntOffset(serialLayout.offsetX.dp.roundToPx(), serialLayout.offsetY.dp.roundToPx()) }
+                                    .pointerInput("serial") {
+                                        detectDragGestures(
+                                            onDragStart = { selectedElementKey = "serial" },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                val newX = (serialLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
+                                                val newY = (serialLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
+                                                onUpdateLayout("serial", serialLayout.copy(offsetX = newX, offsetY = newY))
+                                            }
+                                        )
+                                    }
+                                    .clickable { selectedElementKey = "serial" }
+                                    .then(
+                                        if (selectedElementKey == "serial") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
+                                        else Modifier.padding(2.dp)
+                                    )
+                            ) {
+                                Text(
+                                    text = formattedDate,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = (10 * serialLayout.scale).sp,
+                                    color = if (customBitmap != null || !isCleanWhite) Color.LightGray else Color(0xFF64748B)
                                 )
-                        ) {
-                            Text(
-                                text = template.dateText,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = (10 * serialLayout.scale).sp,
-                                color = if (customBitmap != null || !isCleanWhite) Color.LightGray else Color(0xFF64748B)
-                            )
+                            }
                         }
                     }
 
@@ -1106,6 +1125,7 @@ private fun SingleCardWYSIWYG(
                             // Voucher Code Box (Touch-draggable)
                             if (template.codeBoxLayout.isVisible) {
                                 val codeLayout = template.codeBoxLayout
+                                val boxWidthFraction = codeLayout.widthScale.coerceIn(0.35f, 1.0f)
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1125,92 +1145,95 @@ private fun SingleCardWYSIWYG(
                                         .then(
                                             if (selectedElementKey == "code_box") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(6.dp)).padding(2.dp)
                                             else Modifier.padding(2.dp)
-                                        )
+                                        ),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    when (template.codeBoxStyle) {
-                                        CodeBoxStyle.PILL_BADGE -> {
-                                            Surface(
-                                                color = Color(template.primaryColorHex).copy(alpha = 0.2f),
-                                                shape = CircleShape,
-                                                border = BorderStroke(1.5.dp, Color(template.primaryColorHex)),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(
-                                                    text = "821 171",
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    fontSize = (17 * codeLayout.scale).sp,
-                                                    color = Color.White,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.padding(vertical = (6 * codeLayout.scale).dp)
-                                                )
-                                            }
-                                        }
-                                        CodeBoxStyle.SCRATCH_FOIL -> {
-                                            Surface(
-                                                color = Color(0xFFD97706),
-                                                shape = RoundedCornerShape(6.dp),
-                                                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(vertical = (6 * codeLayout.scale).dp),
-                                                    horizontalArrangement = Arrangement.Center,
-                                                    verticalAlignment = Alignment.CenterVertically
+                                    Box(modifier = Modifier.fillMaxWidth(boxWidthFraction)) {
+                                        when (template.codeBoxStyle) {
+                                            CodeBoxStyle.PILL_BADGE -> {
+                                                Surface(
+                                                    color = Color(template.primaryColorHex).copy(alpha = 0.2f),
+                                                    shape = CircleShape,
+                                                    border = BorderStroke(1.5.dp, Color(template.primaryColorHex)),
+                                                    modifier = Modifier.fillMaxWidth()
                                                 ) {
-                                                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(6.dp))
                                                     Text(
-                                                        text = "امسح برفق: 821171",
+                                                        text = "821 171",
                                                         fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = (12 * codeLayout.scale).sp,
-                                                        color = Color.White
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        fontSize = (17 * codeLayout.scale).sp,
+                                                        color = Color.White,
+                                                        textAlign = TextAlign.Center,
+                                                        modifier = Modifier.padding(vertical = (6 * codeLayout.scale).dp)
                                                     )
                                                 }
                                             }
-                                        }
-                                        CodeBoxStyle.SPLIT_DIGITS -> {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceEvenly
-                                            ) {
-                                                "821171".forEach { digit ->
-                                                    Surface(
-                                                        color = Color.White,
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        border = BorderStroke(1.dp, Color(template.primaryColorHex)),
-                                                        modifier = Modifier.size((24 * codeLayout.scale).dp)
+                                            CodeBoxStyle.SCRATCH_FOIL -> {
+                                                Surface(
+                                                    color = Color(0xFFD97706),
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(vertical = (6 * codeLayout.scale).dp),
+                                                        horizontalArrangement = Arrangement.Center,
+                                                        verticalAlignment = Alignment.CenterVertically
                                                     ) {
-                                                        Box(contentAlignment = Alignment.Center) {
-                                                            Text(
-                                                                text = digit.toString(),
-                                                                fontFamily = FontFamily.Monospace,
-                                                                fontWeight = FontWeight.ExtraBold,
-                                                                fontSize = (13 * codeLayout.scale).sp,
-                                                                color = Color(0xFF0F172A)
-                                                            )
+                                                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = "امسح برفق: 821171",
+                                                            fontFamily = FontFamily.Monospace,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = (12 * codeLayout.scale).sp,
+                                                            color = Color.White
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            CodeBoxStyle.SPLIT_DIGITS -> {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                                ) {
+                                                    "821171".forEach { digit ->
+                                                        Surface(
+                                                            color = Color.White,
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            border = BorderStroke(1.dp, Color(template.primaryColorHex)),
+                                                            modifier = Modifier.size((24 * codeLayout.scale).dp)
+                                                        ) {
+                                                            Box(contentAlignment = Alignment.Center) {
+                                                                Text(
+                                                                    text = digit.toString(),
+                                                                    fontFamily = FontFamily.Monospace,
+                                                                    fontWeight = FontWeight.ExtraBold,
+                                                                    fontSize = (13 * codeLayout.scale).sp,
+                                                                    color = Color(0xFF0F172A)
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
-                                        }
-                                        else -> {
-                                            Surface(
-                                                color = Color.White,
-                                                shape = RoundedCornerShape(6.dp),
-                                                border = BorderStroke(1.5.dp, Color(template.primaryColorHex)),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Text(
-                                                    text = "821171",
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    fontSize = (18 * codeLayout.scale).sp,
-                                                    color = Color(0xFF0F172A),
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.padding(vertical = (5 * codeLayout.scale).dp)
-                                                )
+                                            else -> {
+                                                Surface(
+                                                    color = Color.White,
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    border = BorderStroke(1.5.dp, Color(template.primaryColorHex)),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text(
+                                                        text = "821171",
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        fontSize = (18 * codeLayout.scale).sp,
+                                                        color = Color(0xFF0F172A),
+                                                        textAlign = TextAlign.Center,
+                                                        modifier = Modifier.padding(vertical = (5 * codeLayout.scale).dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1321,7 +1344,8 @@ private fun ElementTouchControlBar(
         "network" to "الشبكة 📶",
         "qr" to "رمز QR 📱",
         "meta" to "الرصيد/الوقت 📊",
-        "phone" to "الدعم 📞"
+        "phone" to "الدعم 📞",
+        "serial" to "تاريخ الكرت 📅"
     )
 
     Surface(
@@ -1364,10 +1388,12 @@ private fun ElementTouchControlBar(
                 }
             }
 
-            // Controls for active element: Scale & Directional Nudge Pad
+            // Controls for active element: Scale, Width/Length & Directional Nudge Pad
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Size controls (+ / -)
@@ -1404,6 +1430,48 @@ private fun ElementTouchControlBar(
                             .clickable {
                                 val newScale = (currentLayout.scale + 0.1f).coerceIn(0.6f, 1.8f)
                                 onUpdateLayout(selectedKey, currentLayout.copy(scale = newScale))
+                            }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("+", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+
+                // Width / Length controls (+ / -)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("العرض/الطول:", fontSize = 10.sp, color = Color.LightGray)
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clickable {
+                                val newWidth = (currentLayout.widthScale - 0.1f).coerceIn(0.4f, 2.0f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(widthScale = newWidth))
+                            }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("-", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                    Text(
+                        text = "${(currentLayout.widthScale * 100).toInt()}%",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFEAB308)
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clickable {
+                                val newWidth = (currentLayout.widthScale + 0.1f).coerceIn(0.4f, 2.0f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(widthScale = newWidth))
                             }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -2286,6 +2354,54 @@ private fun ElementsAndLayoutTab(
             shape = RoundedCornerShape(10.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
+                ElementToggleRow("إظهار اسم الشبكة في أعلى الكرت", template.showNetworkName) {
+                    onUpdateTemplate(template.copy(showNetworkName = it))
+                }
+                ElementToggleRow("إظهار تاريخ إنشاء الكرت وصيغته", template.showCreationDate) {
+                    onUpdateTemplate(template.copy(showCreationDate = it))
+                }
+                if (template.showCreationDate) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .background(Color(0xFF0F1E2E), RoundedCornerShape(8.dp))
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("صيغة تاريخ الإنشاء (Date Format):", fontSize = 11.sp, color = BrandCyanPrimary, fontWeight = FontWeight.Bold)
+                        val formats = listOf("yyyy/MM/dd", "dd/MM/yyyy", "yyyy-MM-dd", "yy/MM/dd", "dd-MM-yyyy")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            formats.forEach { fmt ->
+                                val isFmtSel = template.dateFormatPattern == fmt
+                                FilterChip(
+                                    selected = isFmtSel,
+                                    onClick = { onUpdateTemplate(template.copy(dateFormatPattern = fmt)) },
+                                    label = { Text(fmt, fontSize = 10.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = BrandCyanPrimary,
+                                        selectedLabelColor = Color.Black
+                                    )
+                                )
+                            }
+                        }
+                        val sampleDate = try {
+                            SimpleDateFormat(template.dateFormatPattern, Locale.US).format(Date(template.createdAt))
+                        } catch (_: Exception) {
+                            template.dateFormatPattern
+                        }
+                        Text(
+                            text = "معاينة التاريخ الحالي بالصيغة المختارة: $sampleDate",
+                            fontSize = 10.sp,
+                            color = Color.LightGray
+                        )
+                    }
+                }
                 ElementToggleRow("إظهار رمز QR الذكي للدخول التلقائي", template.showQrCode) {
                     onUpdateTemplate(template.copy(showQrCode = it))
                 }
