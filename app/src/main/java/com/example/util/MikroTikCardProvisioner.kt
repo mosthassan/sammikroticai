@@ -18,42 +18,57 @@ import java.util.Locale
 object MikroTikCardProvisioner {
 
     /**
-     * Generates a complete RouterOS .rsc script ready to paste in New Terminal
-     * or import via "/import batch.rsc"
+     * Generates a complete, fault-tolerant RouterOS .rsc script dynamically mapped
+     * to the SaaS Plan Object (NetworkPlanSpec) with native limiters and :do on-error={} wrapper.
      */
     fun generateRouterOsScript(batch: CardBatch): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         val formattedDate = dateFormat.format(Date(batch.createdAt))
+        val plan = batch.getEffectivePlan()
         val sb = StringBuilder()
 
         sb.appendLine("# ================================================================")
-        sb.appendLine("# SamMikrotik Hotspot Card Batch #${batch.batchNumber}")
-        sb.appendLine("# Title: ${batch.batchTitle}")
-        sb.appendLine("# Generated at: $formattedDate")
-        sb.appendLine("# Total Cards: ${batch.cardCount}")
-        sb.appendLine("# Profile: ${batch.profileName.ifBlank { "default" }}")
-        sb.appendLine("# Price: ${batch.templateSnapshot.priceText} | Quota: ${batch.templateSnapshot.quotaText}")
+        sb.appendLine("# SamMikrotik Dynamic SaaS Hotspot Batch #${batch.batchNumber}")
+        sb.appendLine("# Batch Title: ${batch.batchTitle}")
+        sb.appendLine("# Plan: ${plan.name} | Profile: ${plan.profileName}")
+        sb.appendLine("# Quota: ${if (plan.dataQuotaMb > 0) "${plan.dataQuotaMb} MB" else "Unlimited"} | Uptime Limit: ${if (plan.uptimeHours > 0) "${plan.uptimeHours} Hours" else "Unlimited"}")
+        sb.appendLine("# Total Cards: ${batch.cardCount} | Generated At: $formattedDate")
         sb.appendLine("# ================================================================")
         sb.appendLine()
-        sb.appendLine("/ip hotspot user")
 
-        val comment = "Batch_${batch.batchNumber}_${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(batch.createdAt))}"
+        val comment = escapeRsc(batch.batchTitle.ifBlank { "Batch_${batch.batchNumber}" })
+        val quotaParam = if (plan.dataQuotaMb > 0) "limit-bytes-total=${plan.dataQuotaMb * 1048576L} " else ""
+        val uptimeParam = if (plan.uptimeHours > 0) "limit-uptime=${plan.uptimeHours}h " else ""
+        val profileParam = escapeRsc(plan.profileName)
 
         for (card in batch.cards) {
-            sb.append("add name=\"${escapeRsc(card.username)}\" ")
-            sb.append("password=\"${escapeRsc(card.password)}\" ")
-            if (batch.profileName.isNotBlank()) {
-                sb.append("profile=\"${escapeRsc(batch.profileName)}\" ")
-            }
-            sb.append("comment=\"$comment\"\n")
+            val u = escapeRsc(card.username)
+            val p = escapeRsc(card.password)
+            sb.appendLine(":do { /ip hotspot user add name=\"$u\" password=\"$p\" profile=\"$profileParam\" $quotaParam$uptimeParam server=all comment=\"$comment\" } on-error={}")
         }
 
         sb.appendLine()
-        sb.appendLine("# Log success to RouterOS system log")
-        sb.appendLine(":log info \"[SamMikrotik] Successfully provisioned Batch #${batch.batchNumber} with ${batch.cardCount} cards\"")
+        sb.appendLine("# Log batch import to RouterOS system log")
+        sb.appendLine(":log info \"[SamMikrotik] Injected Batch #${batch.batchNumber} (${batch.cardCount} cards) for profile '$profileParam'\"")
         sb.appendLine("# End of SamMikrotik Script")
 
         return sb.toString()
+    }
+
+    /**
+     * Copies the .rsc script directly to system clipboard
+     */
+    fun copyScriptToClipboard(context: Context, batch: CardBatch): Boolean {
+        return runCatching {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            if (clipboard != null) {
+                val clip = android.content.ClipData.newPlainText("RouterOS Script", generateRouterOsScript(batch))
+                clipboard.setPrimaryClip(clip)
+                true
+            } else {
+                false
+            }
+        }.getOrDefault(false)
     }
 
     /**
@@ -89,8 +104,9 @@ object MikroTikCardProvisioner {
      * Saves the .rsc script to private cache/files and returns a shareable File
      */
     fun saveScriptToFile(context: Context, batch: CardBatch): File {
+        val plan = batch.getEffectivePlan()
         val dir = File(context.cacheDir, "mikrotik_scripts").apply { mkdirs() }
-        val filename = "sammikrotik_batch_${batch.batchNumber}_${batch.profileName.ifBlank { "cards" }}.rsc"
+        val filename = "sammikrotik_batch_${batch.batchNumber}_${plan.profileName}.rsc"
         val file = File(dir, filename)
 
         FileOutputStream(file).use { out ->

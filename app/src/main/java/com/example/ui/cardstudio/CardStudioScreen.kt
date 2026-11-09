@@ -1,5 +1,8 @@
 package com.example.ui.cardstudio
 
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.CheckCircle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context

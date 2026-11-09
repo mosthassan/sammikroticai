@@ -27,8 +27,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.data.network.RouterProfilesRepository
+import com.example.data.network.MikrotikApiClient
 import java.io.File
 import java.io.FileOutputStream
 
@@ -54,12 +57,17 @@ data class CardStudioUiState(
     val batchPasswordPattern: PasswordPattern = PasswordPattern.SAME_AS_USERNAME,
     val selectedPrintFormat: PrintPageFormat = PrintPageFormat.A4_GRID_24,
     val generatedPdfFile: File? = null,
-    val isGeneratingPdf: Boolean = false
+    val isGeneratingPdf: Boolean = false,
+    val isInjectingToRouter: Boolean = false,
+    val injectProgress: Pair<Int, Int>? = null,
+    val injectSuccessDialogCount: Int? = null,
+    val missingProfileWarning: Pair<CardBatch, String>? = null
 )
 
 class CardStudioViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = CardStudioRepository.getInstance(application)
+    private val routerProfilesRepository = RouterProfilesRepository(application)
 
     val templates: StateFlow<List<CardTemplate>> = repository.templates
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -514,5 +522,105 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             }
             _userMessage.emit("تم حذف الدفعة")
         }
+    }
+
+    fun copyBatchScript(context: Context, batch: CardBatch) {
+        val success = MikroTikCardProvisioner.copyScriptToClipboard(context, batch)
+        viewModelScope.launch {
+            if (success) {
+                _userMessage.emit("تم نسخ سكربت RouterOS (.rsc) للحافظة بنجاح 📋 جاهز للصق في Terminal")
+            } else {
+                _userMessage.emit("تعذر نسخ السكربت للحافظة")
+            }
+        }
+    }
+
+    fun shareBatchScript(context: Context, batch: CardBatch) {
+        runCatching {
+            MikroTikCardProvisioner.shareScriptFile(context, batch)
+        }.onFailure {
+            viewModelScope.launch {
+                _userMessage.emit("تعذر مشاركة ملف السكربت: ${it.message}")
+            }
+        }
+    }
+
+    fun injectBatchToRouter(batch: CardBatch, skipProfileCheck: Boolean = false) {
+        val active = routerProfilesRepository.activeProfile.value
+        if (active == null) {
+            viewModelScope.launch {
+                _userMessage.emit("لا يوجد راوتر متصل حالياً! يرجى الاتصال بالراوتر أولاً من شاشة تسجيل الدخول ⚠️")
+            }
+            return
+        }
+
+        val plan = batch.getEffectivePlan()
+
+        viewModelScope.launch {
+            val client = MikrotikApiClient(
+                host = active.host,
+                apiPort = active.apiPort,
+                httpPort = active.webPort,
+                username = active.username,
+                password = active.password
+            )
+
+            // Step 1: Pre-flight Profile Validation Gate (unless skipped by user)
+            if (!skipProfileCheck) {
+                _uiState.update { it.copy(isInjectingToRouter = true, injectProgress = null) }
+                val existsResult = client.checkHotspotProfileExists(plan.profileName)
+                if (existsResult.isSuccess && !existsResult.getOrDefault(true)) {
+                    _uiState.update {
+                        it.copy(
+                            isInjectingToRouter = false,
+                            missingProfileWarning = Pair(batch, plan.profileName)
+                        )
+                    }
+                    return@launch
+                }
+            }
+
+            // Step 2: Chunked Injection
+            _uiState.update {
+                it.copy(
+                    isInjectingToRouter = true,
+                    missingProfileWarning = null,
+                    injectProgress = Pair(0, batch.cardCount)
+                )
+            }
+
+            val result = client.injectHotspotBatch(
+                cards = batch.cards,
+                plan = plan,
+                batchComment = batch.batchTitle
+            ) { injected, total ->
+                _uiState.update { it.copy(injectProgress = Pair(injected, total)) }
+            }
+
+            if (result.isSuccess) {
+                val count = result.getOrDefault(batch.cardCount)
+                repository.markBatchSynced(batch.id, active.host)
+                _uiState.update {
+                    it.copy(
+                        isInjectingToRouter = false,
+                        injectProgress = null,
+                        injectSuccessDialogCount = count
+                    )
+                }
+                _userMessage.emit("تم بنجاح حقن $count كرت في الراوتر (${active.host}) للبروفايل '${plan.profileName}' ⚡")
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "فشل غير معروف"
+                _uiState.update { it.copy(isInjectingToRouter = false, injectProgress = null) }
+                _userMessage.emit("فشل حقن الدفعة في الراوتر: $err ⚠️")
+            }
+        }
+    }
+
+    fun dismissMissingProfileWarning() {
+        _uiState.update { it.copy(missingProfileWarning = null) }
+    }
+
+    fun dismissInjectSuccessDialog() {
+        _uiState.update { it.copy(injectSuccessDialogCount = null) }
     }
 }

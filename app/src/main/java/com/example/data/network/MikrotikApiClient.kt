@@ -11,6 +11,8 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import com.example.data.card.GeneratedCard
+import com.example.data.card.NetworkPlanSpec
 
 /**
  * Native MikroTik RouterOS Client
@@ -142,6 +144,86 @@ class MikrotikApiClient(
             "تعذر الاتصال بمنفذ الراوتر $host:$apiPort ($socketErr)"
         }
         Result.failure(Exception(userFriendlyErr))
+    }
+
+    /**
+     * Pre-flight validation gate: checks whether the specified Hotspot profile exists
+     * on the router before attempting batch injection.
+     */
+    suspend fun checkHotspotProfileExists(profileName: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val socket = Socket()
+            socket.connect(InetSocketAddress(host, apiPort), 2500)
+            socket.soTimeout = 3000
+            val inStream = socket.getInputStream()
+            val outStream = socket.getOutputStream()
+            try {
+                loginRouterOs(inStream, outStream)
+                val profiles = executeCommand(inStream, outStream, listOf("/ip/hotspot/user/profile/print"))
+                profiles.any { (it["name"] ?: "").equals(profileName, ignoreCase = true) }
+            } finally {
+                runCatching { inStream.close() }
+                runCatching { outStream.close() }
+                runCatching { socket.close() }
+            }
+        }
+    }
+
+    /**
+     * Injects a batch of generated cards directly into MikroTik RouterOS (/ip/hotspot/user/add)
+     * using the dynamic SaaS Plan Object with native limiters and chunked streaming (50 cards/chunk)
+     * to protect router CPU and memory.
+     */
+    suspend fun injectHotspotBatch(
+        cards: List<GeneratedCard>,
+        plan: NetworkPlanSpec,
+        batchComment: String,
+        onProgress: (injected: Int, total: Int) -> Unit
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (cards.isEmpty()) return@runCatching 0
+            val socket = Socket()
+            socket.connect(InetSocketAddress(host, apiPort), 3000)
+            socket.soTimeout = 8000
+            val inStream = socket.getInputStream()
+            val outStream = socket.getOutputStream()
+            var injectedCount = 0
+            try {
+                loginRouterOs(inStream, outStream)
+
+                // Chunk into 50 cards to avoid memory pressure on low-end RouterBOARDs
+                val chunks = cards.chunked(50)
+                for (chunk in chunks) {
+                    for (card in chunk) {
+                        val words = mutableListOf(
+                            "/ip/hotspot/user/add",
+                            "=name=${card.username}",
+                            "=password=${card.password}",
+                            "=profile=${plan.profileName}",
+                            "=server=${plan.targetServer}",
+                            "=comment=$batchComment"
+                        )
+                        if (plan.dataQuotaMb > 0) {
+                            words.add("=limit-bytes-total=${plan.dataQuotaMb * 1048576L}")
+                        }
+                        if (plan.uptimeHours > 0) {
+                            words.add("=limit-uptime=${plan.uptimeHours}h")
+                        }
+                        runCatching {
+                            executeCommand(inStream, outStream, words)
+                            injectedCount++
+                        }
+                    }
+                    onProgress(injectedCount, cards.size)
+                    kotlinx.coroutines.delay(40)
+                }
+                injectedCount
+            } finally {
+                runCatching { inStream.close() }
+                runCatching { outStream.close() }
+                runCatching { socket.close() }
+            }
+        }
     }
 
     /**

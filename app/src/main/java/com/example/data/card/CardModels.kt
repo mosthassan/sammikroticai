@@ -167,5 +167,91 @@ data class CardBatch(
     val cards: List<GeneratedCard>,
     val createdAt: Long = System.currentTimeMillis(),
     val isSyncedToMikrotik: Boolean = false,
-    val targetMikrotikHost: String = ""
-)
+    val targetMikrotikHost: String = "",
+    val planSpec: NetworkPlanSpec? = null
+) {
+    fun getEffectivePlan(): NetworkPlanSpec {
+        return planSpec ?: NetworkPlanSpec.fromTemplate(templateSnapshot, batchTitle)
+    }
+}
+
+/**
+ * Dynamic Network Plan Specification (SaaS Plan Object)
+ * Read dynamically from tenant package configuration (No hardcoding)
+ */
+data class NetworkPlanSpec(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val profileName: String,
+    val dataQuotaMb: Long = 0L,
+    val uptimeHours: Int = 0,
+    val validityDays: Int = 0,
+    val priceText: String = "",
+    val retailPriceMinor: Long = 0L,
+    val wholesalePriceMinor: Long = 0L,
+    val targetServer: String = "all",
+    val commentTag: String = ""
+) {
+    companion object {
+        fun fromTemplate(template: CardTemplate, batchTitle: String = ""): NetworkPlanSpec {
+            val rawProfile = template.targetPackageProfile.trim()
+            val safeProfile = if (rawProfile.isBlank() || rawProfile.equals("default", ignoreCase = true)) {
+                val quotaSlug = template.quotaText.replace(Regex("[^0-9a-zA-Z]"), "").ifBlank { "2700M" }
+                val validitySlug = template.validityText.replace(Regex("[^0-9a-zA-Z]"), "").ifBlank { "35H" }
+                "PKG_${quotaSlug}_${validitySlug}"
+            } else {
+                rawProfile
+            }
+
+            val quotaMb = parseQuotaMb(template.quotaText)
+            val uptimeHours = parseUptimeHours(template.validityText)
+
+            return NetworkPlanSpec(
+                id = template.id,
+                name = template.targetPackageName.ifBlank { template.name },
+                profileName = safeProfile,
+                dataQuotaMb = quotaMb,
+                uptimeHours = uptimeHours,
+                validityDays = parseValidityDays(template.validityText),
+                priceText = template.priceText,
+                targetServer = "all",
+                commentTag = batchTitle.ifBlank { "Batch_${template.name}" }
+            )
+        }
+
+        fun parseQuotaMb(text: String): Long {
+            val lower = text.lowercase()
+            val num = Regex("[0-9]+").find(lower)?.value?.toLongOrNull() ?: 0L
+            if (num <= 0L) return 0L
+            return when {
+                lower.contains("g") || lower.contains("جيجا") -> num * 1024L
+                lower.contains("m") || lower.contains("ميجا") -> num
+                else -> num
+            }
+        }
+
+        fun parseUptimeHours(text: String): Int {
+            val lower = text.lowercase()
+            val num = Regex("[0-9]+").find(lower)?.value?.toIntOrNull() ?: 0
+            if (num <= 0) return 0
+            return when {
+                lower.contains("d") || lower.contains("يوم") || lower.contains("ايام") -> num * 24
+                lower.contains("h") || lower.contains("ساعة") || lower.contains("ساعات") -> num
+                else -> num
+            }
+        }
+
+        fun parseValidityDays(text: String): Int {
+            val lower = text.lowercase()
+            val num = Regex("[0-9]+").find(lower)?.value?.toIntOrNull() ?: 0
+            if (num <= 0) return 0
+            return when {
+                lower.contains("يوم") || lower.contains("ايام") || lower.contains("d") -> num
+                lower.contains("شهر") -> num * 30
+                lower.contains("ساعة") -> (num / 24).coerceAtLeast(1)
+                else -> num
+            }
+        }
+    }
+}
+
