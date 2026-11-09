@@ -164,12 +164,12 @@ fun DashboardScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
-                                painter = painterResource(id = R.drawable.sammikrotik_ai_logo_1791682432718),
-                                contentDescription = "شعار سام ميكروتك 2026",
+                                painter = painterResource(id = R.drawable.app_logo),
+                                contentDescription = "شعار سام ميكروتك الرسمي",
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .clip(RoundedCornerShape(14.dp)),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Fit
                             )
                         }
                         Spacer(modifier = Modifier.width(14.dp))

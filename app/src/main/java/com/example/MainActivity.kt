@@ -10,6 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -122,7 +123,7 @@ import com.example.ui.viewmodel.AppViewModel
 object AppBrand {
     const val NAME = "سام ميكروتك"
     const val DASHBOARD_TITLE = "سام ميكروتك نظام ادارة الشبكات"
-    const val TAGLINE = "النظام المالي المحاسبي المتكامل لشبكات الإنترنت"
+    const val TAGLINE = "تحكم بشبكتك وحساباتك المالية وفق أعلى المعايير المحاسبية"
 }
 
 sealed class MainTab(val title: String, val icon: ImageVector, val tag: String) {
@@ -179,6 +180,7 @@ class MainActivity : ComponentActivity() {
                 var showDeviceMonitorScreen by rememberSaveable { mutableStateOf(false) }
                 var showRouterLoginScreen by rememberSaveable { mutableStateOf(false) }
                 var isRouterSessionLoggedIn by rememberSaveable { mutableStateOf(false) }
+                var showSplashScreen by rememberSaveable { mutableStateOf(true) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
                 // Listen for business feedback messages
@@ -195,7 +197,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (showRouterLoginScreen || (selectedTabIndex == 0 && !isRouterSessionLoggedIn)) {
+                if (showSplashScreen) {
+                    com.example.ui.screens.SplashScreen(
+                        onSplashFinished = { showSplashScreen = false }
+                    )
+                } else if (showRouterLoginScreen || (selectedTabIndex == 0 && !isRouterSessionLoggedIn)) {
                     BackHandler(enabled = isRouterSessionLoggedIn || selectedTabIndex != 0) {
                         showRouterLoginScreen = false
                         if (!isRouterSessionLoggedIn) {
@@ -249,18 +255,31 @@ class MainActivity : ComponentActivity() {
                         topBar = {
                             TopAppBar(
                                 title = {
-                                    Column {
-                                        Text(
-                                            text = AppBrand.NAME,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = TextPrimaryDark
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Image(
+                                            painter = painterResource(id = R.drawable.app_logo),
+                                            contentDescription = AppBrand.NAME,
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .border(1.dp, BrandCyanPrimary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                         )
-                                        Text(
-                                            text = MainTab.all[selectedTabIndex].title,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = BrandCyanPrimary
-                                        )
+                                        Column {
+                                            Text(
+                                                text = AppBrand.NAME,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = TextPrimaryDark
+                                            )
+                                            Text(
+                                                text = MainTab.all[selectedTabIndex].title,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = BrandCyanPrimary
+                                            )
+                                        }
                                     }
                                 },
                                 actions = {

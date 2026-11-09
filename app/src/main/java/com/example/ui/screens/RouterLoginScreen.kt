@@ -10,6 +10,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import com.example.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -242,17 +246,18 @@ fun RouterLoginScreen(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = MikroTikCyan.copy(alpha = 0.2f),
-                            modifier = Modifier.size(42.dp)
+                            color = Color.Black,
+                            border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f)),
+                            modifier = Modifier.size(44.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Router,
-                                    contentDescription = "Router",
-                                    tint = MikroTikCyan,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                            Image(
+                                painter = painterResource(id = R.drawable.app_logo),
+                                contentDescription = "شعار سام ميكروتك الرسمي",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(12.dp)),
+                                contentScale = ContentScale.Fit
+                            )
                         }
                         Column {
                             Text(
