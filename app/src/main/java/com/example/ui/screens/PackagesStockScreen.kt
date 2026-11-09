@@ -862,6 +862,7 @@ fun PackagesStockScreen(
         var uptimeHoursStr by remember { mutableStateOf(if (pkg.uptimeHours > 0) pkg.uptimeHours.toString() else "") }
         var validityDaysStr by remember { mutableStateOf(if (pkg.validityDays > 0) pkg.validityDays.toString() else "") }
         var profileNameStr by remember { mutableStateOf(pkg.profileName) }
+        var validationError by remember { mutableStateOf<String?>(null) }
 
         AlertDialog(
             onDismissRequest = { packageForPriceEdit = null },
@@ -879,9 +880,29 @@ fun PackagesStockScreen(
                 ) {
                     Text("عدل مواصفات وأسعار الباقة (تنعكس مباشرة على استوديو الكروت وحقن المايكروتك):", fontSize = 12.sp, color = TextSecondaryDark)
                     
+                    if (validationError != null) {
+                        Surface(
+                            color = SemanticExpenseRed.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = validationError ?: "",
+                                color = SemanticExpenseRed,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
+
                     OutlinedTextField(
                         value = editName,
-                        onValueChange = { editName = it },
+                        onValueChange = { 
+                            editName = it
+                            validationError = null
+                        },
                         label = { Text("اسم الباقة (مثال: كرت 500)") },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth().testTag("input_edit_package_name")
@@ -890,14 +911,20 @@ fun PackagesStockScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
                             value = retailStr,
-                            onValueChange = { retailStr = it },
+                            onValueChange = { 
+                                retailStr = it
+                                validationError = null
+                            },
                             label = { Text("سعر البيع/تجزئة (ر.ي)") },
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.weight(1f).testTag("input_edit_retail_price")
                         )
                         OutlinedTextField(
                             value = wholesaleStr,
-                            onValueChange = { wholesaleStr = it },
+                            onValueChange = { 
+                                wholesaleStr = it
+                                validationError = null
+                            },
                             label = { Text("سعر الجملة (ر.ي)") },
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.weight(1f).testTag("input_edit_wholesale_price")
@@ -942,23 +969,35 @@ fun PackagesStockScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val w = (wholesaleStr.toLongOrNull() ?: 0L) * 100L
-                        val r = (retailStr.toLongOrNull() ?: 0L) * 100L
-                        val qMb = quotaMbStr.toLongOrNull() ?: 0L
-                        val upH = uptimeHoursStr.toIntOrNull() ?: 0
-                        val valD = validityDaysStr.toIntOrNull() ?: 0
+                        val trimmedName = editName.trim()
+                        if (trimmedName.isBlank()) {
+                            validationError = "يرجى إدخال اسم الباقة"
+                            return@Button
+                        }
+
+                        var w = cleanNumberToLong(wholesaleStr) * 100L
+                        var r = cleanNumberToLong(retailStr) * 100L
+
+                        if (w <= 0L && r <= 0L) {
+                            validationError = "يرجى إدخال سعر البيع أو سعر الجملة للباقة"
+                            return@Button
+                        }
+                        if (r <= 0L && w > 0L) r = w
+                        if (w <= 0L && r > 0L) w = r
+
+                        val qMb = cleanNumberToLong(quotaMbStr)
+                        val upH = cleanNumberToInt(uptimeHoursStr)
+                        val valD = cleanNumberToInt(validityDaysStr)
                         val formattedDuration = formatDurationOrQuota(qMb, upH, valD, profileNameStr)
 
-                        if (editName.isNotBlank() && w > 0L && r >= w) {
-                            val updated = pkg.copy(
-                                name = editName.trim(),
-                                durationOrQuota = formattedDuration,
-                                wholesalePriceMinor = w,
-                                retailPriceMinor = r
-                            )
-                            viewModel.insertPackage(updated) {
-                                packageForPriceEdit = null
-                            }
+                        val updated = pkg.copy(
+                            name = trimmedName,
+                            durationOrQuota = formattedDuration,
+                            wholesalePriceMinor = w,
+                            retailPriceMinor = r
+                        )
+                        viewModel.updatePackage(updated) {
+                            packageForPriceEdit = null
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan, contentColor = CyberDarkCanvas),
@@ -1162,14 +1201,17 @@ fun AddPackageBottomSheet(
             ) {
                 Button(
                     onClick = {
-                        if (name.isNotBlank()) {
-                            val w = (wholesaleText.toLongOrNull() ?: 0L) * 100L
-                            val r = (retailText.toLongOrNull() ?: 0L) * 100L
-                            val qMb = quotaMbText.toLongOrNull() ?: 0L
-                            val upH = uptimeHoursText.toIntOrNull() ?: 0
-                            val valD = validityDaysText.toIntOrNull() ?: 0
+                        val trimmedName = name.trim()
+                        if (trimmedName.isNotBlank()) {
+                            var w = cleanNumberToLong(wholesaleText) * 100L
+                            var r = cleanNumberToLong(retailText) * 100L
+                            if (r <= 0L && w > 0L) r = w
+                            if (w <= 0L && r > 0L) w = r
+                            val qMb = cleanNumberToLong(quotaMbText)
+                            val upH = cleanNumberToInt(uptimeHoursText)
+                            val valD = cleanNumberToInt(validityDaysText)
                             val formattedDuration = formatDurationOrQuota(qMb, upH, valD, profileNameText)
-                            onSubmit(name.trim(), formattedDuration, w, r)
+                            onSubmit(trimmedName, formattedDuration, w, r)
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan, contentColor = CyberDarkCanvas),
@@ -1311,3 +1353,34 @@ fun AdjustStockBottomSheet(
         }
     }
 }
+
+/**
+ * Normalizes Arabic-Indic digits (٠-٩) and removes commas/spaces to safely parse Long numbers.
+ */
+private fun cleanNumberToLong(input: String): Long {
+    val normalized = input.trim()
+        .replace("،", "")
+        .replace(",", "")
+        .replace(" ", "")
+        .map { c ->
+            when (c) {
+                '٠', '۰' -> '0'
+                '١', '۱' -> '1'
+                '٢', '۲' -> '2'
+                '٣', '۳' -> '3'
+                '٤', '۴' -> '4'
+                '٥', '۵' -> '5'
+                '٦', '۶' -> '6'
+                '٧', '۷' -> '7'
+                '٨', '۸' -> '8'
+                '٩', '۹' -> '9'
+                else -> c
+            }
+        }.joinToString("")
+    return normalized.filter { it.isDigit() }.toLongOrNull() ?: 0L
+}
+
+private fun cleanNumberToInt(input: String): Int {
+    return cleanNumberToLong(input).toInt()
+}
+

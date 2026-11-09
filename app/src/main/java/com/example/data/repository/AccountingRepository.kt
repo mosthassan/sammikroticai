@@ -102,6 +102,7 @@ class AccountingRepository(
     suspend fun insertTreasury(treasury: TreasuryAccountEntity) = db.treasuryDao().insertTreasury(treasury)
 
     suspend fun insertPackage(pkg: CardPackageEntity) = db.cardPackageDao().insertPackage(pkg)
+    suspend fun updatePackage(pkg: CardPackageEntity) = db.cardPackageDao().updatePackage(pkg)
 
     suspend fun updateOrganization(org: OrganizationEntity) = db.organizationDao().updateOrganization(org)
 }

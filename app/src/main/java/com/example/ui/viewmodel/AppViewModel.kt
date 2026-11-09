@@ -1503,6 +1503,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updatePackage(pkg: CardPackageEntity, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.updatePackage(pkg)
+                _userMessage.emit("تم تعديل بيانات الباقة بنجاح")
+                onSuccess()
+            } catch (e: Exception) {
+                _userMessage.emit("فشل تعديل الباقة: ${e.message}")
+            }
+        }
+    }
+
     fun setPackageActive(packageId: String, isActive: Boolean) {
         viewModelScope.launch {
             try {

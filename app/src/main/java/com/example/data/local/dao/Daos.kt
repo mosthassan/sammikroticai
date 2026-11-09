@@ -1242,6 +1242,9 @@ interface CardPackageDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertPackage(pkg: CardPackageEntity)
 
+    @Update
+    suspend fun updatePackage(pkg: CardPackageEntity)
+
     @Query("SELECT * FROM card_packages WHERE id = :id")
     suspend fun getPackageById(id: String): CardPackageEntity?
 
