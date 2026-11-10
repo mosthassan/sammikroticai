@@ -39,11 +39,31 @@ import com.example.data.network.MikrotikApiClient
 import java.io.File
 import java.io.FileOutputStream
 
-enum class CardStudioTab(val titleAr: String) {
-    GENERATOR("معايير وتوليد الدفعة ⚡"),
-    TEMPLATES("القوالب و AI 🎨"),
-    DESIGNER("عناصر ومقاس الكرت 🎛️"),
-    BATCHES("ورقة A4 والطباعة 📄")
+enum class CardStudioTab(
+    val titleAr: String,
+    val shortTitle: String,
+    val subtitle: String
+) {
+    GENERATOR(
+        titleAr = "معايير وتوليد الدفعة ⚡",
+        shortTitle = "توليد",
+        subtitle = "إعداد الأكواد وربط الباقات وحقن RouterOS"
+    ),
+    TEMPLATES(
+        titleAr = "القوالب و AI 🎨",
+        shortTitle = "القوالب",
+        subtitle = "تصفح القوالب والسمات السحابية الجاهزة"
+    ),
+    DESIGNER(
+        titleAr = "عناصر ومقاس الكرت 🎛️",
+        shortTitle = "التصميم",
+        subtitle = "تعديل النصوص والشعار ورمز QR والألوان"
+    ),
+    BATCHES(
+        titleAr = "ورقة A4 والطباعة 📄",
+        shortTitle = "الطباعة",
+        subtitle = "تخطيط 24 أو 42 كرت وخطوط القص وتصدير PDF"
+    )
 }
 
 data class CardStudioUiState(

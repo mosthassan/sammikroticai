@@ -27,12 +27,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,6 +49,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CropSquare
@@ -310,36 +313,112 @@ fun CardStudioScreen(
 
             HorizontalDivider(color = Color(0xFF1E293B), thickness = 1.dp)
 
-            // 2. Navigation Tabs (Matching sammikroticnew web project structure)
+            // 2. Responsive 4-Segmented Control (Zero Truncation, 48dp+ Touch Target, No Horizontal Scroll)
             val tabs = CardStudioTab.values()
-            val selectedTabIndex = tabs.indexOf(uiState.activeTab)
 
-            TabRow(
-                selectedTabIndex = selectedTabIndex,
-                containerColor = CyberDarkCardElevated,
-                contentColor = Color.White,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                        color = BrandCyanPrimary,
-                        height = 3.dp
-                    )
-                }
+            Surface(
+                color = CyberDarkCardElevated,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFF1E293B)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                tabs.forEachIndexed { index, tab ->
-                    Tab(
-                        selected = selectedTabIndex == index,
-                        onClick = { viewModel.selectTab(tab) },
-                        text = {
-                            Text(
-                                text = tab.titleAr,
-                                fontSize = 11.sp,
-                                fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal,
-                                color = if (selectedTabIndex == index) BrandCyanPrimary else Color.LightGray,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    tabs.forEach { tab ->
+                        val isSelected = uiState.activeTab == tab
+                        val icon = when (tab) {
+                            CardStudioTab.GENERATOR -> Icons.Default.Bolt
+                            CardStudioTab.TEMPLATES -> Icons.Default.Palette
+                            CardStudioTab.DESIGNER -> Icons.Default.Tune
+                            CardStudioTab.BATCHES -> Icons.Default.Print
                         }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) BrandCyanPrimary else Color.Transparent,
+                            border = if (isSelected) BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)) else null,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { viewModel.selectTab(tab) }
+                                .testTag("tab_${tab.name.lowercase()}")
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = tab.titleAr,
+                                    tint = if (isSelected) Color.Black else BrandCyanPrimary,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = tab.shortTitle,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                    color = if (isSelected) Color.Black else Color.White,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Contextual Section Banner (Clear visual guidance with full title & subtitle)
+            Surface(
+                color = Color(0xFF0F172A),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(0.5.dp, BrandCyanPrimary.copy(alpha = 0.25f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(BrandCyanPrimary, CircleShape)
+                        )
+                        Text(
+                            text = uiState.activeTab.titleAr,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = BrandCyanPrimary
+                        )
+                    }
+                    Text(
+                        text = uiState.activeTab.subtitle,
+                        fontSize = 10.sp,
+                        color = Color.LightGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -2448,31 +2527,155 @@ private fun GeneratorParametersTab(
             }
         }
 
-        // ★ Section 7: Code Length
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("طول خانات الكود", style = MaterialTheme.typography.labelMedium, color = Color.White)
-            OutlinedTextField(
-                value = uiState.batchUserLengthInput.toString(),
-                onValueChange = {
-                    val l = it.filter { c -> c.isDigit() }.toIntOrNull()?.coerceIn(3, 16) ?: 6
-                    onUpdateConfig(null, null, null, null, l, null, null, null)
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
+        // ★ Section 7: Code Length (عدد خانات/أرقام الكود - قابل للتعديل بحرية)
+        var lengthInputStr by remember(uiState.batchUserLengthInput) {
+            mutableStateOf(uiState.batchUserLengthInput.toString())
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = BrandCyanPrimary,
-                    unfocusedBorderColor = Color(0xFF1E293B),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedContainerColor = Color(0xFF091220),
-                    unfocusedContainerColor = Color(0xFF091220)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("طول خانات الكود (عدد الأرقام في الكرت):", style = MaterialTheme.typography.labelMedium, color = Color.White)
+                Surface(
+                    color = BrandCyanPrimary.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = "${uiState.batchUserLengthInput} خانات",
+                        fontWeight = FontWeight.Bold,
+                        color = BrandCyanPrimary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            // Quick Selection Chips for Common Lengths (4, 5, 6, 7, 8, 10, 12)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(4, 5, 6, 7, 8, 10, 12).forEach { len ->
+                    val isSelected = uiState.batchUserLengthInput == len
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) BrandCyanPrimary else Color(0xFF0F172A),
+                        border = BorderStroke(1.dp, if (isSelected) BrandCyanPrimary else Color(0xFF1E293B)),
+                        modifier = Modifier
+                            .clickable {
+                                lengthInputStr = len.toString()
+                                onUpdateConfig(null, null, null, null, len, null, null, null)
+                            }
+                            .testTag("chip_length_$len")
+                    ) {
+                        Text(
+                            text = if (len == 6) "6 خانات (الأمثل)" else "$len خانات",
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                            color = if (isSelected) Color.Black else Color.LightGray,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+
+            // Interactive Stepper + Direct Editable Text Input
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Decrement Button (-)
+                Button(
+                    onClick = {
+                        val newLen = (uiState.batchUserLengthInput - 1).coerceAtLeast(3)
+                        lengthInputStr = newLen.toString()
+                        onUpdateConfig(null, null, null, null, newLen, null, null, null)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.size(48.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("-", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = BrandCyanPrimary)
+                }
+
+                // Direct Text Field (Accepts free editing, Arabic/English digits, clearing and typing)
+                OutlinedTextField(
+                    value = lengthInputStr,
+                    onValueChange = { raw ->
+                        val normalized = raw.trim()
+                            .replace("،", "")
+                            .replace(",", "")
+                            .replace(" ", "")
+                            .map { c ->
+                                when (c) {
+                                    '٠', '۰' -> '0'
+                                    '١', '۱' -> '1'
+                                    '٢', '۲' -> '2'
+                                    '٣', '۳' -> '3'
+                                    '٤', '۴' -> '4'
+                                    '٥', '۵' -> '5'
+                                    '٦', '۶' -> '6'
+                                    '٧', '۷' -> '7'
+                                    '٨', '۸' -> '8'
+                                    '٩', '۹' -> '9'
+                                    else -> c
+                                }
+                            }.joinToString("")
+                            .filter { it.isDigit() }
+
+                        lengthInputStr = normalized
+
+                        val parsed = normalized.toIntOrNull()
+                        if (parsed != null) {
+                            val clamped = parsed.coerceIn(3, 16)
+                            onUpdateConfig(null, null, null, null, clamped, null, null, null)
+                        }
+                    },
+                    placeholder = { Text("مثال: 6", color = Color.Gray) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("input_code_length"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = BrandCyanPrimary,
+                        unfocusedBorderColor = Color(0xFF1E293B),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color(0xFF091220),
+                        unfocusedContainerColor = Color(0xFF091220)
+                    )
                 )
-            )
+
+                // Increment Button (+)
+                Button(
+                    onClick = {
+                        val newLen = (uiState.batchUserLengthInput + 1).coerceAtMost(16)
+                        lengthInputStr = newLen.toString()
+                        onUpdateConfig(null, null, null, null, newLen, null, null, null)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.size(48.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("+", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = BrandCyanPrimary)
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Security, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("توليد مشفر غير قابل للتخمين (Anti-Guessing CSPRNG)", fontSize = 11.sp, color = BrandCyanPrimary)
+                Text("توليد مشفر غير قابل للتخمين (Anti-Guessing CSPRNG) • متاح من 3 إلى 16 خانة", fontSize = 11.sp, color = BrandCyanPrimary)
             }
         }
 
