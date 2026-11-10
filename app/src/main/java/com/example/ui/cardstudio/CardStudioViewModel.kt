@@ -459,6 +459,38 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun toggleStudioCodeOnlyMode() {
+        val current = _uiState.value.editingTemplate
+        val isCurrentlyCodeOnly = !current.showNetworkName && !current.showPrice && !current.showValidity && !current.showCreationDate && !current.showSupportPhone && !current.showSerialNumber
+        val updated = if (isCurrentlyCodeOnly) {
+            current.copy(
+                showNetworkName = true,
+                showPrice = true,
+                showValidity = true,
+                showCreationDate = true,
+                showSupportPhone = true,
+                showSerialNumber = true
+            )
+        } else {
+            current.copy(
+                showNetworkName = false,
+                showPrice = false,
+                showValidity = false,
+                showCreationDate = false,
+                showSupportPhone = false,
+                showSerialNumber = false
+            )
+        }
+        _uiState.value = _uiState.value.copy(editingTemplate = updated)
+        viewModelScope.launch {
+            if (isCurrentlyCodeOnly) {
+                _userMessage.emit("تم إظهار كافة نصوص وبيانات الكرت 🔤")
+            } else {
+                _userMessage.emit("تم تفعيل نمط الاستديو: طباعة صندوق الكود فقط وإخفاء النصوص المكررة 🎯")
+            }
+        }
+    }
+
     fun saveTemplateForPackage(
         name: String,
         targetPackageProfile: String,

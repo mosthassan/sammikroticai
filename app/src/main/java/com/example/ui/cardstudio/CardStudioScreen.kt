@@ -650,6 +650,54 @@ fun CardStudioScreen(
                                         onResetElementPositions = { viewModel.resetAllElementPositions() }
                                     )
 
+                                    // Studio Custom Background: One-Tap Code Only Toggle
+                                    if (!uiState.editingTemplate.customBackgroundImagePath.isNullOrBlank()) {
+                                        val isCodeOnly = !uiState.editingTemplate.showNetworkName && !uiState.editingTemplate.showPrice && !uiState.editingTemplate.showValidity
+                                        Surface(
+                                            color = if (isCodeOnly) Color(0xFF064E3B) else Color(0xFF1E293B),
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, if (isCodeOnly) SemanticIncomeGreen else BrandCyanPrimary.copy(alpha = 0.5f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                                .clickable { viewModel.toggleStudioCodeOnlyMode() }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Icon(
+                                                        imageVector = if (isCodeOnly) Icons.Default.CheckCircle else Icons.Default.Layers,
+                                                        contentDescription = null,
+                                                        tint = if (isCodeOnly) SemanticIncomeGreen else BrandCyanPrimary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Column {
+                                                        Text(
+                                                            text = if (isCodeOnly) "نمط الاستديو مفعل: طباعة الكود فقط 🎯" else "تفعيل نمط الاستديو (طباعة الكود فقط) 🎯",
+                                                            fontSize = 11.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color.White
+                                                        )
+                                                        Text(
+                                                            text = if (isCodeOnly) "تم إخفاء النصوص المكررة لتطابق تصميم الفوتوشوب 100%" else "يخفي نصوص الشبكة والسعر لمنع تكرارها فوق تصميم الصورة",
+                                                            fontSize = 9.5.sp,
+                                                            color = Color.LightGray
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = if (isCodeOnly) "إظهار الكل 🔤" else "تطبيق ⚡",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isCodeOnly) SemanticIncomeGreen else BrandCyanPrimary
+                                                )
+                                            }
+                                        }
+                                    }
+
                                     // Quick switch banner to edit texts & properties
                                     Surface(
                                         color = Color(0xFF0F2636),
@@ -782,6 +830,9 @@ fun CardStudioScreen(
                                     onShareScript = { batch ->
                                         viewModel.shareMikrotikScript(context, batch)
                                     },
+                                    onInjectToRouter = { batch ->
+                                        viewModel.injectBatchToRouter(batch)
+                                    },
                                     onDeleteBatch = { viewModel.deleteBatch(it) }
                                 )
                             }
@@ -800,6 +851,120 @@ fun CardStudioScreen(
                 viewModel.saveTemplateForPackage(name, profile, pkgName, price, quota)
                 showSavePackageDialog = false
                 android.widget.Toast.makeText(context, "تم حفظ $name بنجاح وربطه بالباقة 💾", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // Router Direct Injection: In-Progress Dialog
+    if (uiState.isInjectingToRouter) {
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            containerColor = CyberDarkCardElevated,
+            icon = {
+                Icon(Icons.Default.Bolt, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(36.dp))
+            },
+            title = {
+                Text("جاري حقن الكروت في المايكروتك ⚡", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val progress = uiState.injectProgress
+                    if (progress != null && progress.second > 0) {
+                        val fraction = progress.first.toFloat() / progress.second.toFloat()
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                            color = BrandCyanPrimary,
+                            trackColor = Color(0xFF1E293B)
+                        )
+                        Text(
+                            text = "تم إرسال ${progress.first} من أصل ${progress.second} كرت عبر API إلى سيرفر الهوتسبوت...",
+                            color = Color.LightGray,
+                            fontSize = 12.sp
+                        )
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(color = BrandCyanPrimary, modifier = Modifier.size(28.dp))
+                            Text(
+                                text = "جاري التحقق من بروفايل الباقة والاتصال بسيرفر الراوتر...",
+                                color = Color.LightGray,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    // Router Direct Injection: Missing Profile Warning Dialog
+    val missingProfile = uiState.missingProfileWarning
+    if (missingProfile != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissMissingProfileWarning() },
+            containerColor = CyberDarkCardElevated,
+            icon = {
+                Icon(Icons.Default.Warning, contentDescription = null, tint = SemanticExpenseRed, modifier = Modifier.size(36.dp))
+            },
+            title = {
+                Text("تنبيه بروفايل الباقة ⚠️", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Text(
+                    text = "بروفايل الباقة '${missingProfile.second}' غير معرّف حالياً في سيرفر الهوتسبوت على الراوتر.\n\nهل ترغب بالمتابعة وحقن الكروت على أي حال وتجاوز فحص وجود البروفايل؟",
+                    color = Color.LightGray,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.injectBatchToRouter(missingProfile.first, skipProfileCheck = true) },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary)
+                ) {
+                    Text("متابعة الحقن ⚡", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissMissingProfileWarning() }) {
+                    Text("إلغاء", color = Color.Gray)
+                }
+            }
+        )
+    }
+
+    // Router Direct Injection: Success Confirmation Dialog
+    val injectSuccessCount = uiState.injectSuccessDialogCount
+    if (injectSuccessCount != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissInjectSuccessDialog() },
+            containerColor = CyberDarkCardElevated,
+            icon = {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SemanticIncomeGreen, modifier = Modifier.size(36.dp))
+            },
+            title = {
+                Text("تم الحقن بنجاح ⚡🎉", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Text(
+                    text = "تم بنجاح حقن $injectSuccessCount كرت في سيرفر هوتسبوت المايكروتك بنجاح وبأعلى سرعة! الكروت مفعلة ومخزنة في الراوتر وجاهزة لاستخدام العملاء فوراً.",
+                    color = Color.LightGray,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.dismissInjectSuccessDialog() },
+                    colors = ButtonDefaults.buttonColors(containerColor = SemanticIncomeGreen)
+                ) {
+                    Text("حسناً", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
             }
         )
     }
@@ -1292,7 +1457,7 @@ private fun MiniCardTile(
             Image(
                 bitmap = customBitmap,
                 contentDescription = null,
-                contentScale = ContentScale.FillBounds,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
             if (template.overlayAlpha > 0f) {
@@ -1464,7 +1629,7 @@ private fun SingleCardWYSIWYG(
                     Image(
                         bitmap = customBitmap,
                         contentDescription = "قالب مخصص من المعرض",
-                        contentScale = ContentScale.FillBounds,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                     // Dark overlay scrim
@@ -4124,6 +4289,7 @@ private fun BatchesAndPrintTab(
     onSelectFormat: (PrintPageFormat) -> Unit,
     onExportPdf: (CardBatch, PrintPageFormat) -> Unit,
     onShareScript: (CardBatch) -> Unit,
+    onInjectToRouter: (CardBatch) -> Unit,
     onDeleteBatch: (String) -> Unit
 ) {
     Column(
@@ -4222,6 +4388,21 @@ private fun BatchesAndPrintTab(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
+                            // 1. Primary Action: Direct MikroTik Injection
+                            Button(
+                                onClick = { onInjectToRouter(batch) },
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth().height(44.dp)
+                            ) {
+                                Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("حقن مباشر للميكروتك ⚡", color = Color.Black, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // 2. Secondary Actions: PDF Export & RSC Script
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -4230,22 +4411,23 @@ private fun BatchesAndPrintTab(
                                     onClick = { onExportPdf(batch, selectedFormat) },
                                     colors = ButtonDefaults.buttonColors(containerColor = SemanticIncomeGreen),
                                     shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f).height(42.dp)
                                 ) {
                                     Icon(Icons.Default.Print, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text("طباعة PDF 🖨️", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
 
                                 Button(
                                     onClick = { onShareScript(batch) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                    border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.5f)),
                                     shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f).height(42.dp)
                                 ) {
-                                    Icon(Icons.Default.Router, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("سكربت RSC ⚡", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("سكربت RSC 📜", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                             }
                         }

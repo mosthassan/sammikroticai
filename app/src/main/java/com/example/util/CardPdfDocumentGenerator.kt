@@ -158,11 +158,33 @@ object CardPdfDocumentGenerator {
         val isCleanWhite = template.themePreset == CardThemePreset.CLEAN_WHITE
         val isCompact = format == PrintPageFormat.A4_GRID_42 || format == PrintPageFormat.A4_GRID_24
 
-        // 1. Background Fill: Custom Gallery Image OR Theme Solid/Gradient
+        val w = rect.width()
+        val h = rect.height()
+
+        // 1. Background Fill: Custom Gallery Image (Center-Crop Aspect Ratio) OR Theme Solid/Gradient
         var hasCustomBg = false
-        if (preloadedBgBitmap != null) {
-            canvas.drawBitmap(preloadedBgBitmap, null, rect, null)
+        if (preloadedBgBitmap != null && preloadedBgBitmap.width > 0 && preloadedBgBitmap.height > 0) {
             hasCustomBg = true
+            // CenterCrop: preserve aspect ratio so circles and graphics are NEVER distorted
+            val bmpW = preloadedBgBitmap.width.toFloat()
+            val bmpH = preloadedBgBitmap.height.toFloat()
+            val bmpRatio = bmpW / bmpH
+            val rectRatio = w / h
+            val srcRect = android.graphics.Rect()
+
+            if (bmpRatio > rectRatio) {
+                // Bitmap is wider than destination rect -> crop equal amounts from left and right
+                val visibleW = (bmpH * rectRatio).toInt().coerceIn(1, preloadedBgBitmap.width)
+                val left = ((preloadedBgBitmap.width - visibleW) / 2).coerceAtLeast(0)
+                srcRect.set(left, 0, left + visibleW, preloadedBgBitmap.height)
+            } else {
+                // Bitmap is taller than destination rect -> crop equal amounts from top and bottom
+                val visibleH = (bmpW / rectRatio).toInt().coerceIn(1, preloadedBgBitmap.height)
+                val top = ((preloadedBgBitmap.height - visibleH) / 2).coerceAtLeast(0)
+                srcRect.set(0, top, preloadedBgBitmap.width, top + visibleH)
+            }
+            canvas.drawBitmap(preloadedBgBitmap, srcRect, rect, paint)
+
             if (template.overlayAlpha > 0f) {
                 paint.color = Color.BLACK
                 paint.alpha = (template.overlayAlpha * 255).toInt().coerceIn(0, 255)
@@ -200,9 +222,6 @@ object CardPdfDocumentGenerator {
                 paint.style = Paint.Style.FILL
             }
         }
-
-        val w = rect.width()
-        val h = rect.height()
 
         // 2. Elements Layout: Proportional positioning matching WYSIWYG canvas
         // (A) Network Name
@@ -312,13 +331,16 @@ object CardPdfDocumentGenerator {
         // (F) Code Box (Centered by default or offset by touch)
         if (template.codeBoxLayout.isVisible) {
             val codeLayout = template.codeBoxLayout
-            val maxAvailableWidth = if (template.showQrCode && template.qrCodeLayout.isVisible) (w * 0.65f) else (w * 0.88f)
-            val boxWidth = maxAvailableWidth * codeLayout.widthScale.coerceIn(0.35f, 1.0f)
-            val boxHeight = (if (isCompact) 16f else 22f) * codeLayout.scale.coerceIn(0.7f, 1.4f)
+            // Normalized relative position matching WYSIWYG Reference Canvas (340dp x 185dp)
+            val relNormX = codeLayout.offsetX / 340f
+            val relNormY = codeLayout.offsetY / 185f
 
-            // Centered in card by default + touch drag offsets
-            val centerX = rect.centerX() + (codeLayout.offsetX / 170f) * (w / 2)
-            val centerY = rect.centerY() + (if (template.showValidity && template.metaLayout.isVisible && !hasCustomBg) 3f else 0f) + (codeLayout.offsetY / 90f) * (h / 2)
+            val centerX = rect.centerX() + (relNormX * w)
+            val centerY = rect.centerY() + (relNormY * h)
+
+            val maxAvailableWidth = if (template.showQrCode && template.qrCodeLayout.isVisible) (w * 0.70f) else w
+            val boxWidth = (maxAvailableWidth * codeLayout.widthScale.coerceIn(0.20f, 1.0f) * (if (hasCustomBg) 0.92f else 0.85f)).coerceIn(35f, w * 0.96f)
+            val boxHeight = (if (isCompact) (h * 0.32f) else (h * 0.25f)) * codeLayout.scale.coerceIn(0.6f, 1.4f)
             val boxRect = RectF(centerX - boxWidth / 2, centerY - boxHeight / 2, centerX + boxWidth / 2, centerY + boxHeight / 2)
 
             when (template.codeBoxStyle) {
@@ -343,9 +365,10 @@ object CardPdfDocumentGenerator {
                 CodeBoxStyle.SPLIT_DIGITS -> {
                     val digits = card.username
                     val count = digits.length.coerceAtLeast(1)
-                    val digitBoxW = (boxWidth / count) - 2f
+                    val spacing = 2f
+                    val digitBoxW = ((boxWidth - (spacing * (count - 1))) / count).coerceAtLeast(6f)
                     for (dIdx in 0 until count) {
-                        val dLeft = boxRect.left + (dIdx * (digitBoxW + 2f))
+                        val dLeft = boxRect.left + (dIdx * (digitBoxW + spacing))
                         val dRect = RectF(dLeft, boxRect.top, dLeft + digitBoxW, boxRect.bottom)
                         paint.color = Color.WHITE
                         canvas.drawRoundRect(dRect, 2.5f, 2.5f, paint)
@@ -357,11 +380,11 @@ object CardPdfDocumentGenerator {
 
                         val digitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                             color = Color.parseColor("#0F172A")
-                            textSize = (boxHeight * 0.65f)
+                            textSize = (boxHeight * 0.60f).coerceAtLeast(8f)
                             typeface = Typeface.MONOSPACE
                             textAlign = Paint.Align.CENTER
                         }
-                        canvas.drawText(digits[dIdx].toString(), dRect.centerX(), dRect.centerY() + (boxHeight * 0.24f), digitPaint)
+                        canvas.drawText(digits[dIdx].toString(), dRect.centerX(), dRect.centerY() + (boxHeight * 0.22f), digitPaint)
                     }
                 }
                 else -> {
@@ -380,12 +403,12 @@ object CardPdfDocumentGenerator {
             if (template.codeBoxStyle != CodeBoxStyle.SPLIT_DIGITS) {
                 val codeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (template.codeBoxStyle == CodeBoxStyle.SCRATCH_FOIL) Color.WHITE else Color.parseColor("#0F172A")
-                    textSize = (boxHeight * 0.62f) * codeLayout.scale.coerceIn(0.8f, 1.3f)
+                    textSize = (boxHeight * 0.60f * codeLayout.scale.coerceIn(0.8f, 1.3f)).coerceAtLeast(8f)
                     typeface = Typeface.MONOSPACE
                     textAlign = Paint.Align.CENTER
                 }
                 val displayCode = if (card.password != card.username) "${card.username} : ${card.password}" else card.username
-                canvas.drawText(displayCode, boxRect.centerX(), boxRect.centerY() + (boxHeight * 0.24f), codeTextPaint)
+                canvas.drawText(displayCode, boxRect.centerX(), boxRect.centerY() + (boxHeight * 0.22f), codeTextPaint)
             }
         }
 
