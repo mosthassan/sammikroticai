@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Layers
@@ -115,6 +117,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -287,33 +290,14 @@ fun CardStudioScreen(
         },
         containerColor = CyberDarkSurface
     ) { paddingValues ->
+        var isPreviewExpanded by rememberSaveable { mutableStateOf(false) }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // 1. Interactive Live Preview Canvas Section (Persistent on top)
-            LivePreviewCanvasSection(
-                template = uiState.editingTemplate,
-                previewMode = uiState.previewMode,
-                selectedPrintFormat = uiState.selectedPrintFormat,
-                onTogglePreviewMode = { viewModel.togglePreviewMode(it) },
-                onToggleCutLines = { viewModel.toggleCutLines(it) },
-                onExportPdf = { viewModel.previewAndSaveSamplePdf(context) },
-                onCopyScript = {
-                    val sampleBatch = createSampleBatch(uiState.editingTemplate, uiState.selectedPrintFormat.cardsPerPage)
-                    val script = MikroTikCardProvisioner.generateRouterOsScript(sampleBatch)
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("MikroTik Script", script))
-                    android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
-                },
-                onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
-                onResetElementPositions = { viewModel.resetAllElementPositions() }
-            )
-
-            HorizontalDivider(color = Color(0xFF1E293B), thickness = 1.dp)
-
-            // 2. Responsive 4-Segmented Control (Zero Truncation, 48dp+ Touch Target, No Horizontal Scroll)
+            // 1. Responsive 4-Segmented Control at the TOP (Immediate navigation, 48dp+ touch target, zero horizontal scroll)
             val tabs = CardStudioTab.values()
 
             Surface(
@@ -381,7 +365,7 @@ fun CardStudioScreen(
                 }
             }
 
-            // Contextual Section Banner (Clear visual guidance with full title & subtitle)
+            // 2. Contextual Section Banner (Clear guidance with full title & subtitle)
             Surface(
                 color = Color(0xFF0F172A),
                 shape = RoundedCornerShape(8.dp),
@@ -423,75 +407,215 @@ fun CardStudioScreen(
                 }
             }
 
-            // 3. Tab Body
+            // 3. Mode-Aware Body: Collapsible preview in Generator & Templates, full WYSIWYG in Designer, A4 Sheet in Batches
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
                 when (uiState.activeTab) {
-                    CardStudioTab.GENERATOR -> GeneratorParametersTab(
-                        uiState = uiState,
-                        savedTemplates = templates,
-                        availablePackages = availablePackages,
-                        onSelectPackage = { viewModel.selectPackageForGeneration(it) },
-                        onSelectSavedTemplate = { viewModel.setEditingTemplate(it) },
-                        onSelectPackageProfile = { profile, name, price, quota ->
-                            viewModel.selectPackageProfile(profile, name, price, quota)
-                        },
-                        onSelectPrintFormat = { viewModel.selectPrintFormat(it) },
-                        onUpdateConfig = { t, c, p, pr, ul, pat, cs, f ->
-                            viewModel.updateBatchConfig(t, c, p, pr, ul, pat, cs, f)
-                        },
-                        onGenerate = { viewModel.generateBatch() }
-                    )
-                    CardStudioTab.TEMPLATES -> TemplatesGalleryTab(
-                        currentTemplate = uiState.editingTemplate,
-                        savedTemplates = templates,
-                        onSelectTemplate = { viewModel.setEditingTemplate(it) },
-                        onEditTemplate = { tmpl ->
-                            viewModel.setEditingTemplate(tmpl)
-                            viewModel.selectTab(CardStudioTab.DESIGNER)
-                        },
-                        onDuplicateTemplate = { viewModel.duplicateTemplate(it) },
-                        onDeleteTemplate = { viewModel.deleteTemplate(it.id) },
-                        onUpdateTemplateDetails = { id, name, price, quota, validity, net, phone, prof ->
-                            viewModel.updateTemplateMetadata(id, name, price, quota, validity, net, phone, prof)
-                        },
-                        onSaveCurrentAsNew = { showSavePackageDialog = true },
-                        onApplyPreset = { viewModel.applyThemePreset(it) },
-                        onPickCustomImage = {
-                            photoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    CardStudioTab.GENERATOR -> {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            if (isPreviewExpanded) {
+                                LivePreviewCanvasSection(
+                                    template = uiState.editingTemplate,
+                                    previewMode = uiState.previewMode,
+                                    selectedPrintFormat = uiState.selectedPrintFormat,
+                                    showNudgeControls = false,
+                                    isCollapsible = true,
+                                    onCollapse = { isPreviewExpanded = false },
+                                    onTogglePreviewMode = { viewModel.togglePreviewMode(it) },
+                                    onToggleCutLines = { viewModel.toggleCutLines(it) },
+                                    onExportPdf = { viewModel.previewAndSaveSamplePdf(context) },
+                                    onCopyScript = {
+                                        val sampleBatch = createSampleBatch(uiState.editingTemplate, uiState.selectedPrintFormat.cardsPerPage)
+                                        val script = MikroTikCardProvisioner.generateRouterOsScript(sampleBatch)
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("MikroTik Script", script))
+                                        android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
+                                    onResetElementPositions = { viewModel.resetAllElementPositions() }
+                                )
+                            } else {
+                                CompactLivePreviewCard(
+                                    template = uiState.editingTemplate,
+                                    onExpand = { isPreviewExpanded = true },
+                                    onExportPdf = { viewModel.previewAndSaveSamplePdf(context) },
+                                    onCopyScript = {
+                                        val sampleBatch = createSampleBatch(uiState.editingTemplate, uiState.selectedPrintFormat.cardsPerPage)
+                                        val script = MikroTikCardProvisioner.generateRouterOsScript(sampleBatch)
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("MikroTik Script", script))
+                                        android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                GeneratorParametersTab(
+                                    uiState = uiState,
+                                    savedTemplates = templates,
+                                    availablePackages = availablePackages,
+                                    onSelectPackage = { viewModel.selectPackageForGeneration(it) },
+                                    onSelectSavedTemplate = { viewModel.setEditingTemplate(it) },
+                                    onSelectPackageProfile = { profile, name, price, quota ->
+                                        viewModel.selectPackageProfile(profile, name, price, quota)
+                                    },
+                                    onSelectPrintFormat = { viewModel.selectPrintFormat(it) },
+                                    onUpdateConfig = { t, c, p, pr, ul, pat, cs, f ->
+                                        viewModel.updateBatchConfig(t, c, p, pr, ul, pat, cs, f)
+                                    },
+                                    onGenerate = { viewModel.generateBatch() }
+                                )
+                            }
+                        }
+                    }
+                    CardStudioTab.TEMPLATES -> {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            if (isPreviewExpanded) {
+                                LivePreviewCanvasSection(
+                                    template = uiState.editingTemplate,
+                                    previewMode = uiState.previewMode,
+                                    selectedPrintFormat = uiState.selectedPrintFormat,
+                                    showNudgeControls = false,
+                                    isCollapsible = true,
+                                    onCollapse = { isPreviewExpanded = false },
+                                    onTogglePreviewMode = { viewModel.togglePreviewMode(it) },
+                                    onToggleCutLines = { viewModel.toggleCutLines(it) },
+                                    onExportPdf = { viewModel.previewAndSaveSamplePdf(context) },
+                                    onCopyScript = {
+                                        val sampleBatch = createSampleBatch(uiState.editingTemplate, uiState.selectedPrintFormat.cardsPerPage)
+                                        val script = MikroTikCardProvisioner.generateRouterOsScript(sampleBatch)
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("MikroTik Script", script))
+                                        android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
+                                    onResetElementPositions = { viewModel.resetAllElementPositions() }
+                                )
+                            } else {
+                                CompactLivePreviewCard(
+                                    template = uiState.editingTemplate,
+                                    onExpand = { isPreviewExpanded = true },
+                                    onExportPdf = { viewModel.previewAndSaveSamplePdf(context) },
+                                    onCopyScript = {
+                                        val sampleBatch = createSampleBatch(uiState.editingTemplate, uiState.selectedPrintFormat.cardsPerPage)
+                                        val script = MikroTikCardProvisioner.generateRouterOsScript(sampleBatch)
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("MikroTik Script", script))
+                                        android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                TemplatesGalleryTab(
+                                    currentTemplate = uiState.editingTemplate,
+                                    savedTemplates = templates,
+                                    onSelectTemplate = { viewModel.setEditingTemplate(it) },
+                                    onEditTemplate = { tmpl ->
+                                        viewModel.setEditingTemplate(tmpl)
+                                        viewModel.selectTab(CardStudioTab.DESIGNER)
+                                    },
+                                    onDuplicateTemplate = { viewModel.duplicateTemplate(it) },
+                                    onDeleteTemplate = { viewModel.deleteTemplate(it.id) },
+                                    onUpdateTemplateDetails = { id, name, price, quota, validity, net, phone, prof ->
+                                        viewModel.updateTemplateMetadata(id, name, price, quota, validity, net, phone, prof)
+                                    },
+                                    onSaveCurrentAsNew = { showSavePackageDialog = true },
+                                    onApplyPreset = { viewModel.applyThemePreset(it) },
+                                    onPickCustomImage = {
+                                        photoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    onRemoveCustomImage = { viewModel.removeCustomBackgroundImage() },
+                                    onResetDefaults = { viewModel.resetTemplatesToDefault() }
+                                )
+                            }
+                        }
+                    }
+                    CardStudioTab.DESIGNER -> {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Persistent Interactive WYSIWYG Canvas with Touch Dragging & Precision Nudge Tool
+                            LivePreviewCanvasSection(
+                                template = uiState.editingTemplate,
+                                previewMode = CardPreviewMode.SINGLE_CARD,
+                                selectedPrintFormat = uiState.selectedPrintFormat,
+                                showNudgeControls = true,
+                                isCollapsible = false,
+                                onCollapse = null,
+                                onTogglePreviewMode = { viewModel.togglePreviewMode(it) },
+                                onToggleCutLines = { viewModel.toggleCutLines(it) },
+                                onExportPdf = { viewModel.previewAndSaveSamplePdf(context) },
+                                onCopyScript = {
+                                    val sampleBatch = createSampleBatch(uiState.editingTemplate, uiState.selectedPrintFormat.cardsPerPage)
+                                    val script = MikroTikCardProvisioner.generateRouterOsScript(sampleBatch)
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("MikroTik Script", script))
+                                    android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
+                                },
+                                onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
+                                onResetElementPositions = { viewModel.resetAllElementPositions() }
                             )
-                        },
-                        onRemoveCustomImage = { viewModel.removeCustomBackgroundImage() },
-                        onResetDefaults = { viewModel.resetTemplatesToDefault() }
-                    )
-                    CardStudioTab.DESIGNER -> ElementsAndLayoutTab(
-                        template = uiState.editingTemplate,
-                        onUpdateTemplate = { viewModel.updateEditingTemplate(it) },
-                        onApplyCodeBoxStyle = { viewModel.applyCodeBoxStyle(it) },
-                        onSave = { viewModel.saveEditingTemplate() },
-                        onPickCustomImage = {
-                            photoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                ElementsAndLayoutTab(
+                                    template = uiState.editingTemplate,
+                                    onUpdateTemplate = { viewModel.updateEditingTemplate(it) },
+                                    onApplyCodeBoxStyle = { viewModel.applyCodeBoxStyle(it) },
+                                    onSave = { viewModel.saveEditingTemplate() },
+                                    onPickCustomImage = {
+                                        photoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    onRemoveCustomImage = { viewModel.removeCustomBackgroundImage() }
+                                )
+                            }
+                        }
+                    }
+                    CardStudioTab.BATCHES -> {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Full A4 Sheet or Single Card Preview
+                            LivePreviewCanvasSection(
+                                template = uiState.editingTemplate,
+                                previewMode = uiState.previewMode,
+                                selectedPrintFormat = uiState.selectedPrintFormat,
+                                showNudgeControls = false,
+                                isCollapsible = false,
+                                onCollapse = null,
+                                onTogglePreviewMode = { viewModel.togglePreviewMode(it) },
+                                onToggleCutLines = { viewModel.toggleCutLines(it) },
+                                onExportPdf = { viewModel.previewAndSaveSamplePdf(context) },
+                                onCopyScript = {
+                                    val sampleBatch = createSampleBatch(uiState.editingTemplate, uiState.selectedPrintFormat.cardsPerPage)
+                                    val script = MikroTikCardProvisioner.generateRouterOsScript(sampleBatch)
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("MikroTik Script", script))
+                                    android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
+                                },
+                                onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
+                                onResetElementPositions = { viewModel.resetAllElementPositions() }
                             )
-                        },
-                        onRemoveCustomImage = { viewModel.removeCustomBackgroundImage() }
-                    )
-                    CardStudioTab.BATCHES -> BatchesAndPrintTab(
-                        batches = batches,
-                        selectedFormat = uiState.selectedPrintFormat,
-                        onSelectFormat = { viewModel.updateBatchConfig(format = it) },
-                        onExportPdf = { batch, format ->
-                            viewModel.exportAndSharePdf(context, batch, format)
-                        },
-                        onShareScript = { batch ->
-                            viewModel.shareMikrotikScript(context, batch)
-                        },
-                        onDeleteBatch = { viewModel.deleteBatch(it) }
-                    )
+
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                BatchesAndPrintTab(
+                                    batches = batches,
+                                    selectedFormat = uiState.selectedPrintFormat,
+                                    onSelectFormat = { viewModel.updateBatchConfig(format = it) },
+                                    onExportPdf = { batch, format ->
+                                        viewModel.exportAndSharePdf(context, batch, format)
+                                    },
+                                    onShareScript = { batch ->
+                                        viewModel.shareMikrotikScript(context, batch)
+                                    },
+                                    onDeleteBatch = { viewModel.deleteBatch(it) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -536,6 +660,155 @@ fun CardStudioScreen(
 }
 
 /**
+ * Modern Compact Live Preview Banner for Generator and Templates tabs.
+ * Gives 85%+ screen height to inputs, forms, and template browsing while
+ * keeping real-time card preview accessible with one tap.
+ */
+@Composable
+private fun CompactLivePreviewCard(
+    template: CardTemplate,
+    onExpand: () -> Unit,
+    onExportPdf: () -> Unit,
+    onCopyScript: () -> Unit
+) {
+    Surface(
+        color = CyberDarkCardElevated,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clickable { onExpand() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                // Mini preview box with actual template background & badge
+                Box(
+                    modifier = Modifier
+                        .size(width = 46.dp, height = 28.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(template.backgroundColorHex),
+                                    Color(template.gradientEndColorHex)
+                                )
+                            )
+                        )
+                        .border(0.5.dp, Color(template.primaryColorHex), RoundedCornerShape(4.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = template.priceText.take(6),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = template.name,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Surface(
+                            color = BrandCyanPrimary.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = template.priceText,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrandCyanPrimary,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "${template.networkName} • ${template.quotaText} • كود: 821171",
+                        fontSize = 10.sp,
+                        color = Color.LightGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(
+                    onClick = onCopyScript,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "نسخ سكربت",
+                        tint = BrandCyanPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                IconButton(
+                    onClick = onExportPdf,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Print,
+                        contentDescription = "معاينة PDF",
+                        tint = SemanticIncomeGreen,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Surface(
+                    color = BrandCyanPrimary,
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.clickable { onExpand() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Visibility,
+                            contentDescription = "تكبير المعاينة",
+                            tint = Color.Black,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "معاينة 👁️",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Live Preview Canvas Section with toggle between Single Card & A4 Full Sheet.
  */
 @Composable
@@ -543,6 +816,9 @@ private fun LivePreviewCanvasSection(
     template: CardTemplate,
     previewMode: CardPreviewMode,
     selectedPrintFormat: PrintPageFormat,
+    showNudgeControls: Boolean = false,
+    isCollapsible: Boolean = false,
+    onCollapse: (() -> Unit)? = null,
     onTogglePreviewMode: (CardPreviewMode) -> Unit,
     onToggleCutLines: (Boolean) -> Unit,
     onExportPdf: () -> Unit,
@@ -635,6 +911,35 @@ private fun LivePreviewCanvasSection(
                             modifier = Modifier.size(18.dp)
                         )
                     }
+
+                    // Optional Collapse Button for Generator and Templates tabs
+                    if (isCollapsible && onCollapse != null) {
+                        Surface(
+                            color = Color(0xFF1E293B),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(0.8.dp, BrandCyanPrimary.copy(alpha = 0.5f)),
+                            modifier = Modifier.clickable { onCollapse() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ExpandLess,
+                                    contentDescription = "تصغير المعاينة",
+                                    tint = BrandCyanPrimary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "تصغير 🔼",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -646,6 +951,7 @@ private fun LivePreviewCanvasSection(
             } else {
                 SingleCardWYSIWYG(
                     template = template,
+                    showNudgeControls = showNudgeControls,
                     onUpdateLayout = onUpdateElementLayout,
                     onResetPositions = onResetElementPositions
                 )
@@ -926,6 +1232,7 @@ private fun MiniCardTile(
 @Composable
 private fun SingleCardWYSIWYG(
     template: CardTemplate,
+    showNudgeControls: Boolean = false,
     onUpdateLayout: (String, ElementLayout) -> Unit,
     onResetPositions: () -> Unit
 ) {
@@ -1439,14 +1746,16 @@ private fun SingleCardWYSIWYG(
             }
         }
 
-        // 3. Touch Controller & Precision Nudge Tool (Below the card)
-        ElementTouchControlBar(
-            selectedKey = selectedElementKey,
-            onSelectKey = { selectedElementKey = it },
-            template = template,
-            onUpdateLayout = onUpdateLayout,
-            onResetPositions = onResetPositions
-        )
+        // 3. Touch Controller & Precision Nudge Tool (Shown only in Designer tab)
+        if (showNudgeControls) {
+            ElementTouchControlBar(
+                selectedKey = selectedElementKey,
+                onSelectKey = { selectedElementKey = it },
+                template = template,
+                onUpdateLayout = onUpdateLayout,
+                onResetPositions = onResetPositions
+            )
+        }
     }
 }
 
