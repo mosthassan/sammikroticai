@@ -180,6 +180,7 @@ class MainActivity : ComponentActivity() {
                 var showSubscriptionScreen by rememberSaveable { mutableStateOf(false) }
                 var showAdminDashboard by rememberSaveable { mutableStateOf(false) }
                 var showCardStudio by rememberSaveable { mutableStateOf(false) }
+                var showQuickCardGeneratorScreen by rememberSaveable { mutableStateOf(false) }
                 var showDeviceMonitorScreen by rememberSaveable { mutableStateOf(false) }
                 var showRouterLoginScreen by rememberSaveable { mutableStateOf(false) }
                 var isRouterSessionLoggedIn by rememberSaveable { mutableStateOf(false) }
@@ -245,6 +246,16 @@ class MainActivity : ComponentActivity() {
                 } else if (showCardStudio) {
                     com.example.ui.cardstudio.CardStudioScreen(
                         onNavigateBack = { showCardStudio = false }
+                    )
+                } else if (showQuickCardGeneratorScreen) {
+                    val cardStudioViewModel: com.example.ui.cardstudio.CardStudioViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                    com.example.ui.screens.QuickCardGeneratorScreen(
+                        viewModel = cardStudioViewModel,
+                        onNavigateBack = { showQuickCardGeneratorScreen = false },
+                        onNavigateToCardStudio = {
+                            showQuickCardGeneratorScreen = false
+                            selectedTabIndex = 6 // Tab: الكروت والباقات
+                        }
                     )
                 } else if (showDeviceMonitorScreen) {
                     com.example.ui.screens.NetworkDevicesScreen(
@@ -453,6 +464,7 @@ class MainActivity : ComponentActivity() {
                             networkRepository = appViewModel.networkRepository,
                             viewModel = appViewModel,
                             onNavigateToDeviceMonitor = { showDeviceMonitorScreen = true },
+                            onNavigateToQuickCardGenerator = { showQuickCardGeneratorScreen = true },
                             onNavigateToCardStudio = { selectedTabIndex = 6 },
                             onNavigateToWifiSpectrum = {
                                 networkHubInitialTab = 5

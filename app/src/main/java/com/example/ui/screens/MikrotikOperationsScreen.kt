@@ -100,6 +100,7 @@ fun MikrotikOperationsScreen(
     viewModel: AppViewModel,
     onNavigateToDeviceMonitor: () -> Unit,
     onNavigateToCardStudio: () -> Unit,
+    onNavigateToQuickCardGenerator: () -> Unit = onNavigateToCardStudio,
     onNavigateToWifiSpectrum: () -> Unit,
     onNavigateToAiAssistant: () -> Unit,
     onNavigateToCloudSync: () -> Unit,
@@ -156,12 +157,12 @@ fun MikrotikOperationsScreen(
             onClick = onNavigateToAiAssistant
         ),
         ServiceGridItem(
-            title = "نظام الهوتسبوت (Hotspot)",
-            icon = Icons.Default.Wifi,
-            iconColor = Color(0xFF34D399),
-            iconBgColor = Color(0xFF064E3B),
-            tag = "service_hotspot",
-            onClick = onNavigateToDeviceMonitor
+            title = "توليد الكروت ⚡",
+            icon = Icons.Default.Bolt,
+            iconColor = Color(0xFF00F0FF),
+            iconBgColor = Color(0xFF0B2B3E),
+            tag = "service_card_generator",
+            onClick = onNavigateToQuickCardGenerator
         ),
         ServiceGridItem(
             title = "نظام اليوزرمجر (UserManager)",

@@ -226,6 +226,58 @@ class MikrotikApiClient(
         }
     }
 
+    suspend fun injectUserManagerBatch(
+        cards: List<GeneratedCard>,
+        plan: NetworkPlanSpec,
+        batchComment: String,
+        onProgress: (injected: Int, total: Int) -> Unit
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (cards.isEmpty()) return@runCatching 0
+            val socket = Socket()
+            socket.connect(InetSocketAddress(host, apiPort), 3000)
+            socket.soTimeout = 8000
+            val inStream = socket.getInputStream()
+            val outStream = socket.getOutputStream()
+            var injectedCount = 0
+            try {
+                loginRouterOs(inStream, outStream)
+                val chunks = cards.chunked(50)
+                for (chunk in chunks) {
+                    for (card in chunk) {
+                        // Try v7 user-manager command
+                        val words = mutableListOf(
+                            "/user-manager/user/add",
+                            "=name=${card.username}",
+                            "=password=${card.password}",
+                            "=comment=$batchComment"
+                        )
+                        val res = runCatching { executeCommand(inStream, outStream, words) }
+                        if (res.isFailure) {
+                            // Fallback to RouterOS v6 /tool/user-manager syntax
+                            val v6Words = mutableListOf(
+                                "/tool/user-manager/user/add",
+                                "=username=${card.username}",
+                                "=password=${card.password}",
+                                "=customer=admin",
+                                "=comment=$batchComment"
+                            )
+                            runCatching { executeCommand(inStream, outStream, v6Words) }
+                        }
+                        injectedCount++
+                    }
+                    onProgress(injectedCount, cards.size)
+                    kotlinx.coroutines.delay(40)
+                }
+                injectedCount
+            } finally {
+                runCatching { inStream.close() }
+                runCatching { outStream.close() }
+                runCatching { socket.close() }
+            }
+        }
+    }
+
     /**
      * Executes real comprehensive reading from the MikroTik router (telemetry, 114 interfaces, quota, ARP).
      * Runs asynchronously in the background.

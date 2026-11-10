@@ -66,8 +66,14 @@ enum class CardStudioTab(
     )
 }
 
+enum class CardSystemTarget(val displayNameAr: String) {
+    HOTSPOT("نظام الهوتسبوت (Hotspot)"),
+    USER_MANAGER("نظام اليوزرمانجر (UserManager)")
+}
+
 data class CardStudioUiState(
     val activeTab: CardStudioTab = CardStudioTab.GENERATOR,
+    val selectedSystemTarget: CardSystemTarget = CardSystemTarget.HOTSPOT,
     val editingTemplate: CardTemplate = CardTemplate(),
     val previewMode: CardPreviewMode = CardPreviewMode.A4_FULL_SHEET,
     val isGenerating: Boolean = false,
@@ -142,6 +148,14 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectTab(tab: CardStudioTab) {
         _uiState.value = _uiState.value.copy(activeTab = tab)
+    }
+
+    fun selectSystemTarget(target: CardSystemTarget) {
+        _uiState.update { it.copy(selectedSystemTarget = target) }
+    }
+
+    fun selectTemplate(template: CardTemplate) {
+        _uiState.update { it.copy(editingTemplate = template) }
     }
 
     fun setEditingTemplate(template: CardTemplate) {
@@ -325,6 +339,10 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun generateBatch() {
+        generateBatchWithAction(andInjectToRouter = false)
+    }
+
+    fun generateBatchWithAction(andInjectToRouter: Boolean = false, onSuccess: ((CardBatch) -> Unit)? = null) {
         val state = _uiState.value
         if (state.batchCountInput <= 0) {
             viewModelScope.launch { _userMessage.emit("يرجى تحديد عدد كروت صالح") }
@@ -350,6 +368,10 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                     activeTab = CardStudioTab.BATCHES
                 )
                 _userMessage.emit("تم توليد ${batch.cardCount} كرت بنجاح مع رموز QR الذكية!")
+                onSuccess?.invoke(batch)
+                if (andInjectToRouter) {
+                    injectBatchToRouter(batch)
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isGenerating = false)
                 _userMessage.emit("تعذر توليد الدفعة: ${e.message}")
@@ -670,12 +692,23 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                 )
             }
 
-            val result = client.injectHotspotBatch(
-                cards = batch.cards,
-                plan = plan,
-                batchComment = batch.batchTitle
-            ) { injected, total ->
-                _uiState.update { it.copy(injectProgress = Pair(injected, total)) }
+            val isUserManager = _uiState.value.selectedSystemTarget == CardSystemTarget.USER_MANAGER
+            val result = if (isUserManager) {
+                client.injectUserManagerBatch(
+                    cards = batch.cards,
+                    plan = plan,
+                    batchComment = batch.batchTitle
+                ) { injected, total ->
+                    _uiState.update { it.copy(injectProgress = Pair(injected, total)) }
+                }
+            } else {
+                client.injectHotspotBatch(
+                    cards = batch.cards,
+                    plan = plan,
+                    batchComment = batch.batchTitle
+                ) { injected, total ->
+                    _uiState.update { it.copy(injectProgress = Pair(injected, total)) }
+                }
             }
 
             if (result.isSuccess) {
@@ -688,7 +721,8 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                         injectSuccessDialogCount = count
                     )
                 }
-                _userMessage.emit("تم بنجاح حقن $count كرت في الراوتر (${active.host}) للبروفايل '${plan.profileName}' ⚡")
+                val sysName = if (isUserManager) "اليوزرمانجر" else "الهوتسبوت"
+                _userMessage.emit("تم بنجاح حقن $count كرت في نظام $sysName بالراوتر (${active.host}) ⚡")
             } else {
                 val err = result.exceptionOrNull()?.message ?: "فشل غير معروف"
                 _uiState.update { it.copy(isInjectingToRouter = false, injectProgress = null) }
