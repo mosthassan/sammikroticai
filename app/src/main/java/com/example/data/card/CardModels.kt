@@ -59,6 +59,57 @@ enum class PrintPageFormat(
     THERMAL_ROLL_80MM("رول فواتير حراري (80 مم)", 1, 1, 1)
 }
 
+enum class CardCutLineStyle(val labelAr: String) {
+    CONTINUOUS("مستمر"),
+    CORNER_MARKS("علامات زوايا"),
+    NONE("بدون خطوط")
+}
+
+data class CardPrintGridSettings(
+    val isCustom: Boolean = false,
+    val columns: Int = 3,
+    val rows: Int = 8,
+    val horizontalGapMm: Float = 2.5f,
+    val verticalGapMm: Float = 2.5f,
+    val horizontalMarginMm: Float = 6.5f,
+    val verticalMarginMm: Float = 6f,
+    val autoFitCard: Boolean = true,
+    val cutLineStyle: CardCutLineStyle = CardCutLineStyle.CONTINUOUS
+) {
+    fun normalized(): CardPrintGridSettings {
+        val safeColumns = columns.coerceIn(1, 5)
+        val safeRows = rows.coerceIn(1, 16)
+        val safeGapX = horizontalGapMm.coerceIn(0f, 20f)
+            .coerceAtMost(210f / (safeColumns - 1).coerceAtLeast(1))
+        val safeGapY = verticalGapMm.coerceIn(0f, 20f)
+            .coerceAtMost(297f / (safeRows - 1).coerceAtLeast(1))
+        val safeMarginX = horizontalMarginMm.coerceIn(0f, 40f)
+            .coerceAtMost((210f - (safeColumns - 1) * safeGapX).coerceAtLeast(0f) / 2f)
+        val safeMarginY = verticalMarginMm.coerceIn(0f, 40f)
+            .coerceAtMost((297f - (safeRows - 1) * safeGapY).coerceAtLeast(0f) / 2f)
+        return copy(
+            columns = safeColumns,
+            rows = safeRows,
+            horizontalGapMm = safeGapX,
+            verticalGapMm = safeGapY,
+            horizontalMarginMm = safeMarginX,
+            verticalMarginMm = safeMarginY
+        )
+    }
+
+    fun availableCellWidthMm(): Float {
+        val safe = normalized()
+        return ((210f - 2f * safe.horizontalMarginMm -
+            (safe.columns - 1) * safe.horizontalGapMm) / safe.columns).coerceAtLeast(0f)
+    }
+
+    fun availableCellHeightMm(): Float {
+        val safe = normalized()
+        return ((297f - 2f * safe.verticalMarginMm -
+            (safe.rows - 1) * safe.verticalGapMm) / safe.rows).coerceAtLeast(0f)
+    }
+}
+
 /**
  * Preview Mode for Card Studio
  */
@@ -68,15 +119,41 @@ enum class CardPreviewMode(val displayNameAr: String) {
 }
 
 /**
- * Touch Interactive Position, Offset & Scale for individual card elements.
+ * Element center and dimensions stored as normalized ratios of the card bounds.
  */
 data class ElementLayout(
-    val offsetX: Float = 0f,     // Offset in dp (-150f to 150f)
-    val offsetY: Float = 0f,     // Offset in dp (-100f to 100f)
-    val scale: Float = 1.0f,      // Scale multiplier (0.6f to 1.8f)
-    val widthScale: Float = 1.0f, // Width / Length scale multiplier (0.4f to 2.2f)
-    val isVisible: Boolean = true
-)
+    val xRatio: Float = 0.5f,
+    val yRatio: Float = 0.5f,
+    val widthRatio: Float = 0.30f,
+    val heightRatio: Float = 0.15f,
+    val isVisible: Boolean = true,
+    val textColorHex: Long = 0xFFFFFFFF,
+    val fontSizeScale: Float = 1f,
+    val isBold: Boolean = true
+) {
+    val leftRatio: Float
+        get() = xRatio - widthRatio / 2f
+
+    val topRatio: Float
+        get() = yRatio - heightRatio / 2f
+
+    val rightRatio: Float
+        get() = xRatio + widthRatio / 2f
+
+    val bottomRatio: Float
+        get() = yRatio + heightRatio / 2f
+
+    val scale: Float
+        get() = (heightRatio / DEFAULT_HEIGHT_RATIO).coerceIn(0.6f, 1.8f)
+
+    val widthScale: Float
+        get() = (widthRatio / DEFAULT_WIDTH_RATIO).coerceIn(0.4f, 2.2f)
+
+    companion object {
+        const val DEFAULT_WIDTH_RATIO = 0.30f
+        const val DEFAULT_HEIGHT_RATIO = 0.15f
+    }
+}
 
 /**
  * Card Template Definition with rich styling attributes
@@ -122,16 +199,33 @@ data class CardTemplate(
     val cardHeightMm: Int = 33,
     val cardsPerRow: Int = 3,
     val cardsPerCol: Int = 8,
+    val printGridSettings: CardPrintGridSettings = CardPrintGridSettings(),
     // Interactive Touch Drag & Scale Layouts per Element:
-    val priceLayout: ElementLayout = ElementLayout(),
-    val networkLayout: ElementLayout = ElementLayout(),
-    val codeBoxLayout: ElementLayout = ElementLayout(),
-    val qrCodeLayout: ElementLayout = ElementLayout(),
-    val metaLayout: ElementLayout = ElementLayout(),
-    val supportPhoneLayout: ElementLayout = ElementLayout(),
-    val serialLayout: ElementLayout = ElementLayout(),
+    val priceLayout: ElementLayout = ElementLayout(xRatio = 0.12f, yRatio = 0.12f, widthRatio = 0.22f, heightRatio = 0.15f, textColorHex = 0xFF000000, isBold = true),
+    val networkLayout: ElementLayout = ElementLayout(xRatio = 0.70f, yRatio = 0.12f, widthRatio = 0.48f, heightRatio = 0.16f),
+    val codeBoxLayout: ElementLayout = ElementLayout(xRatio = 0.60f, yRatio = 0.54f, widthRatio = 0.62f, heightRatio = 0.30f, isBold = true),
+    val qrCodeLayout: ElementLayout = ElementLayout(xRatio = 0.12f, yRatio = 0.52f, widthRatio = 0.20f, heightRatio = 0.40f),
+    val metaLayout: ElementLayout = ElementLayout(xRatio = 0.68f, yRatio = 0.42f, widthRatio = 0.45f, heightRatio = 0.15f, textColorHex = 0xFF00F0FF),
+    val supportPhoneLayout: ElementLayout = ElementLayout(xRatio = 0.25f, yRatio = 0.91f, widthRatio = 0.38f, heightRatio = 0.14f, textColorHex = 0xFFE2E8F0),
+    val creationDateLayout: ElementLayout = ElementLayout(xRatio = 0.80f, yRatio = 0.12f, widthRatio = 0.30f, heightRatio = 0.15f),
+    val serialLayout: ElementLayout = ElementLayout(xRatio = 0.80f, yRatio = 0.91f, widthRatio = 0.30f, heightRatio = 0.15f, textColorHex = 0xFFCBD5E1),
     val createdAt: Long = System.currentTimeMillis()
 )
+
+fun defaultElementLayout(elementKey: String): ElementLayout {
+    val defaults = CardTemplate()
+    return when (elementKey) {
+        "price" -> defaults.priceLayout
+        "network" -> defaults.networkLayout
+        "code_box" -> defaults.codeBoxLayout
+        "qr" -> defaults.qrCodeLayout
+        "meta" -> defaults.metaLayout
+        "phone" -> defaults.supportPhoneLayout
+        "date" -> defaults.creationDateLayout
+        "serial" -> defaults.serialLayout
+        else -> defaults.codeBoxLayout
+    }
+}
 
 /**
  * Individual Generated Hotspot Card
@@ -254,4 +348,3 @@ data class NetworkPlanSpec(
         }
     }
 }
-

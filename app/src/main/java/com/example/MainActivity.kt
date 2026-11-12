@@ -182,6 +182,7 @@ class MainActivity : ComponentActivity() {
                 var showCardStudio by rememberSaveable { mutableStateOf(false) }
                 var showQuickCardGeneratorScreen by rememberSaveable { mutableStateOf(false) }
                 var showDeviceMonitorScreen by rememberSaveable { mutableStateOf(false) }
+                var showHotspotUsersScreen by rememberSaveable { mutableStateOf(false) }
                 var showRouterLoginScreen by rememberSaveable { mutableStateOf(false) }
                 var isRouterSessionLoggedIn by rememberSaveable { mutableStateOf(false) }
                 var showSplashScreen by rememberSaveable { mutableStateOf(true) }
@@ -261,6 +262,11 @@ class MainActivity : ComponentActivity() {
                     com.example.ui.screens.NetworkDevicesScreen(
                         networkRepository = appViewModel.networkRepository,
                         onNavigateBack = { showDeviceMonitorScreen = false }
+                    )
+                } else if (showHotspotUsersScreen) {
+                    com.example.ui.screens.HotspotUsersScreen(
+                        viewModel = appViewModel,
+                        onNavigateBack = { showHotspotUsersScreen = false }
                     )
                 } else {
                     Scaffold(
@@ -473,6 +479,7 @@ class MainActivity : ComponentActivity() {
                             onNavigateToAiAssistant = { showAiAssistant = true },
                             onNavigateToCloudSync = { showCloudSyncSheet = true },
                             onNavigateToRouterLogin = { showRouterLoginScreen = true },
+                            onNavigateToHotspotUsers = { showHotspotUsersScreen = true },
                             modifier = modifier
                         )
                         1 -> DashboardScreen(

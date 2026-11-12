@@ -12,6 +12,7 @@ import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
 import com.example.data.card.CodeBoxStyle
 import com.example.data.card.ElementLayout
+import com.example.data.card.defaultElementLayout
 import com.example.data.card.GeneratedCard
 import com.example.data.card.CardCharacterSet
 import com.example.data.card.PasswordPattern
@@ -88,6 +89,7 @@ data class CardStudioUiState(
     val selectedPrintFormat: PrintPageFormat = PrintPageFormat.A4_GRID_24,
     val generatedPdfFile: File? = null,
     val isGeneratingPdf: Boolean = false,
+    val pdfProgress: Pair<Int, Int>? = null,
     val isInjectingToRouter: Boolean = false,
     val injectProgress: Pair<Int, Int>? = null,
     val injectSuccessDialogCount: Int? = null,
@@ -427,15 +429,17 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
 
     fun exportAndSharePdf(context: Context, batch: CardBatch, format: PrintPageFormat = _uiState.value.selectedPrintFormat) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isGeneratingPdf = true)
+            _uiState.value = _uiState.value.copy(isGeneratingPdf = true, pdfProgress = null)
             try {
                 val file = withContext(Dispatchers.IO) {
-                    CardPdfDocumentGenerator.generateBatchPdf(context, batch, format)
+                    CardPdfDocumentGenerator.generateBatchPdf(context, batch, format) { page, total ->
+                        _uiState.update { it.copy(pdfProgress = page to total) }
+                    }
                 }
-                _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false)
+                _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false, pdfProgress = null)
                 CardPdfDocumentGenerator.sharePdfFile(context, file, "كروت الميكروتك - دفعة #${batch.batchNumber}")
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isGeneratingPdf = false)
+                _uiState.value = _uiState.value.copy(isGeneratingPdf = false, pdfProgress = null)
                 _userMessage.emit("خطأ أثناء إنشاء ملف PDF: ${e.message}")
             }
         }
@@ -458,6 +462,7 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             "qr" -> current.copy(qrCodeLayout = layout)
             "meta" -> current.copy(metaLayout = layout)
             "phone" -> current.copy(supportPhoneLayout = layout)
+            "date" -> current.copy(creationDateLayout = layout)
             "serial" -> current.copy(serialLayout = layout)
             else -> current
         }
@@ -467,13 +472,14 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     fun resetAllElementPositions() {
         val current = _uiState.value.editingTemplate
         val updated = current.copy(
-            priceLayout = ElementLayout(),
-            networkLayout = ElementLayout(),
-            codeBoxLayout = ElementLayout(),
-            qrCodeLayout = ElementLayout(),
-            metaLayout = ElementLayout(),
-            supportPhoneLayout = ElementLayout(),
-            serialLayout = ElementLayout()
+            priceLayout = defaultElementLayout("price"),
+            networkLayout = defaultElementLayout("network"),
+            codeBoxLayout = defaultElementLayout("code_box"),
+            qrCodeLayout = defaultElementLayout("qr"),
+            metaLayout = defaultElementLayout("meta"),
+            supportPhoneLayout = defaultElementLayout("phone"),
+            creationDateLayout = defaultElementLayout("date"),
+            serialLayout = defaultElementLayout("serial")
         )
         _uiState.value = _uiState.value.copy(editingTemplate = updated)
         viewModelScope.launch {
@@ -573,12 +579,18 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
 
     fun previewAndSaveSamplePdf(context: Context) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isGeneratingPdf = true)
+            _uiState.value = _uiState.value.copy(isGeneratingPdf = true, pdfProgress = null)
             try {
                 val template = _uiState.value.editingTemplate
                 val format = _uiState.value.selectedPrintFormat
                 val file = withContext(Dispatchers.IO) {
-                    val sampleCards = (1..format.cardsPerPage).map { i ->
+                    val grid = template.printGridSettings.normalized()
+                    val sampleCount = if (grid.isCustom && format != PrintPageFormat.THERMAL_ROLL_80MM) {
+                        grid.columns * grid.rows
+                    } else {
+                        format.cardsPerPage
+                    }
+                    val sampleCards = (1..sampleCount).map { i ->
                         val code = String.format(java.util.Locale.US, "%06d", 820000 + i)
                         GeneratedCard(
                             serialNumber = String.format(java.util.Locale.US, "%06d", i),
@@ -605,13 +617,15 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                         passwordPattern = PasswordPattern.SAME_AS_USERNAME,
                         cards = sampleCards
                     )
-                    CardPdfDocumentGenerator.generateBatchPdf(context, sampleBatch, format)
+                    CardPdfDocumentGenerator.generateBatchPdf(context, sampleBatch, format) { page, total ->
+                        _uiState.update { it.copy(pdfProgress = page to total) }
+                    }
                 }
-                _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false)
+                _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false, pdfProgress = null)
                 CardPdfDocumentGenerator.openOrSharePdfFile(context, file, "معاينة كروت ${template.name} - ورقة ${format.cardsPerPage} كرت")
                 _userMessage.emit("تم تجهيز ورقة الطباعة للمعاينة الفورية 📄✨")
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isGeneratingPdf = false)
+                _uiState.value = _uiState.value.copy(isGeneratingPdf = false, pdfProgress = null)
                 _userMessage.emit("خطأ أثناء تجهيز ورقة المعاينة: ${e.message}")
             }
         }

@@ -1,16 +1,20 @@
 package com.example.data.network
 
 import android.util.Base64
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
+import java.io.EOFException
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import java.net.URLEncoder
 import com.example.data.card.GeneratedCard
 import com.example.data.card.NetworkPlanSpec
 
@@ -29,6 +33,227 @@ class MikrotikApiClient(
     private val username: String = "admin",
     private val password: String = ""
 ) {
+    private companion object {
+        const val QUICK_VERIFY_READ_TIMEOUT_MS = 4_000
+        const val BULK_API_READ_TIMEOUT_MS = 20_000
+        const val LIVE_POLL_READ_TIMEOUT_MS = 5_000
+        const val API_CONNECT_TIMEOUT_MS = 3_000
+        const val MAX_API_WORD_LENGTH = 16 * 1024 * 1024
+    }
+
+    suspend fun fetchHotspotUsers(): Result<List<HotspotUser>> = withContext(Dispatchers.IO) {
+        val socketResult = runCatching { fetchHotspotUsersViaApiSocket() }
+        if (socketResult.isSuccess) return@withContext Result.success(socketResult.getOrThrow())
+
+        val restResult = runCatching { fetchHotspotUsersViaRestApi() }
+        if (restResult.isSuccess) return@withContext Result.success(restResult.getOrThrow())
+
+        Result.failure(
+            Exception(
+                "تعذر قراءة مستخدمي الهوتسبوت عبر API أو REST: " +
+                    "${socketResult.exceptionOrNull()?.message ?: "فشل اتصال API"}؛ " +
+                    "${restResult.exceptionOrNull()?.message ?: "فشل اتصال REST"}"
+            )
+        )
+    }
+
+    suspend fun pollInterfaceTraffic(
+        interfaceName: String,
+        intervalMillis: Long = 1_500L,
+        onSample: (Pair<Double, Double>) -> Unit,
+        onFailure: (Exception) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        val socket = Socket()
+        try {
+            socket.connect(InetSocketAddress(host, apiPort), API_CONNECT_TIMEOUT_MS)
+            socket.soTimeout = LIVE_POLL_READ_TIMEOUT_MS
+            val input = socket.getInputStream()
+            val output = socket.getOutputStream()
+            loginRouterOs(input, output)
+
+            while (currentCoroutineContext().isActive) {
+                val response = executeCommand(
+                    input,
+                    output,
+                    listOf("/interface/monitor-traffic", "=interface=$interfaceName", "=once=")
+                ).firstOrNull().orEmpty()
+                val rxBits = response["rx-bits-per-second"]?.toLongOrNull() ?: 0L
+                val txBits = response["tx-bits-per-second"]?.toLongOrNull() ?: 0L
+                onSample(
+                    Pair(
+                        kotlin.math.round((rxBits / 1_000_000.0) * 100.0) / 100.0,
+                        kotlin.math.round((txBits / 1_000_000.0) * 100.0) / 100.0
+                    )
+                )
+                kotlinx.coroutines.delay(intervalMillis)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onFailure(e)
+        } finally {
+            runCatching { socket.close() }
+        }
+    }
+
+    suspend fun safelyDeleteExpiredHotspotUsers(
+        profileName: String,
+        expectedIds: Set<String>
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(profileName.isNotBlank()) { "اسم البروفايل غير صالح." }
+            require(expectedIds.isNotEmpty() && expectedIds.none(String::isBlank)) {
+                "لم يتم تحديد كروت ذات معرفات صالحة للحذف."
+            }
+
+            val socket = Socket()
+            try {
+                socket.connect(InetSocketAddress(host, apiPort), 2500)
+                socket.soTimeout = 5000
+                val input = socket.getInputStream()
+                val output = socket.getOutputStream()
+                loginRouterOs(input, output)
+                deleteExpiredUsersWithApiSocket(input, output, profileName, expectedIds)
+            } catch (e: java.net.ConnectException) {
+                deleteExpiredUsersWithRestApi(profileName, expectedIds)
+            } catch (e: java.net.SocketTimeoutException) {
+                if (!socket.isConnected) deleteExpiredUsersWithRestApi(profileName, expectedIds) else throw e
+            } finally {
+                runCatching { socket.close() }
+            }
+        }
+    }
+
+    private fun fetchHotspotUsersViaApiSocket(): List<HotspotUser> {
+        val socket = Socket()
+        socket.connect(InetSocketAddress(host, apiPort), 2500)
+        socket.soTimeout = 5000
+        val input = socket.getInputStream()
+        val output = socket.getOutputStream()
+        try {
+            loginRouterOs(input, output)
+            return readHotspotUsersFromApi(input, output)
+        } finally {
+            runCatching { input.close() }
+            runCatching { output.close() }
+            runCatching { socket.close() }
+        }
+    }
+
+    private fun readHotspotUsersFromApi(
+        input: InputStream,
+        output: OutputStream
+    ): List<HotspotUser> {
+        val userRecords = executeCommand(input, output, listOf("/ip/hotspot/user/print"))
+        val activeUsernames = executeCommand(input, output, listOf("/ip/hotspot/active/print"))
+            .mapNotNull { it["user"] }
+            .toSet()
+        return userRecords.map { record ->
+            val username = record["name"].orEmpty()
+            HotspotUser(
+                id = record[".id"].orEmpty(),
+                username = username,
+                profile = record["profile"].orEmpty().ifBlank { "default" },
+                uptimeSeconds = parseRouterOsDurationSeconds(record["uptime"]),
+                bytesIn = parseNonNegativeLong(record["bytes-in"]),
+                bytesOut = parseNonNegativeLong(record["bytes-out"]),
+                limitBytesTotal = parseNonNegativeLong(record["limit-bytes-total"]),
+                limitUptimeSeconds = parseRouterOsDurationSeconds(record["limit-uptime"]),
+                comment = record["comment"].orEmpty(),
+                isOnline = username in activeUsernames
+            )
+        }
+    }
+
+    private fun fetchHotspotUsersViaRestApi(): List<HotspotUser> {
+        val authHeader = basicAuthHeader()
+        val userRecords = httpGetJsonArray("/rest/ip/hotspot/user", authHeader)
+        val activeUsers = httpGetJsonArray("/rest/ip/hotspot/active", authHeader)
+        val activeUsernames = (0 until activeUsers.length()).mapNotNull { index ->
+            activeUsers.optJSONObject(index)?.optString("user")?.takeIf(String::isNotBlank)
+        }.toSet()
+
+        return (0 until userRecords.length()).mapNotNull { index ->
+            val record = userRecords.optJSONObject(index) ?: return@mapNotNull null
+            val username = record.optString("name", "")
+            HotspotUser(
+                id = record.optString(".id", ""),
+                username = username,
+                profile = record.optString("profile", "default").ifBlank { "default" },
+                uptimeSeconds = parseRouterOsDurationSeconds(record.optStringOrNull("uptime")),
+                bytesIn = parseNonNegativeLong(record.optStringOrNull("bytes-in")),
+                bytesOut = parseNonNegativeLong(record.optStringOrNull("bytes-out")),
+                limitBytesTotal = parseNonNegativeLong(record.optStringOrNull("limit-bytes-total")),
+                limitUptimeSeconds = parseRouterOsDurationSeconds(record.optStringOrNull("limit-uptime")),
+                comment = record.optString("comment", ""),
+                isOnline = username in activeUsernames
+            )
+        }
+    }
+
+    private fun deleteExpiredUsersWithApiSocket(
+        input: InputStream,
+        output: OutputStream,
+        profileName: String,
+        expectedIds: Set<String>
+    ): Int {
+        val initialUsers = readHotspotUsersFromApi(input, output)
+        val candidates = initialUsers.filter {
+            it.profile == profileName && it.status == HotspotUserStatus.EXPIRED
+        }
+        check(candidates.map { it.id }.toSet() == expectedIds && candidates.all { it.id.isNotBlank() }) {
+            "تغيرت بيانات البروفايل منذ الفحص؛ لم يُحذف أي كرت. حدّث القائمة وأعد المحاولة."
+        }
+
+        var deletedCount = 0
+        for (id in expectedIds) {
+            val latestUser = readHotspotUsersFromApi(input, output).firstOrNull { it.id == id }
+                ?: error("تعذر إعادة التحقق من أحد الكروت؛ تم إيقاف التنظيف.")
+            check(latestUser.profile == profileName && latestUser.status == HotspotUserStatus.EXPIRED) {
+                "تغيرت حالة أحد الكروت أو اتصاله؛ تم إيقاف التنظيف عند $deletedCount كرت."
+            }
+            executeCommand(input, output, listOf("/ip/hotspot/user/remove", "=.id=$id"))
+            check(readHotspotUsersFromApi(input, output).none { it.id == id }) {
+                "لم يؤكد الراوتر حذف الكرت ${latestUser.username}."
+            }
+            deletedCount++
+        }
+        return deletedCount
+    }
+
+    private fun deleteExpiredUsersWithRestApi(
+        profileName: String,
+        expectedIds: Set<String>
+    ): Int {
+        val authHeader = basicAuthHeader()
+        fun readUsers() = fetchHotspotUsersViaRestApi()
+
+        val initialUsers = readUsers()
+        val candidates = initialUsers.filter {
+            it.profile == profileName && it.status == HotspotUserStatus.EXPIRED
+        }
+        check(candidates.map { it.id }.toSet() == expectedIds && candidates.all { it.id.isNotBlank() }) {
+            "تغيرت بيانات البروفايل منذ الفحص؛ لم يُحذف أي كرت. حدّث القائمة وأعد المحاولة."
+        }
+
+        var deletedCount = 0
+        for (id in expectedIds) {
+            val latestUser = readUsers().firstOrNull { it.id == id }
+                ?: error("تعذر إعادة التحقق من أحد الكروت؛ تم إيقاف التنظيف.")
+            check(latestUser.profile == profileName && latestUser.status == HotspotUserStatus.EXPIRED) {
+                "تغيرت حالة أحد الكروت أو اتصاله؛ تم إيقاف التنظيف عند $deletedCount كرت."
+            }
+            httpDelete("/rest/ip/hotspot/user/${URLEncoder.encode(id, Charsets.UTF_8.name())}", authHeader)
+            check(readUsers().none { it.id == id }) {
+                "لم يؤكد الراوتر حذف الكرت ${latestUser.username}."
+            }
+            deletedCount++
+        }
+        return deletedCount
+    }
+
+    private fun basicAuthHeader(): String =
+        "Basic " + Base64.encodeToString("$username:$password".toByteArray(), Base64.NO_WRAP)
 
     data class RealRouterData(
         val isLiveConnected: Boolean,
@@ -54,53 +279,41 @@ class MikrotikApiClient(
         val errorMessage: String? = null
     )
 
-    /**
-     * Fast login handshake and basic identity/resource fetch (takes ~300-600ms).
-     * Used for instantaneous authentication verification on login screen.
-     */
+    /** Verifies credentials only; router data is fetched after the login screen is dismissed. */
     suspend fun quickVerifyLogin(): Result<QuickVerifyResult> = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
 
         // 1. Try Native RouterOS API Socket (Port 8728)
-        val socketResult = runCatching {
+        val socketResult = try {
             val socket = Socket()
             socket.connect(InetSocketAddress(host, apiPort), 3000)
-            socket.soTimeout = 4000
+            socket.soTimeout = QUICK_VERIFY_READ_TIMEOUT_MS
             val inStream = socket.getInputStream()
             val outStream = socket.getOutputStream()
             try {
                 loginRouterOs(inStream, outStream)
-                val resSentences = executeCommand(inStream, outStream, listOf("/system/resource/print"))
-                val resMap = resSentences.firstOrNull() ?: emptyMap()
-                val idSentences = runCatching {
-                    executeCommand(inStream, outStream, listOf("/system/identity/print"))
-                }.getOrDefault(emptyList())
-                val idName = idSentences.firstOrNull()?.get("name") ?: resMap["board-name"] ?: host
-
-                val uptime = resMap["uptime"] ?: "0m"
-                val version = resMap["version"] ?: "RouterOS"
-                val cpuLoad = resMap["cpu-load"]?.toIntOrNull() ?: 0
-                val freeMemBytes = resMap["free-memory"]?.toLongOrNull() ?: 0L
-                val totalMemBytes = resMap["total-memory"]?.toLongOrNull() ?: 0L
-                val boardName = resMap["board-name"] ?: resMap["model"] ?: "MikroTik RouterBOARD"
-                val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
-
-                QuickVerifyResult(
-                    success = true,
-                    boardName = boardName,
-                    identityName = idName,
-                    version = version,
-                    cpuLoad = cpuLoad,
-                    uptime = uptime,
-                    freeMemoryMb = if (totalMemBytes > 0) ((totalMemBytes - freeMemBytes).toFloat() / (1024f * 1024f)) else 0f,
-                    totalMemoryMb = if (totalMemBytes > 0) (totalMemBytes.toFloat() / (1024f * 1024f)) else 0f,
-                    latencyMs = latency
+                Result.success(
+                    QuickVerifyResult(
+                        success = true,
+                        boardName = "MikroTik Router",
+                        identityName = host,
+                        version = "RouterOS",
+                        cpuLoad = 0,
+                        uptime = "--",
+                        freeMemoryMb = 0f,
+                        totalMemoryMb = 0f,
+                        latencyMs = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
+                    )
                 )
             } finally {
                 runCatching { inStream.close() }
                 runCatching { outStream.close() }
                 runCatching { socket.close() }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
         }
         if (socketResult.isSuccess) {
             return@withContext Result.success(socketResult.getOrThrow())
@@ -109,27 +322,17 @@ class MikrotikApiClient(
         // 2. Try REST API if socket failed
         val restResult = runCatching {
             val authHeader = "Basic " + Base64.encodeToString("$username:$password".toByteArray(), Base64.NO_WRAP)
-            val resJson = httpGetJson("/rest/system/resource", authHeader)
-            val idJson = runCatching { httpGetJson("/rest/system/identity", authHeader) }.getOrNull()
-            val idName = idJson?.optString("name", host) ?: host
-            val uptime = resJson.optString("uptime", "0m")
-            val version = resJson.optString("version", "RouterOS v7")
-            val cpuLoad = resJson.optInt("cpu-load", 0)
-            val freeMem = resJson.optLong("free-memory", 0L)
-            val totalMem = resJson.optLong("total-memory", 0L)
-            val boardName = resJson.optString("board-name", resJson.optString("model", "MikroTik"))
-            val latency = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
-
+            httpGetJson("/rest/system/resource", authHeader)
             QuickVerifyResult(
                 success = true,
-                boardName = boardName,
-                identityName = idName,
-                version = version,
-                cpuLoad = cpuLoad,
-                uptime = uptime,
-                freeMemoryMb = if (totalMem > 0) ((totalMem - freeMem).toFloat() / (1024f * 1024f)) else 0f,
-                totalMemoryMb = if (totalMem > 0) (totalMem.toFloat() / (1024f * 1024f)) else 0f,
-                latencyMs = latency
+                boardName = "MikroTik Router",
+                identityName = host,
+                version = "RouterOS",
+                cpuLoad = 0,
+                uptime = "--",
+                freeMemoryMb = 0f,
+                totalMemoryMb = 0f,
+                latencyMs = (System.currentTimeMillis() - startTime).coerceAtLeast(1L)
             )
         }
         if (restResult.isSuccess) {
@@ -283,7 +486,7 @@ class MikrotikApiClient(
      * Runs asynchronously in the background.
      */
     suspend fun fetchRealRouterState(): Result<RealRouterData> = withContext(Dispatchers.IO) {
-        kotlinx.coroutines.withTimeoutOrNull(20000L) {
+        kotlinx.coroutines.withTimeoutOrNull(90_000L) {
             val startTime = System.currentTimeMillis()
 
             // 1. Try Native RouterOS API via TCP Socket (Port 8728)
@@ -324,7 +527,7 @@ class MikrotikApiClient(
     private fun fetchViaRouterOsApiSocket(): RealRouterData {
         val socket = Socket()
         socket.connect(InetSocketAddress(host, apiPort), 1800)
-        socket.soTimeout = 2000
+        socket.soTimeout = BULK_API_READ_TIMEOUT_MS
 
         val inStream = socket.getInputStream()
         val outStream = socket.getOutputStream()
@@ -430,8 +633,8 @@ class MikrotikApiClient(
                 val bytesIn = u["bytes-in"]?.toLongOrNull() ?: 0L
                 val bytesOut = u["bytes-out"]?.toLongOrNull() ?: 0L
                 val comment = u["comment"] ?: ""
-                val totalUsed = bytesIn + bytesOut
-                totalBytesConsumed += totalUsed
+                val totalUsed = saturatingAdd(bytesIn, bytesOut)
+                totalBytesConsumed = saturatingAdd(totalBytesConsumed, totalUsed)
                 if (limitBytesTotal > 0) totalBytesLimitSum += limitBytesTotal
 
                 val isExpired = disabled ||
@@ -595,6 +798,8 @@ class MikrotikApiClient(
             if (secondResp.firstOrNull()?.startsWith("!done") != true) {
                 throw Exception("فشل تسجيل الدخول القديم في الراوتر")
             }
+        } else if (firstWord != "!done") {
+            throw Exception("RouterOS did not confirm API login.")
         }
     }
 
@@ -605,11 +810,15 @@ class MikrotikApiClient(
         writeSentence(outStream, words)
         val list = mutableListOf<Map<String, String>>()
         var trapMsg: String? = null
-        while (true) {
+        var completed = false
+        while (!completed) {
             val sentence = readSentence(inStream)
-            if (sentence.isEmpty()) break
+            if (sentence.isEmpty()) throw EOFException("أرسل RouterOS استجابة API فارغة قبل اكتمال الأمر.")
             val type = sentence.firstOrNull() ?: ""
-            if (type == "!done") break
+            if (type == "!done") {
+                completed = true
+                continue
+            }
             if (type == "!trap") {
                 val msg = sentence.find { it.startsWith("=message=") }?.removePrefix("=message=") ?: "API Trap"
                 trapMsg = msg
@@ -646,7 +855,7 @@ class MikrotikApiClient(
     private fun readSentence(input: InputStream): List<String> {
         val list = mutableListOf<String>()
         while (true) {
-            val word = readWord(input)
+            val word = readWord(input) ?: throw EOFException("انقطع اتصال RouterOS أثناء قراءة استجابة API.")
             if (word.isEmpty()) break
             list.add(word)
         }
@@ -677,27 +886,36 @@ class MikrotikApiClient(
         out.write(bytes)
     }
 
-    private fun readWord(input: InputStream): String {
+    private fun readWord(input: InputStream): String? {
         val b = input.read()
-        if (b == -1 || b == 0) return ""
+        if (b == -1) return null
+        if (b == 0) return ""
         val len: Int
         if ((b and 0x80) == 0) {
             len = b
         } else if ((b and 0xC0) == 0x80) {
-            len = ((b and 0x3F) shl 8) or input.read()
+            len = ((b and 0x3F) shl 8) or input.read().requireWordLengthByte()
         } else if ((b and 0xE0) == 0xC0) {
-            len = ((b and 0x1F) shl 16) or (input.read() shl 8) or input.read()
+            len = ((b and 0x1F) shl 16) or (input.read().requireWordLengthByte() shl 8) or
+                input.read().requireWordLengthByte()
         } else {
-            len = ((b and 0x0F) shl 24) or (input.read() shl 16) or (input.read() shl 8) or input.read()
+            len = ((b and 0x0F) shl 24) or (input.read().requireWordLengthByte() shl 16) or
+                (input.read().requireWordLengthByte() shl 8) or input.read().requireWordLengthByte()
         }
+        require(len in 0..MAX_API_WORD_LENGTH) { "RouterOS API word length is invalid: $len" }
         val buf = ByteArray(len)
         var offset = 0
         while (offset < len) {
             val r = input.read(buf, offset, len - offset)
-            if (r == -1) break
+            if (r == -1) throw EOFException("انقطع اتصال RouterOS داخل كلمة API.")
             offset += r
         }
-        return String(buf, 0, offset, Charsets.UTF_8)
+        return String(buf, Charsets.UTF_8)
+    }
+
+    private fun Int.requireWordLengthByte(): Int {
+        if (this == -1) throw EOFException("انقطع اتصال RouterOS أثناء قراءة طول كلمة API.")
+        return this
     }
 
     /**
@@ -762,8 +980,8 @@ class MikrotikApiClient(
             val limitBytes = u.optLong("limit-bytes-total", 0L)
             val bytesIn = u.optLong("bytes-in", 0L)
             val bytesOut = u.optLong("bytes-out", 0L)
-            val totalUsed = bytesIn + bytesOut
-            totalBytesConsumed += totalUsed
+            val totalUsed = saturatingAdd(bytesIn, bytesOut)
+            totalBytesConsumed = saturatingAdd(totalBytesConsumed, totalUsed)
             val comment = u.optString("comment", "")
             if (disabled || (limitBytes > 0 && totalUsed >= limitBytes) || comment.contains("expired", ignoreCase = true)) {
                 expiredCount++
@@ -861,6 +1079,25 @@ class MikrotikApiClient(
         return JSONArray(text)
     }
 
+    private fun httpDelete(path: String, authHeader: String) {
+        val conn = URL("http://$host:$httpPort$path").openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 2500
+            conn.readTimeout = 5000
+            conn.requestMethod = "DELETE"
+            conn.setRequestProperty("Authorization", authHeader)
+            conn.setRequestProperty("Accept", "application/json")
+            if (conn.responseCode !in 200..299) {
+                throw Exception("HTTP ${conn.responseCode} on $path")
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun JSONObject.optStringOrNull(name: String): String? =
+        if (isNull(name)) null else optString(name, null)
+
     private fun mapCategory(type: String, name: String): InterfaceCategory {
         return when {
             type.contains("bridge", ignoreCase = true) -> InterfaceCategory.BRIDGE
@@ -898,4 +1135,7 @@ class MikrotikApiClient(
         }
         return data
     }
+
+    private fun saturatingAdd(left: Long, right: Long): Long =
+        if (left < 0L || right < 0L || Long.MAX_VALUE - left < right) Long.MAX_VALUE else left + right
 }

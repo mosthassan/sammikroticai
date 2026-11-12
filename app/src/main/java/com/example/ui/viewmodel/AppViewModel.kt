@@ -101,6 +101,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val routerProfiles: StateFlow<List<com.example.data.network.RouterConnectionProfile>> = routerProfilesRepository.profiles
     val activeRouterProfile: StateFlow<com.example.data.network.RouterConnectionProfile?> = routerProfilesRepository.activeProfile
 
+    suspend fun fetchHotspotUsers(): Result<List<com.example.data.network.HotspotUser>> =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val active = activeRouterProfile.value
+                ?: return@withContext Result.failure(Exception("لا يوجد راوتر نشط. اختر راوتراً أولاً."))
+            com.example.data.network.MikrotikApiClient(
+                host = active.host,
+                apiPort = active.apiPort,
+                httpPort = active.webPort,
+                username = active.username,
+                password = active.password
+            ).fetchHotspotUsers()
+        }
+
+    suspend fun safelyDeleteExpiredHotspotUsers(
+        profileName: String,
+        expectedIds: Set<String>
+    ): Result<Int> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val active = activeRouterProfile.value
+            ?: return@withContext Result.failure(Exception("لا يوجد راوتر نشط. لم يتم حذف أي كرت."))
+        com.example.data.network.MikrotikApiClient(
+            host = active.host,
+            apiPort = active.apiPort,
+            httpPort = active.webPort,
+            username = active.username,
+            password = active.password
+        ).safelyDeleteExpiredHotspotUsers(profileName, expectedIds)
+    }
+
     fun selectActiveRouter(profileId: String, onConnected: () -> Unit = {}) {
         viewModelScope.launch {
             val active = routerProfilesRepository.setActiveProfile(profileId)
@@ -138,11 +166,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             username = profile.username,
             password = profile.password
         )
-        // 1. Instant Verification (< 600ms) with generous 8s network headroom
+        // Keep the quick check bounded; bulk hotspot reads run only after authentication.
         val result = try {
-            kotlinx.coroutines.withTimeout(8000L) {
+            kotlinx.coroutines.withTimeout(15_000L) {
                 client.quickVerifyLogin()
             }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Result.failure(Exception("انتهت مهلة التحقق من الراوتر."))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(Exception(e.message ?: "تعذر التحقق من الراوتر"))
         }
@@ -156,34 +188,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 lastConnectedAt = System.currentTimeMillis(),
                 isActive = true
             )
-            routerProfilesRepository.saveProfile(updatedProfile)
-            routerProfilesRepository.setActiveProfile(updatedProfile.id)
-            networkRepository.saveConfig(
-                networkRepository.config.value.copy(
-                    mainRouterModel = "${quickData.boardName} (${quickData.identityName})",
-                    adminPort = updatedProfile.apiPort
-                )
+            liveTrafficManager.setAuthenticatedState(
+                "تم التحقق من بيانات الدخول إلى ${profile.host}. جاري مزامنة بيانات الراوتر في الخلفية..."
             )
-            // Immediately initialize basic telemetry so dashboard shows real data instantly!
-            networkRepository.updateRealTelemetry(
-                com.example.data.network.RouterTelemetry(
-                    routerIp = profile.host,
-                    routerModel = quickData.boardName,
-                    routerOsVersion = quickData.version,
-                    uptime = quickData.uptime,
-                    cpuLoadPercent = quickData.cpuLoad,
-                    memoryUsedMb = (quickData.totalMemoryMb - quickData.freeMemoryMb).coerceAtLeast(0f),
-                    memoryTotalMb = quickData.totalMemoryMb,
-                    isCloudConnected = true,
-                    lastUpdated = System.currentTimeMillis()
-                )
-            )
-            liveTrafficManager.setConnectingState("تم الاتصال بالراوتر (${quickData.identityName}). جاري قراءة الواجهات...")
-            _userMessage.emit("✅ تم الاتصال الحقيقي بالراوتر: ${quickData.identityName} (${quickData.boardName})")
+            if (!_userMessage.tryEmit("✅ تم التحقق من بيانات الدخول إلى الراوتر ${profile.host}")) {
+                android.util.Log.w("AppViewModel", "Login success message was skipped because the snackbar consumer is busy")
+            }
 
-            // 2. Launch background sync for 114 interfaces, traffic, and users without blocking login screen!
+            // Return authentication success without waiting for local persistence or router synchronization.
             viewModelScope.launch(Dispatchers.IO) {
-                runCatching {
+                var persistenceWarning: String? = null
+                try {
+                    routerProfilesRepository.saveProfile(updatedProfile)
+                    routerProfilesRepository.setActiveProfile(updatedProfile.id)
+                    networkRepository.saveConfig(
+                        networkRepository.config.value.copy(adminPort = updatedProfile.apiPort)
+                    )
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    persistenceWarning =
+                        "تم تسجيل الدخول، لكن تعذر حفظ ملف الراوتر: ${e.message ?: "خطأ غير معروف"}"
+                }
+
+                try {
                     val fullData = client.fetchRealRouterState().getOrThrow()
                     networkRepository.updateRealTelemetry(fullData.telemetry)
                     if (fullData.arpDevices.isNotEmpty()) {
@@ -197,6 +225,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     val primaryName = liveTrafficManager.selectedInterface.value.name
                     liveTrafficManager.startRealInterfacePolling(client, primaryName)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val syncWarning = "تم تسجيل الدخول إلى ${profile.host}؛ تعذرت المزامنة الأولية: " +
+                        (e.message ?: "خطأ غير معروف")
+                    persistenceWarning = listOfNotNull(persistenceWarning, syncWarning).joinToString(" ")
+                }
+
+                persistenceWarning?.let { warning ->
+                    liveTrafficManager.setLiveSyncWarning(warning)
+                    _userMessage.emit(warning)
                 }
             }
             Result.success(quickData)
@@ -2248,4 +2287,3 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
-

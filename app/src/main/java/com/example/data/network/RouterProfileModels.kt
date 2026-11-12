@@ -25,6 +25,7 @@ data class RouterConnectionProfile(
     val name: String = "10.0.0.1",
     val connectionType: RouterConnectionType = RouterConnectionType.IP,
     val host: String = "10.0.0.1",
+    val routerMac: String = "",
     val apiPort: Int = 8728,
     val webPort: Int = 80,
     val username: String = "admin",
@@ -74,6 +75,7 @@ class RouterProfilesRepository(private val context: Context) {
                                 RouterConnectionType.valueOf(obj.optString("connectionType", "IP"))
                             }.getOrDefault(RouterConnectionType.IP),
                             host = obj.optString("host", "10.0.0.1"),
+                            routerMac = obj.optString("routerMac", ""),
                             apiPort = obj.optInt("apiPort", 8728),
                             webPort = obj.optInt("webPort", 80),
                             username = obj.optString("username", "admin"),
@@ -212,6 +214,7 @@ class RouterProfilesRepository(private val context: Context) {
                 put("name", p.name)
                 put("connectionType", p.connectionType.name)
                 put("host", p.host)
+                put("routerMac", p.routerMac)
                 put("apiPort", p.apiPort)
                 put("webPort", p.webPort)
                 put("username", p.username)
@@ -251,6 +254,7 @@ class RouterProfilesRepository(private val context: Context) {
                             RouterConnectionType.valueOf(obj.optString("connectionType", "IP"))
                         }.getOrDefault(RouterConnectionType.IP),
                         host = obj.optString("host", "10.0.0.1"),
+                        routerMac = obj.optString("routerMac", ""),
                         apiPort = obj.optInt("apiPort", 8728),
                         webPort = obj.optInt("webPort", 80),
                         username = obj.optString("username", "admin"),
@@ -285,6 +289,7 @@ class RouterProfilesRepository(private val context: Context) {
                 put("name", p.name)
                 put("connectionType", p.connectionType.name)
                 put("host", p.host)
+                put("routerMac", p.routerMac)
                 put("apiPort", p.apiPort)
                 put("webPort", p.webPort)
                 put("username", p.username)

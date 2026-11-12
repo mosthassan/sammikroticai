@@ -105,9 +105,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.network.ConnectionTestResult
+import com.example.data.network.DiscoveredRouter
 import com.example.data.network.DeviceStatus
 import com.example.data.network.RouterConnectionProfile
 import com.example.data.network.RouterConnectionType
+import com.example.data.network.RouterDiscoveryClient
 import com.example.data.network.RouterProfilesRepository
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberDarkCanvas
@@ -163,6 +165,10 @@ fun RouterLoginScreen(
     var isAdvancedExpanded by rememberSaveable { mutableStateOf(false) }
     var customRouterName by rememberSaveable { mutableStateOf("") }
     var radiusHostInput by rememberSaveable { mutableStateOf("") }
+    var routerMacInput by rememberSaveable { mutableStateOf("") }
+    var discoveredRouters by remember { mutableStateOf<List<DiscoveredRouter>>(emptyList()) }
+    var isScanningRouters by remember { mutableStateOf(false) }
+    var discoveryError by remember { mutableStateOf<String?>(null) }
 
     // Test connection probe feedback
     var isTestingConnection by rememberSaveable { mutableStateOf(false) }
@@ -173,6 +179,12 @@ fun RouterLoginScreen(
     var authJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var authErrorTitle by remember { mutableStateOf<String?>(null) }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    suspend fun completeLogin(profile: RouterConnectionProfile) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+            onLoginSuccess(profile)
+        }
+    }
 
     // Backup restore dialog
     var showRestoreBackupDialog by rememberSaveable { mutableStateOf(false) }
@@ -194,7 +206,8 @@ fun RouterLoginScreen(
         ignoreSessionsOnSync = profile.ignoreSessionsOnSync
         customRouterName = profile.name
         radiusHostInput = profile.radiusHost
-        selectedTab = 1
+        routerMacInput = profile.routerMac
+        selectedTab = 0
     }
 
     fun resetForm() {
@@ -210,7 +223,56 @@ fun RouterLoginScreen(
         isAdvancedExpanded = false
         customRouterName = ""
         radiusHostInput = ""
+        routerMacInput = ""
         connectionTestResult = null
+    }
+
+    fun connectDiscoveredRouter(router: DiscoveredRouter) {
+        val savedProfile = profiles.firstOrNull { it.host.equals(router.ipAddress, ignoreCase = true) }
+        if (savedProfile != null) {
+            selectedProfileId = savedProfile.id
+            authJob?.cancel()
+            authJob = scope.launch {
+                try {
+                    isAuthenticatingWithRouter = true
+                    authErrorTitle = null
+                    authErrorMessage = null
+                    val profileWithMac = savedProfile.copy(routerMac = router.macAddress)
+                    repository.saveProfile(profileWithMac)
+                    val result = viewModel.verifyAndConnectRouter(profileWithMac)
+                    if (result.isSuccess) {
+                        completeLogin(profileWithMac)
+                    } else {
+                        authErrorTitle = "تعذر الاتصال بالراوتر (${router.identity})"
+                        authErrorMessage = result.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
+                    }
+                } finally {
+                    isAuthenticatingWithRouter = false
+                }
+            }
+        } else {
+            resetForm()
+            hostInput = router.ipAddress
+            customRouterName = router.identity
+            routerMacInput = router.macAddress
+            usernameInput = "admin"
+            passwordInput = ""
+            selectedTab = 0
+        }
+    }
+
+    fun scanForRouters() {
+        scope.launch {
+            isScanningRouters = true
+            discoveryError = null
+            RouterDiscoveryClient(context).discover().fold(
+                onSuccess = { discoveredRouters = it },
+                onFailure = {
+                    discoveryError = it.message ?: "تعذر اكتشاف أجهزة الشبكة."
+                }
+            )
+            isScanningRouters = false
+        }
     }
 
     Box(
@@ -322,7 +384,7 @@ fun RouterLoginScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 2. Segmented Tab Row (Matching MkCards Tabs: الراوترات المسجلة vs بيانات الدخول)
+            // 2. Login, saved routers, and local discovery tabs.
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = CyberDarkCardElevated,
@@ -343,8 +405,29 @@ fun RouterLoginScreen(
                     onClick = { selectedTab = 0 },
                     text = {
                         Text(
-                            text = "الراوترات المسجّلة",
+                            text = "بيانات الدخول",
                             fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 14.sp
+                        )
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Login,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    selectedContentColor = MikroTikCyan,
+                    unselectedContentColor = TextMutedDark,
+                    modifier = Modifier.testTag("tab_login_credentials")
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = {
+                        Text(
+                            text = "الراوترات المسجّلة",
+                            fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
                             fontSize = 14.sp
                         )
                     },
@@ -360,25 +443,28 @@ fun RouterLoginScreen(
                     modifier = Modifier.testTag("tab_saved_routers")
                 )
                 Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
+                    selected = selectedTab == 2,
+                    onClick = {
+                        selectedTab = 2
+                        if (discoveredRouters.isEmpty() && !isScanningRouters) scanForRouters()
+                    },
                     text = {
                         Text(
-                            text = "بيانات الدخول",
-                            fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
+                            text = "الأجهزة المكتشفة",
+                            fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
                             fontSize = 14.sp
                         )
                     },
                     icon = {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Login,
+                            imageVector = Icons.Default.Wifi,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
                     },
                     selectedContentColor = MikroTikCyan,
                     unselectedContentColor = TextMutedDark,
-                    modifier = Modifier.testTag("tab_login_credentials")
+                    modifier = Modifier.testTag("tab_discovered_routers")
                 )
             }
 
@@ -386,8 +472,8 @@ fun RouterLoginScreen(
 
             // 3. Tab Body
             Box(modifier = Modifier.weight(1f)) {
-                if (selectedTab == 0) {
-                    // TAB 0: الراوترات المسجلة
+                if (selectedTab == 1) {
+                    // TAB 1: الراوترات المسجلة
                     SavedRoutersTabContent(
                         profiles = profiles,
                         selectedProfileId = selectedProfileId,
@@ -402,7 +488,7 @@ fun RouterLoginScreen(
                                     val res = viewModel.verifyAndConnectRouter(profile)
                                     if (res.isSuccess) {
                                         Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
-                                        onLoginSuccess(profile)
+                                        completeLogin(profile)
                                     } else {
                                         authErrorTitle = "تعذر الاتصال بالراوتر (${profile.name})"
                                         authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
@@ -420,7 +506,7 @@ fun RouterLoginScreen(
                         },
                         onAddNew = {
                             resetForm()
-                            selectedTab = 1
+                            selectedTab = 0
                         },
                         onRefreshAll = {
                             scope.launch {
@@ -448,7 +534,7 @@ fun RouterLoginScreen(
                                         val res = viewModel.verifyAndConnectRouter(target)
                                         if (res.isSuccess) {
                                             Toast.makeText(context, "تم الاتصال الحقيقي بالراوتر بنجاح", Toast.LENGTH_SHORT).show()
-                                            onLoginSuccess(target)
+                                            completeLogin(target)
                                         } else {
                                             authErrorTitle = "تعذر تسجيل الدخول للراوتر (${target.name})"
                                             authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بالراوتر"
@@ -468,8 +554,8 @@ fun RouterLoginScreen(
                             showRestoreBackupDialog = true
                         }
                     )
-                } else {
-                    // TAB 1: بيانات الدخول
+                } else if (selectedTab == 0) {
+                    // TAB 0: بيانات الدخول
                     LoginCredentialsTabContent(
                         editingProfileId = editingProfileId,
                         connectionType = connectionType,
@@ -494,6 +580,7 @@ fun RouterLoginScreen(
                         onToggleAdvanced = { isAdvancedExpanded = !isAdvancedExpanded },
                         customRouterName = customRouterName,
                         onCustomRouterNameChange = { customRouterName = it },
+                        routerMac = routerMacInput,
                         radiusHostInput = radiusHostInput,
                         onRadiusHostChange = { radiusHostInput = it },
                         isTestingConnection = isTestingConnection,
@@ -519,6 +606,7 @@ fun RouterLoginScreen(
                                 name = nameToUse,
                                 connectionType = connectionType,
                                 host = hostInput.trim(),
+                                routerMac = routerMacInput,
                                 apiPort = port,
                                 username = usernameInput.trim().ifEmpty { "admin" },
                                 password = passwordInput,
@@ -541,11 +629,16 @@ fun RouterLoginScreen(
                                     val res = viewModel.verifyAndConnectRouter(profile)
                                     if (res.isSuccess) {
                                         Toast.makeText(context, "تم حفظ بيانات الراوتر والاتصال الحقيقي بنجاح", Toast.LENGTH_SHORT).show()
-                                        onLoginSuccess(profile)
+                                        completeLogin(profile)
                                     } else {
                                         authErrorTitle = "فشل الاتصال بالراوتر (${profile.host}:$port)"
                                         authErrorMessage = res.exceptionOrNull()?.message ?: "فشل الاتصال بمنفذ الراوتر"
                                     }
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    authErrorTitle = "تعذر إكمال تسجيل الدخول"
+                                    authErrorMessage = e.message ?: "حدث خطأ أثناء حفظ بيانات الراوتر أو تفعيل الجلسة."
                                 } finally {
                                     isAuthenticatingWithRouter = false
                                 }
@@ -556,6 +649,15 @@ fun RouterLoginScreen(
                             resetForm()
                             selectedTab = 0
                         }
+                    )
+                } else {
+                    DiscoveredRoutersTabContent(
+                        routers = discoveredRouters,
+                        isScanning = isScanningRouters,
+                        errorMessage = discoveryError,
+                        isConnecting = isAuthenticatingWithRouter,
+                        onScanAgain = ::scanForRouters,
+                        onSelectRouter = ::connectDiscoveredRouter
                     )
                 }
             }
@@ -705,7 +807,7 @@ fun RouterLoginScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "يتم الآن فحص منفذ API 8728 الفعلي ومصادقة المستخدم مع الراوتر بمهلة سريعة (أقل من 3 ثوانٍ)...",
+                        text = "يتم التحقق من بيانات الدخول عبر RouterOS API. تُحمّل بيانات الراوتر بعد فتح لوحة التحكم.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondaryDark
                     )
@@ -1221,6 +1323,128 @@ private fun RouterCardItem(
     }
 }
 
+@Composable
+private fun DiscoveredRoutersTabContent(
+    routers: List<DiscoveredRouter>,
+    isScanning: Boolean,
+    errorMessage: String?,
+    isConnecting: Boolean,
+    onScanAgain: () -> Unit,
+    onSelectRouter: (DiscoveredRouter) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Button(
+            onClick = onScanAgain,
+            enabled = !isScanning,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF065F46)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            if (isScanning) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp
+                )
+                Spacer(Modifier.width(8.dp))
+            } else {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(if (isScanning) "جاري البحث عن أجهزة..." else "بحث عن أجهزة")
+        }
+
+        Text(
+            "يتم استقبال إعلانات MNDP على المنفذ 5678. يجب أن يكون الهاتف والراوتر على الشبكة المحلية نفسها.",
+            color = TextMutedDark,
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        if (errorMessage != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = SemanticExpenseRed.copy(alpha = 0.13f),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.45f))
+            ) {
+                Text(errorMessage, color = TextPrimaryDark, modifier = Modifier.padding(12.dp))
+            }
+        }
+
+        if (!isScanning && routers.isEmpty() && errorMessage == null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = CyberDarkCardElevated,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, CyberBorder)
+            ) {
+                Text(
+                    "لم يتم العثور على راوترات MikroTik. تحقق من اتصال Wi-Fi وتفعيل Neighbor Discovery على الراوتر.",
+                    color = TextSecondaryDark,
+                    modifier = Modifier.padding(14.dp)
+                )
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(routers, key = { it.ipAddress }) { router ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isConnecting) { onSelectRouter(router) },
+                    colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                    border = BorderStroke(1.dp, CyberBorder),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    router.identity,
+                                    color = TextPrimaryDark,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Text("${router.ipAddress}  •  ${router.macAddress.ifBlank { "MAC غير متاح" }}", color = TextSecondaryDark, fontSize = 12.sp)
+                            }
+                            Button(
+                                enabled = !isConnecting,
+                                onClick = { onSelectRouter(router) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0E7490)),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                if (isConnecting) {
+                                    CircularProgressIndicator(Modifier.size(15.dp), color = Color.White, strokeWidth = 2.dp)
+                                } else {
+                                    Text("اتصال", color = Color.White)
+                                }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            if (router.boardName.isNotBlank()) {
+                                Text("الطراز: ${router.boardName}", color = Color(0xFF6EE7B7), fontSize = 11.sp)
+                            }
+                            if (router.routerOsVersion.isNotBlank()) {
+                                Text("RouterOS: ${router.routerOsVersion}", color = Color(0xFF7DD3FC), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /**
  * Tab 1: Login Credentials Form (Matching MkCards Screenshot 2)
  */
@@ -1249,6 +1473,7 @@ private fun LoginCredentialsTabContent(
     onToggleAdvanced: () -> Unit,
     customRouterName: String,
     onCustomRouterNameChange: (String) -> Unit,
+    routerMac: String,
     radiusHostInput: String,
     onRadiusHostChange: (String) -> Unit,
     isTestingConnection: Boolean,
@@ -1444,6 +1669,17 @@ private fun LoginCredentialsTabContent(
                 shape = RoundedCornerShape(12.dp),
                 singleLine = true
             )
+        }
+
+        if (routerMac.isNotBlank()) {
+            item {
+                Text(
+                    "MAC المكتشف: $routerMac",
+                    color = Color(0xFF6EE7B7),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                )
+            }
         }
 
         // 4. Password Field with Visibility Toggle

@@ -18,7 +18,7 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 36
 
   defaultConfig {
     applicationId = "com.samtecai.sammikrotic"
@@ -39,20 +39,20 @@ android {
         storePassword = System.getenv("STORE_PASSWORD") ?: ""
         keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
         keyPassword = System.getenv("KEY_PASSWORD") ?: System.getenv("STORE_PASSWORD") ?: ""
-      } else {
-        val debugKeystore = file("${rootDir}/debug.keystore")
-        if (debugKeystore.exists()) {
-          storeFile = debugKeystore
-          storePassword = "android"
-          keyAlias = "androiddebugkey"
-          keyPassword = "android"
-        }
       }
     }
-    create("debugConfig") {
-      val rootKeystore = file("${rootDir}/debug.keystore")
-      if (rootKeystore.exists()) {
-        storeFile = rootKeystore
+    getByName("debug") {
+      val userHome = System.getProperty("user.home")
+      val systemDebugKeystore = file("$userHome/.android/debug.keystore")
+      val rootDebugKeystore = file("${rootDir}/debug.keystore")
+
+      if (rootDebugKeystore.exists()) {
+        storeFile = rootDebugKeystore
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      } else if (systemDebugKeystore.exists()) {
+        storeFile = systemDebugKeystore
         storePassword = "android"
         keyAlias = "androiddebugkey"
         keyPassword = "android"
@@ -67,7 +67,9 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      signingConfig = signingConfigs.getByName("debug")
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -111,17 +113,10 @@ tasks.matching { it.name.startsWith("ksp") }.configureEach {
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
-  // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
-  // implementation(libs.androidx.camera.camera2)
-  // implementation(libs.androidx.camera.core)
-  // implementation(libs.androidx.camera.lifecycle)
-  // implementation(libs.androidx.camera.view)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)
@@ -136,13 +131,10 @@ dependencies {
   implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
-  // Firestore for cloud sync
   implementation(libs.firebase.firestore)
 
-  // Firebase Auth and Google Sign-In via Credential Manager
   implementation(libs.firebase.auth)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
@@ -156,7 +148,6 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
-  // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)

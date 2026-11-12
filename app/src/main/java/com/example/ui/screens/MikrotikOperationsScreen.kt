@@ -105,6 +105,7 @@ fun MikrotikOperationsScreen(
     onNavigateToAiAssistant: () -> Unit,
     onNavigateToCloudSync: () -> Unit,
     onNavigateToRouterLogin: () -> Unit = {},
+    onNavigateToHotspotUsers: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val telemetry by networkRepository.telemetry.collectAsState()
@@ -518,7 +519,8 @@ fun MikrotikOperationsScreen(
         // 2. MkCards Live Telemetry Quad Row (المتصلين الآن, البروباند, يوزرات الهوتسبوت, والمانجر)
         item {
             MkCardsLiveTelemetryQuadRow(
-                telemetry = cardQuota
+                telemetry = cardQuota,
+                onHotspotUsersClick = onNavigateToHotspotUsers
             )
         }
 

@@ -642,7 +642,8 @@ fun CardQuotaAndExpiredDetailsCard(
 @Composable
 fun MkCardsLiveTelemetryQuadRow(
     telemetry: CardAndQuotaTelemetry,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onHotspotUsersClick: () -> Unit = {}
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -686,7 +687,8 @@ fun MkCardsLiveTelemetryQuadRow(
                 icon = Icons.Default.Person,
                 iconTint = Color(0xFF38BDF8),
                 iconBg = Color(0xFF0C243C),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                onClick = onHotspotUsersClick
             )
 
             // يوزرات المانجر
@@ -742,10 +744,11 @@ private fun MkQuickStatCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     iconTint: Color,
     iconBg: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {}
 ) {
     Card(
-        modifier = modifier.height(105.dp),
+        modifier = modifier.height(105.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1B2B)),
         border = BorderStroke(1.dp, CyberBorder)

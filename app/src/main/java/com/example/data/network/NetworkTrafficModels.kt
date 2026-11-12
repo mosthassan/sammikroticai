@@ -3,11 +3,9 @@ package com.example.data.network
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.random.Random
@@ -340,6 +338,16 @@ class LiveTrafficManager(private val scope: CoroutineScope) {
         _connectionStatusMessage.value = msg
     }
 
+    fun setAuthenticatedState(msg: String) {
+        _isLiveConnected.value = true
+        _connectionStatusMessage.value = msg
+    }
+
+    fun setLiveSyncWarning(msg: String) {
+        _isLiveConnected.value = true
+        _connectionStatusMessage.value = msg
+    }
+
     fun setOfflineState(msg: String) {
         _isLiveConnected.value = false
         _connectionStatusMessage.value = msg
@@ -369,23 +377,31 @@ class LiveTrafficManager(private val scope: CoroutineScope) {
         activeApiClient = client
         trafficPollJob?.cancel()
         trafficPollJob = scope.launch(Dispatchers.IO) {
-            while (isActive && _isLiveConnected.value) {
-                val (rx, tx) = client.monitorSingleInterface(interfaceName)
-                val current = _selectedInterface.value
-                val newRxHistory = (current.rxHistory.drop(1) + rx.toFloat()).takeLast(10)
-                val newTxHistory = (current.txHistory.drop(1) + tx.toFloat()).takeLast(10)
-
-                val updatedIface = current.copy(
-                    rxMbps = rx,
-                    txMbps = tx,
-                    rxHistory = newRxHistory,
-                    txHistory = newTxHistory
-                )
-
-                _selectedInterface.value = updatedIface
-                _interfaces.value = _interfaces.value.map { if (it.name == updatedIface.name) updatedIface else it }
-                delay(1500L) // Poll router every 1.5 seconds for live hardware speed
-            }
+            client.pollInterfaceTraffic(
+                interfaceName = interfaceName,
+                onSample = { (rx, tx) ->
+                    if (!_isLiveConnected.value) return@pollInterfaceTraffic
+                    val current = _selectedInterface.value
+                    val newRxHistory = (current.rxHistory.drop(1) + rx.toFloat()).takeLast(10)
+                    val newTxHistory = (current.txHistory.drop(1) + tx.toFloat()).takeLast(10)
+                    val updatedIface = current.copy(
+                        rxMbps = rx,
+                        txMbps = tx,
+                        rxHistory = newRxHistory,
+                        txHistory = newTxHistory
+                    )
+                    _selectedInterface.value = updatedIface
+                    _interfaces.value = _interfaces.value.map {
+                        if (it.name == updatedIface.name) updatedIface else it
+                    }
+                },
+                onFailure = { error ->
+                    if (_isLiveConnected.value) {
+                        _connectionStatusMessage.value =
+                            "تم تسجيل الدخول؛ تعذرت قراءة سرعة الواجهة مؤقتاً: ${error.message ?: "خطأ API"}"
+                    }
+                }
+            )
         }
     }
 }

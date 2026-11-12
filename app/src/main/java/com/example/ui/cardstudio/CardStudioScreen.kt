@@ -18,15 +18,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -112,14 +115,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -137,14 +144,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.composed
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.card.CardBatch
+import com.example.data.card.CardCutLineStyle
 import com.example.data.card.CardCharacterSet
 import com.example.data.card.CardPreviewMode
+import com.example.data.card.CardPrintGridSettings
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
 import com.example.data.card.CodeBoxStyle
 import com.example.data.card.ElementLayout
+import com.example.data.card.defaultElementLayout
 import com.example.data.card.GeneratedCard
 import com.example.data.card.PasswordPattern
 import com.example.data.card.PrintPageFormat
@@ -158,6 +169,7 @@ import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
 import com.example.util.MikroTikCardProvisioner
 import com.example.util.QrCodeGenerator
+import kotlin.math.roundToInt
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -436,7 +448,8 @@ fun CardStudioScreen(
                                         android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
                                     },
                                     onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
-                                    onResetElementPositions = { viewModel.resetAllElementPositions() }
+                                    onResetElementPositions = { viewModel.resetAllElementPositions() },
+                                    onUpdateTemplate = { viewModel.updateEditingTemplate(it) }
                                 )
                             } else {
                                 CompactLivePreviewCard(
@@ -493,7 +506,8 @@ fun CardStudioScreen(
                                         android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
                                     },
                                     onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
-                                    onResetElementPositions = { viewModel.resetAllElementPositions() }
+                                    onResetElementPositions = { viewModel.resetAllElementPositions() },
+                                    onUpdateTemplate = { viewModel.updateEditingTemplate(it) }
                                 )
                             } else {
                                 CompactLivePreviewCard(
@@ -647,7 +661,8 @@ fun CardStudioScreen(
                                             android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
                                         },
                                         onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
-                                        onResetElementPositions = { viewModel.resetAllElementPositions() }
+                                        onResetElementPositions = { viewModel.resetAllElementPositions() },
+                                        onUpdateTemplate = { viewModel.updateEditingTemplate(it) }
                                     )
 
                                     // Studio Custom Background: One-Tap Code Only Toggle
@@ -746,7 +761,8 @@ fun CardStudioScreen(
                                                 android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
                                             },
                                             onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
-                                            onResetElementPositions = { viewModel.resetAllElementPositions() }
+                                            onResetElementPositions = { viewModel.resetAllElementPositions() },
+                                            onUpdateTemplate = { viewModel.updateEditingTemplate(it) }
                                         )
                                     } else {
                                         CompactLivePreviewCard(
@@ -802,7 +818,8 @@ fun CardStudioScreen(
                                         android.widget.Toast.makeText(context, "تم نسخ سكربت RouterOS للحافظة ⚡", android.widget.Toast.LENGTH_SHORT).show()
                                     },
                                     onUpdateElementLayout = { key, layout -> viewModel.updateElementLayout(key, layout) },
-                                    onResetElementPositions = { viewModel.resetAllElementPositions() }
+                                    onResetElementPositions = { viewModel.resetAllElementPositions() },
+                                    onUpdateTemplate = { viewModel.updateEditingTemplate(it) }
                                 )
                             } else {
                                 CompactLivePreviewCard(
@@ -823,7 +840,9 @@ fun CardStudioScreen(
                                 BatchesAndPrintTab(
                                     batches = batches,
                                     selectedFormat = uiState.selectedPrintFormat,
+                                    template = uiState.editingTemplate,
                                     onSelectFormat = { viewModel.updateBatchConfig(format = it) },
+                                    onUpdateTemplate = { viewModel.updateEditingTemplate(it) },
                                     onExportPdf = { batch, format ->
                                         viewModel.exportAndSharePdf(context, batch, format)
                                     },
@@ -984,11 +1003,25 @@ fun CardStudioScreen(
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     CircularProgressIndicator(color = BrandCyanPrimary, modifier = Modifier.size(32.dp))
-                    Text(
-                        text = "جاري تجهيز ورقة ${uiState.selectedPrintFormat.cardsPerPage} كرت للمعاينة الفورية وفق التصميم...",
-                        color = Color.LightGray,
-                        fontSize = 12.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val progress = uiState.pdfProgress
+                        Text(
+                            text = if (progress != null) {
+                                "صفحة ${progress.first} من ${progress.second} - جاري رندرة وتوليد صفحات الطباعة بدقة 300 DPI عالية الوضوح..."
+                            } else {
+                                "جاري تهيئة تصدير PDF بدقة 300 DPI..."
+                            },
+                            color = Color.LightGray,
+                            fontSize = 12.sp
+                        )
+                        if (progress != null && progress.second > 0) {
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { progress.first.toFloat() / progress.second },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = BrandCyanPrimary
+                            )
+                        }
+                    }
                 }
             }
         )
@@ -1160,8 +1193,11 @@ private fun LivePreviewCanvasSection(
     onExportPdf: () -> Unit,
     onCopyScript: () -> Unit,
     onUpdateElementLayout: (String, ElementLayout) -> Unit,
-    onResetElementPositions: () -> Unit
+    onResetElementPositions: () -> Unit,
+    onUpdateTemplate: (CardTemplate) -> Unit = {}
 ) {
+    var isEditModeEnabled by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1196,7 +1232,7 @@ private fun LivePreviewCanvasSection(
                     FilterChip(
                         selected = previewMode == CardPreviewMode.SINGLE_CARD,
                         onClick = { onTogglePreviewMode(CardPreviewMode.SINGLE_CARD) },
-                        label = { Text("كرت مفرد (تحريك باللمس) 🎴", fontSize = 11.sp) },
+                        label = { Text("كرت مفرد (تحرير اختياري) 🎴", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = BrandCyanPrimary,
                             selectedLabelColor = Color.Black
@@ -1281,16 +1317,199 @@ private fun LivePreviewCanvasSection(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            if (showNudgeControls && previewMode == CardPreviewMode.SINGLE_CARD) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = isEditModeEnabled,
+                        onClick = { isEditModeEnabled = !isEditModeEnabled },
+                        label = {
+                            Text(
+                                if (isEditModeEnabled) "إيقاف تحرير العناصر" else "تفعيل تحرير العناصر",
+                                fontSize = 11.sp
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BrandCyanPrimary,
+                            selectedLabelColor = Color.Black
+                        )
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
             // Canvas Content
             if (previewMode == CardPreviewMode.A4_FULL_SHEET) {
                 A4SheetPreview(template = template, format = selectedPrintFormat)
             } else {
                 SingleCardWYSIWYG(
                     template = template,
+                    format = selectedPrintFormat,
                     showNudgeControls = showNudgeControls,
+                    isEditModeEnabled = isEditModeEnabled,
                     onUpdateLayout = onUpdateElementLayout,
                     onResetPositions = onResetElementPositions
                 )
+            }
+
+            if (previewMode == CardPreviewMode.A4_FULL_SHEET && selectedPrintFormat != PrintPageFormat.THERMAL_ROLL_80MM) {
+                PrintGridSettingsPanel(
+                    template = template,
+                    format = selectedPrintFormat,
+                    onUpdateTemplate = onUpdateTemplate
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrintGridSettingsPanel(
+    template: CardTemplate,
+    format: PrintPageFormat,
+    onUpdateTemplate: (CardTemplate) -> Unit
+) {
+    val stored = template.printGridSettings.normalized()
+    val grid = if (stored.isCustom) stored else stored.copy(columns = format.cols, rows = format.rows)
+    val cellWidth = grid.availableCellWidthMm()
+    val cellHeight = grid.availableCellHeightMm()
+
+    fun update(next: CardPrintGridSettings) {
+        val normalized = next.copy(isCustom = true).normalized()
+        onUpdateTemplate(
+            template.copy(
+                printGridSettings = normalized,
+                showCutLines = normalized.cutLineStyle != CardCutLineStyle.NONE
+            )
+        )
+    }
+
+    Surface(
+        color = Color(0xFF0F1E2E),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.4f)),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "إعدادات شبكة الطباعة A4",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                "عرض الكرت: ${"%.1f".format(cellWidth)} مم × ارتفاع الكرت: ${"%.1f".format(cellHeight)} مم",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = SemanticIncomeGreen
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                GridStepper(
+                    label = "عدد الأعمدة في الورقة",
+                    value = grid.columns,
+                    minimum = 1,
+                    maximum = 5,
+                    modifier = Modifier.weight(1f)
+                ) { update(grid.copy(columns = it)) }
+                GridStepper(
+                    label = "عدد الصفوف في الورقة",
+                    value = grid.rows,
+                    minimum = 1,
+                    maximum = 16,
+                    modifier = Modifier.weight(1f)
+                ) { update(grid.copy(rows = it)) }
+            }
+            Text(
+                "تعديل مسافات التباعد بين الكروت • المسافة الأفقية مم: ${"%.1f".format(grid.horizontalGapMm)}",
+                fontSize = 10.sp,
+                color = Color.LightGray
+            )
+            Slider(
+                value = grid.horizontalGapMm,
+                onValueChange = { update(grid.copy(horizontalGapMm = it)) },
+                valueRange = 0f..10f,
+                colors = SliderDefaults.colors(thumbColor = BrandCyanPrimary, activeTrackColor = BrandCyanPrimary)
+            )
+            Text(
+                "المسافة الرأسية مم: ${"%.1f".format(grid.verticalGapMm)}",
+                fontSize = 10.sp,
+                color = Color.LightGray
+            )
+            Slider(
+                value = grid.verticalGapMm,
+                onValueChange = { update(grid.copy(verticalGapMm = it)) },
+                valueRange = 0f..10f,
+                colors = SliderDefaults.colors(thumbColor = BrandCyanPrimary, activeTrackColor = BrandCyanPrimary)
+            )
+            Text(
+                "هوامش أطراف الورقة • الهامش الجانبي X mm: ${"%.1f".format(grid.horizontalMarginMm)}",
+                fontSize = 10.sp,
+                color = Color.LightGray
+            )
+            Slider(
+                value = grid.horizontalMarginMm,
+                onValueChange = { update(grid.copy(horizontalMarginMm = it)) },
+                valueRange = 0f..25f,
+                colors = SliderDefaults.colors(thumbColor = BrandCyanPrimary, activeTrackColor = BrandCyanPrimary)
+            )
+            Text(
+                "الهامش العلوي والسفلي Y mm: ${"%.1f".format(grid.verticalMarginMm)}",
+                fontSize = 10.sp,
+                color = Color.LightGray
+            )
+            Slider(
+                value = grid.verticalMarginMm,
+                onValueChange = { update(grid.copy(verticalMarginMm = it)) },
+                valueRange = 0f..25f,
+                colors = SliderDefaults.colors(thumbColor = BrandCyanPrimary, activeTrackColor = BrandCyanPrimary)
+            )
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                CardCutLineStyle.values().forEach { style ->
+                    FilterChip(
+                        selected = grid.cutLineStyle == style,
+                        onClick = { update(grid.copy(cutLineStyle = style)) },
+                        label = { Text("قص: ${style.labelAr}", fontSize = 9.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BrandCyanPrimary,
+                            selectedLabelColor = Color.Black
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GridStepper(
+    label: String,
+    value: Int,
+    minimum: Int,
+    maximum: Int,
+    modifier: Modifier = Modifier,
+    onValueChange: (Int) -> Unit
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, fontSize = 9.sp, color = Color.LightGray, maxLines = 2)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconButton(onClick = { onValueChange((value - 1).coerceAtLeast(minimum)) }, modifier = Modifier.size(24.dp)) {
+                Text("−", color = Color.White)
+            }
+            Text("$value", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BrandCyanPrimary)
+            IconButton(onClick = { onValueChange((value + 1).coerceAtMost(maximum)) }, modifier = Modifier.size(24.dp)) {
+                Text("+", color = Color.White)
             }
         }
     }
@@ -1337,46 +1556,50 @@ private fun A4SheetPreview(
         HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
         Spacer(modifier = Modifier.height(6.dp))
 
-        val cols = format.cols
-        val rows = format.rows
-        val totalCards = format.cardsPerPage
-        val cardHeightDp = when (format) {
-            PrintPageFormat.A4_GRID_42 -> 34.dp // Compact strip cards
-            PrintPageFormat.A4_GRID_24 -> 48.dp
-            PrintPageFormat.A4_GRID_18 -> 60.dp
-            PrintPageFormat.A4_GRID_10 -> 72.dp
-            PrintPageFormat.THERMAL_ROLL_80MM -> 96.dp
-        }
-
-        Box(
+        val savedGrid = template.printGridSettings.normalized()
+        val cols = if (savedGrid.isCustom) savedGrid.columns else format.cols
+        val rows = if (savedGrid.isCustom) savedGrid.rows else format.rows
+        val totalCards = if (savedGrid.isCustom) cols * rows else format.cardsPerPage
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 380.dp)
-                .verticalScroll(rememberScrollState())
+                .aspectRatio(210f / 297f)
         ) {
+            val sheetWidth = this.maxWidth
+            val sheetHeight = this.maxHeight
             Column(
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        horizontal = (sheetWidth * (savedGrid.horizontalMarginMm / 210f)).coerceAtLeast(0.dp),
+                        vertical = (sheetHeight * (savedGrid.verticalMarginMm / 297f)).coerceAtLeast(0.dp)
+                    ),
+                verticalArrangement = Arrangement.spacedBy((sheetHeight * (savedGrid.verticalGapMm / 297f)).coerceAtLeast(0.dp))
             ) {
                 for (row in 0 until rows) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy((sheetWidth * (savedGrid.horizontalGapMm / 210f)).coerceAtLeast(0.dp))
                     ) {
                         for (col in 0 until cols) {
                             val cardIndex = (row * cols) + col
                             val sampleCode = (821101 + cardIndex).toString()
                             Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(cardHeightDp)
+                                modifier = Modifier.weight(1f).fillMaxHeight()
                             ) {
-                                MiniCardTile(
-                                    template = template,
-                                    code = sampleCode,
-                                    price = template.priceText,
-                                    quota = template.quotaText,
-                                    isCompactStrip = format == PrintPageFormat.A4_GRID_42
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .fillMaxSize()
+                                ) {
+                                    MiniCardTile(
+                                        template = template,
+                                        code = sampleCode,
+                                        price = template.priceText,
+                                        quota = template.quotaText,
+                                        isCompactStrip = rows > 10 || format == PrintPageFormat.A4_GRID_42
+                                    )
+                                }
                             }
                         }
                     }
@@ -1391,7 +1614,7 @@ private fun A4SheetPreview(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "• • • ورقة كاملة (${format.cols} أعمدة × ${format.rows} صف = ${totalCards} كرت ظاهر بالكامل قابلة للتمرير 📄) • • •",
+                text = "• • • ورقة كاملة (${cols} أعمدة × ${rows} صف = ${totalCards} كرت) • • •",
                 fontSize = 8.5.sp,
                 color = Color(0xFF64748B),
                 fontWeight = FontWeight.Bold
@@ -1431,7 +1654,7 @@ private fun MiniCardTile(
         Modifier.border(0.5.dp, Color(template.primaryColorHex).copy(alpha = 0.5f), RoundedCornerShape(3.dp))
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .then(borderModifier)
@@ -1453,11 +1676,15 @@ private fun MiniCardTile(
                 }
             )
     ) {
+        val cardWidthPx = this.constraints.maxWidth.toFloat()
+        val cardHeightPx = this.constraints.maxHeight.toFloat()
+        val cardWidth = this.maxWidth
+        val cardHeight = this.maxHeight
         if (customBitmap != null) {
             Image(
                 bitmap = customBitmap,
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize()
             )
             if (template.overlayAlpha > 0f) {
@@ -1485,13 +1712,19 @@ private fun MiniCardTile(
                 if (template.showPrice && template.priceLayout.isVisible) {
                     Surface(
                         color = Color(template.badgeBgColorHex),
-                        shape = RoundedCornerShape(2.dp)
+                        shape = RoundedCornerShape(2.dp),
+                        modifier = Modifier
+                            .size(
+                                width = cardWidth * template.priceLayout.widthRatio,
+                                height = cardHeight * template.priceLayout.heightRatio
+                            )
+                            .normalizedOffset(template.priceLayout, 0.12f, 0.12f, cardWidthPx, cardHeightPx)
                     ) {
                         Text(
                             text = price,
-                            fontSize = if (isCompactStrip) 5.sp else 6.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(template.badgeTextColorHex),
+                            fontSize = (if (isCompactStrip) 5f else 6f).times(template.priceLayout.fontSizeScale).sp,
+                            fontWeight = if (template.priceLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                            color = Color(template.priceLayout.textColorHex),
                             modifier = Modifier.padding(horizontal = 2.dp)
                         )
                     }
@@ -1499,32 +1732,17 @@ private fun MiniCardTile(
                 if (template.showNetworkName && template.networkLayout.isVisible) {
                     Text(
                         text = template.networkName,
-                        fontSize = if (isCompactStrip) 5.5.sp else 6.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (customBitmap != null || !isCleanWhite) Color.White else Color(0xFF0F172A),
+                        fontSize = (if (isCompactStrip) 5.5f else 6.5f).times(template.networkLayout.fontSizeScale).sp,
+                        fontWeight = if (template.networkLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                        color = Color(template.networkLayout.textColorHex),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // Center: High-contrast Code Box
-            if (template.codeBoxLayout.isVisible) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(if (isCompactStrip) 14.dp else 18.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White)
-                        .border(0.5.dp, Color(template.primaryColorHex), RoundedCornerShape(2.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = code,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = if (isCompactStrip) 7.5.sp else 9.sp,
-                        color = Color(0xFF0F172A)
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .size(
+                                width = cardWidth * template.networkLayout.widthRatio,
+                                height = cardHeight * template.networkLayout.heightRatio
+                            )
+                            .normalizedOffset(template.networkLayout, 0.70f, 0.12f, cardWidthPx, cardHeightPx)
                     )
                 }
             }
@@ -1538,25 +1756,74 @@ private fun MiniCardTile(
                 if (template.metaLayout.isVisible) {
                     Text(
                         text = "${template.quotaText} • ${template.validityText}",
-                        fontSize = if (isCompactStrip) 4.5.sp else 5.5.sp,
-                        color = if (customBitmap != null || !isCleanWhite) Color.LightGray else Color(0xFF475569)
+                        fontSize = (if (isCompactStrip) 4.5f else 5.5f).times(template.metaLayout.fontSizeScale).sp,
+                        fontWeight = if (template.metaLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                        color = Color(template.metaLayout.textColorHex),
+                        modifier = Modifier
+                            .size(
+                                width = cardWidth * template.metaLayout.widthRatio,
+                                height = cardHeight * template.metaLayout.heightRatio
+                            )
+                            .normalizedOffset(template.metaLayout, 0.68f, 0.42f, cardWidthPx, cardHeightPx)
                     )
                 }
-                if (template.serialLayout.isVisible) {
-                    val dateOrSn = if (template.showCreationDate) {
+                if (
+                    (template.showCreationDate && template.creationDateLayout.isVisible) ||
+                    (template.showSerialNumber && template.serialLayout.isVisible)
+                ) {
+                    val useDate = template.showCreationDate && template.creationDateLayout.isVisible
+                    val dateOrSn = if (useDate) {
                         try {
                             SimpleDateFormat(template.dateFormatPattern, Locale.US).format(Date(template.createdAt))
                         } catch (_: Exception) {
                             "SN"
                         }
                     } else "SN"
+                    val dateLayout = if (useDate) template.creationDateLayout else template.serialLayout
                     Text(
                         text = dateOrSn,
-                        fontSize = 5.sp,
+                        fontSize = (5f * dateLayout.fontSizeScale).sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.Gray
+                        fontWeight = if (dateLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                        color = Color(dateLayout.textColorHex),
+                        modifier = Modifier
+                            .size(
+                                width = cardWidth * dateLayout.widthRatio,
+                                height = cardHeight * dateLayout.heightRatio
+                            )
+                            .normalizedOffset(
+                                dateLayout,
+                                0.80f,
+                                if (template.showCreationDate) 0.12f else 0.91f,
+                                cardWidthPx,
+                                cardHeightPx
+                            )
                     )
                 }
+            }
+        }
+        if (template.codeBoxLayout.isVisible) {
+            val codeLayout = template.codeBoxLayout
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(
+                        width = cardWidth * codeLayout.widthRatio.coerceIn(0f, 1f),
+                        height = cardHeight * codeLayout.heightRatio.coerceIn(0f, 1f)
+                    )
+                    .normalizedOffset(codeLayout, 0.5f, 0.5f, cardWidthPx, cardHeightPx),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = code,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = if (codeLayout.isBold) FontWeight.ExtraBold else FontWeight.Normal,
+                    fontSize = (cardHeight.value * codeLayout.heightRatio * 0.6f * codeLayout.fontSizeScale).sp,
+                    color = Color(codeLayout.textColorHex),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -1568,7 +1835,9 @@ private fun MiniCardTile(
 @Composable
 private fun SingleCardWYSIWYG(
     template: CardTemplate,
+    format: PrintPageFormat,
     showNudgeControls: Boolean = false,
+    isEditModeEnabled: Boolean = false,
     onUpdateLayout: (String, ElementLayout) -> Unit,
     onResetPositions: () -> Unit
 ) {
@@ -1589,47 +1858,82 @@ private fun SingleCardWYSIWYG(
     }
 
     val isCleanWhite = template.themePreset == CardThemePreset.CLEAN_WHITE
+    val contentScale = (PrintPageFormat.A4_GRID_24.cardAspectRatio() / format.cardAspectRatio()).coerceIn(0.55f, 1f)
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(185.dp)
-                .shadow(12.dp, RoundedCornerShape(14.dp)),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-            border = BorderStroke(
-                1.5.dp,
-                if (customBitmap != null) Color(template.primaryColorHex).copy(alpha = 0.8f)
-                else Color(template.primaryColorHex)
-            )
-        ) {
-            Box(
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (customBitmap != null) {
-                            Modifier
-                        } else if (isCleanWhite) {
-                            Modifier.background(Color.White)
-                        } else {
-                            Modifier.background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        Color(template.backgroundColorHex),
-                                        Color(template.gradientEndColorHex)
+                    .fillMaxWidth()
+                    .aspectRatio(format.cardAspectRatio())
+                    .shadow(12.dp, RoundedCornerShape(14.dp)),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                border = BorderStroke(
+                    1.5.dp,
+                    if (customBitmap != null) Color(template.primaryColorHex).copy(alpha = 0.8f)
+                    else Color(template.primaryColorHex)
+                )
+            ) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (customBitmap != null) {
+                                Modifier
+                            } else if (isCleanWhite) {
+                                Modifier.background(Color.White)
+                            } else {
+                                Modifier.background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            Color(template.backgroundColorHex),
+                                            Color(template.gradientEndColorHex)
+                                        )
                                     )
                                 )
+                            }
+                        )
+                ) {
+                    val cardWidthPx = this.constraints.maxWidth.toFloat()
+                    val cardHeightPx = this.constraints.maxHeight.toFloat()
+                    val cardWidth = this.maxWidth
+                    val cardHeight = this.maxHeight
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (isEditModeEnabled) {
+                                    Modifier.pointerInput(selectedElementKey, cardWidthPx, cardHeightPx, template) {
+                                        detectTapGestures { tapOffset ->
+                                            val xRatio = (tapOffset.x / cardWidthPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                            val yRatio = (tapOffset.y / cardHeightPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                            val selectedLayout = when (selectedElementKey) {
+                                                "price" -> template.priceLayout
+                                                "network" -> template.networkLayout
+                                                "code_box" -> template.codeBoxLayout
+                                                "qr" -> template.qrCodeLayout
+                                                "meta" -> template.metaLayout
+                                                "phone" -> template.supportPhoneLayout
+                                                "date" -> template.creationDateLayout
+                                                "serial" -> template.serialLayout
+                                                else -> template.codeBoxLayout
+                                            }
+                                            onUpdateLayout(
+                                                selectedElementKey,
+                                                selectedLayout.copy(xRatio = xRatio, yRatio = yRatio)
+                                            )
+                                        }
+                                    }
+                                } else Modifier
                             )
-                        }
-                    )
-            ) {
+                    ) {
                 // 1. Draw custom background image if picked
                 if (customBitmap != null) {
                     Image(
                         bitmap = customBitmap,
                         contentDescription = "قالب مخصص من المعرض",
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.FillBounds,
                         modifier = Modifier.fillMaxSize()
                     )
                     // Dark overlay scrim
@@ -1646,7 +1950,7 @@ private fun SingleCardWYSIWYG(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(10.dp),
+                        .padding(10.dp * contentScale),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Top Header Row: Price Badge (Left), Network Title with WiFi (Center), Date (Right)
@@ -1660,21 +1964,21 @@ private fun SingleCardWYSIWYG(
                             val priceLayout = template.priceLayout
                             Box(
                                 modifier = Modifier
-                                    .offset { IntOffset(priceLayout.offsetX.dp.roundToPx(), priceLayout.offsetY.dp.roundToPx()) }
-                                    .pointerInput("price") {
-                                        detectDragGestures(
-                                            onDragStart = { selectedElementKey = "price" },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val newX = (priceLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                                val newY = (priceLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                                onUpdateLayout("price", priceLayout.copy(offsetX = newX, offsetY = newY))
-                                            }
-                                        )
-                                    }
-                                    .clickable { selectedElementKey = "price" }
+                                    .cardElementDrag(
+                                        layout = priceLayout,
+                                        elementKey = "price",
+                                        baseXRatio = 0.12f,
+                                        baseYRatio = 0.12f,
+                                        cardWidthPx = cardWidthPx,
+                                        cardHeightPx = cardHeightPx,
+                                        onUpdateLayout = onUpdateLayout,
+                                        onSelect = { selectedElementKey = "price" },
+                                        enabled = isEditModeEnabled
+                                    )
+                                    .size(cardWidth * priceLayout.widthRatio, cardHeight * priceLayout.heightRatio)
+                                    .clickable(enabled = isEditModeEnabled) { selectedElementKey = "price" }
                                     .then(
-                                        if (selectedElementKey == "price") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(6.dp)).padding(2.dp)
+                                        if (isEditModeEnabled && selectedElementKey == "price") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(6.dp)).padding(2.dp)
                                         else Modifier.padding(2.dp)
                                     )
                             ) {
@@ -1686,12 +1990,12 @@ private fun SingleCardWYSIWYG(
                                     Text(
                                         text = template.priceText,
                                         style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = (12 * priceLayout.scale).sp,
-                                        color = Color(template.badgeTextColorHex),
+                                        fontWeight = if (priceLayout.isBold) FontWeight.ExtraBold else FontWeight.Normal,
+                                        fontSize = (12 * priceLayout.scale * contentScale * priceLayout.fontSizeScale).sp,
+                                        color = Color(priceLayout.textColorHex),
                                         modifier = Modifier.padding(
-                                            horizontal = (8 * priceLayout.scale * priceLayout.widthScale.coerceIn(0.4f, 2.5f)).dp,
-                                            vertical = (4 * priceLayout.scale).dp
+                                            horizontal = (8 * priceLayout.scale * priceLayout.widthScale.coerceIn(0.4f, 2.5f) * contentScale).dp,
+                                            vertical = (4 * priceLayout.scale * contentScale).dp
                                         )
                                     )
                                 }
@@ -1705,21 +2009,21 @@ private fun SingleCardWYSIWYG(
                             val netLayout = template.networkLayout
                             Box(
                                 modifier = Modifier
-                                    .offset { IntOffset(netLayout.offsetX.dp.roundToPx(), netLayout.offsetY.dp.roundToPx()) }
-                                    .pointerInput("network") {
-                                        detectDragGestures(
-                                            onDragStart = { selectedElementKey = "network" },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val newX = (netLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                                val newY = (netLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                                onUpdateLayout("network", netLayout.copy(offsetX = newX, offsetY = newY))
-                                            }
-                                        )
-                                    }
-                                    .clickable { selectedElementKey = "network" }
+                                    .cardElementDrag(
+                                        layout = netLayout,
+                                        elementKey = "network",
+                                        baseXRatio = 0.70f,
+                                        baseYRatio = 0.12f,
+                                        cardWidthPx = cardWidthPx,
+                                        cardHeightPx = cardHeightPx,
+                                        onUpdateLayout = onUpdateLayout,
+                                        onSelect = { selectedElementKey = "network" },
+                                        enabled = isEditModeEnabled
+                                    )
+                                    .size(cardWidth * netLayout.widthRatio, cardHeight * netLayout.heightRatio)
+                                    .clickable(enabled = isEditModeEnabled) { selectedElementKey = "network" }
                                     .then(
-                                        if (selectedElementKey == "network") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(6.dp)).padding(2.dp)
+                                        if (isEditModeEnabled && selectedElementKey == "network") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(6.dp)).padding(2.dp)
                                         else Modifier.padding(2.dp)
                                     )
                             ) {
@@ -1728,23 +2032,23 @@ private fun SingleCardWYSIWYG(
                                         imageVector = Icons.Default.Wifi,
                                         contentDescription = null,
                                         tint = Color(template.primaryColorHex),
-                                        modifier = Modifier.size((16 * netLayout.scale).dp)
+                                        modifier = Modifier.size((16 * netLayout.scale * contentScale).dp)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(4.dp * contentScale))
                                     Text(
                                         text = template.networkName,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontSize = (15 * netLayout.scale).sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (customBitmap != null || !isCleanWhite) Color.White else Color(0xFF0F172A)
+                                        fontSize = (15 * netLayout.scale * contentScale * netLayout.fontSizeScale).sp,
+                                        fontWeight = if (netLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                                        color = Color(netLayout.textColorHex)
                                     )
                                 }
                             }
                         }
 
                         // Creation Date (Touch-draggable)
-                        if (template.showCreationDate && template.serialLayout.isVisible) {
-                            val serialLayout = template.serialLayout
+                        if (template.showCreationDate && template.creationDateLayout.isVisible) {
+                            val dateLayout = template.creationDateLayout
                             val formattedDate = remember(template.createdAt, template.dateFormatPattern) {
                                 try {
                                     SimpleDateFormat(template.dateFormatPattern, Locale.US).format(Date(template.createdAt))
@@ -1754,21 +2058,21 @@ private fun SingleCardWYSIWYG(
                             }
                             Box(
                                 modifier = Modifier
-                                    .offset { IntOffset(serialLayout.offsetX.dp.roundToPx(), serialLayout.offsetY.dp.roundToPx()) }
-                                    .pointerInput("serial") {
-                                        detectDragGestures(
-                                            onDragStart = { selectedElementKey = "serial" },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val newX = (serialLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                                val newY = (serialLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                                onUpdateLayout("serial", serialLayout.copy(offsetX = newX, offsetY = newY))
-                                            }
-                                        )
-                                    }
-                                    .clickable { selectedElementKey = "serial" }
+                                    .cardElementDrag(
+                                        layout = dateLayout,
+                                        elementKey = "date",
+                                        baseXRatio = 0.80f,
+                                        baseYRatio = 0.12f,
+                                        cardWidthPx = cardWidthPx,
+                                        cardHeightPx = cardHeightPx,
+                                        onUpdateLayout = onUpdateLayout,
+                                        onSelect = { selectedElementKey = "date" },
+                                        enabled = isEditModeEnabled
+                                    )
+                                    .size(cardWidth * dateLayout.widthRatio, cardHeight * dateLayout.heightRatio)
+                                    .clickable(enabled = isEditModeEnabled) { selectedElementKey = "date" }
                                     .then(
-                                        if (selectedElementKey == "serial") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
+                                        if (isEditModeEnabled && selectedElementKey == "date") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
                                         else Modifier.padding(2.dp)
                                     )
                             ) {
@@ -1781,18 +2085,18 @@ private fun SingleCardWYSIWYG(
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.padding(
-                                            horizontal = (6 * serialLayout.scale * serialLayout.widthScale.coerceIn(0.5f, 2.0f)).dp,
-                                            vertical = (3 * serialLayout.scale).dp
+                                            horizontal = (6 * dateLayout.scale * dateLayout.widthScale.coerceIn(0.5f, 2.0f) * contentScale).dp,
+                                            vertical = (3 * dateLayout.scale * contentScale).dp
                                         )
                                     ) {
-                                        Text("📅", fontSize = (9 * serialLayout.scale).sp)
-                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("📅", fontSize = (9 * dateLayout.scale * contentScale).sp)
+                                        Spacer(modifier = Modifier.width(3.dp * contentScale))
                                         Text(
                                             text = formattedDate,
                                             style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = (10 * serialLayout.scale).sp,
-                                            color = Color.White
+                                            fontWeight = if (dateLayout.isBold) FontWeight.ExtraBold else FontWeight.Normal,
+                                            fontSize = (10 * dateLayout.scale * contentScale * dateLayout.fontSizeScale).sp,
+                                            color = Color(dateLayout.textColorHex)
                                         )
                                     }
                                 }
@@ -1804,7 +2108,7 @@ private fun SingleCardWYSIWYG(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp * contentScale)
                     ) {
                         // QR Code Box (Touch-draggable)
                         if (template.showQrCode && template.qrCodeLayout.isVisible) {
@@ -1822,21 +2126,21 @@ private fun SingleCardWYSIWYG(
 
                             Box(
                                 modifier = Modifier
-                                    .offset { IntOffset(qrLayout.offsetX.dp.roundToPx(), qrLayout.offsetY.dp.roundToPx()) }
-                                    .pointerInput("qr") {
-                                        detectDragGestures(
-                                            onDragStart = { selectedElementKey = "qr" },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val newX = (qrLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                                val newY = (qrLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                                onUpdateLayout("qr", qrLayout.copy(offsetX = newX, offsetY = newY))
-                                            }
-                                        )
-                                    }
-                                    .clickable { selectedElementKey = "qr" }
+                                    .cardElementDrag(
+                                        layout = qrLayout,
+                                        elementKey = "qr",
+                                        baseXRatio = 0.12f,
+                                        baseYRatio = 0.52f,
+                                        cardWidthPx = cardWidthPx,
+                                        cardHeightPx = cardHeightPx,
+                                        onUpdateLayout = onUpdateLayout,
+                                        onSelect = { selectedElementKey = "qr" },
+                                        enabled = isEditModeEnabled
+                                    )
+                                    .size(cardWidth * qrLayout.widthRatio, cardHeight * qrLayout.heightRatio)
+                                    .clickable(enabled = isEditModeEnabled) { selectedElementKey = "qr" }
                                     .then(
-                                        if (selectedElementKey == "qr") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(8.dp)).padding(2.dp)
+                                        if (isEditModeEnabled && selectedElementKey == "qr") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(8.dp)).padding(2.dp)
                                         else Modifier.padding(2.dp)
                                     )
                             ) {
@@ -1844,7 +2148,7 @@ private fun SingleCardWYSIWYG(
                                     color = Color.White,
                                     shape = RoundedCornerShape(8.dp),
                                     shadowElevation = 2.dp,
-                                    modifier = Modifier.size((60 * qrLayout.scale).dp)
+                                    modifier = Modifier.size(minOf(cardWidth * qrLayout.widthRatio, cardHeight * qrLayout.heightRatio))
                                 ) {
                                     if (qrBitmap != null) {
                                         Image(
@@ -1852,7 +2156,7 @@ private fun SingleCardWYSIWYG(
                                             contentDescription = "QR الدخول السريع",
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .padding(4.dp)
+                                                .padding(4.dp * contentScale)
                                         )
                                     }
                                 }
@@ -1868,155 +2172,35 @@ private fun SingleCardWYSIWYG(
                                 val metaLayout = template.metaLayout
                                 Box(
                                     modifier = Modifier
-                                        .offset { IntOffset(metaLayout.offsetX.dp.roundToPx(), metaLayout.offsetY.dp.roundToPx()) }
-                                        .pointerInput("meta") {
-                                            detectDragGestures(
-                                                onDragStart = { selectedElementKey = "meta" },
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    val newX = (metaLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                                    val newY = (metaLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                                    onUpdateLayout("meta", metaLayout.copy(offsetX = newX, offsetY = newY))
-                                                }
-                                            )
-                                        }
-                                        .clickable { selectedElementKey = "meta" }
+                                        .cardElementDrag(
+                                            layout = metaLayout,
+                                            elementKey = "meta",
+                                            baseXRatio = 0.68f,
+                                            baseYRatio = 0.42f,
+                                            cardWidthPx = cardWidthPx,
+                                            cardHeightPx = cardHeightPx,
+                                            onUpdateLayout = onUpdateLayout,
+                                            onSelect = { selectedElementKey = "meta" },
+                                            enabled = isEditModeEnabled
+                                        )
+                                        .size(cardWidth * metaLayout.widthRatio, cardHeight * metaLayout.heightRatio)
+                                        .clickable(enabled = isEditModeEnabled) { selectedElementKey = "meta" }
                                         .then(
-                                            if (selectedElementKey == "meta") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
+                                            if (isEditModeEnabled && selectedElementKey == "meta") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
                                             else Modifier.padding(2.dp)
                                         )
                                 ) {
                                     Text(
                                         text = "${template.quotaText} • ${template.validityText}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        fontSize = (11 * metaLayout.scale).sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(template.primaryColorHex),
-                                        modifier = Modifier.padding(bottom = 2.dp)
+                                        fontSize = (11 * metaLayout.scale * contentScale * metaLayout.fontSizeScale).sp,
+                                        fontWeight = if (metaLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                                        color = Color(metaLayout.textColorHex),
+                                        modifier = Modifier.padding(bottom = 2.dp * contentScale)
                                     )
                                 }
                             }
 
-                            // Voucher Code Box (Touch-draggable)
-                            if (template.codeBoxLayout.isVisible) {
-                                val codeLayout = template.codeBoxLayout
-                                val boxWidthFraction = codeLayout.widthScale.coerceIn(0.35f, 1.0f)
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .offset { IntOffset(codeLayout.offsetX.dp.roundToPx(), codeLayout.offsetY.dp.roundToPx()) }
-                                        .pointerInput("code_box") {
-                                            detectDragGestures(
-                                                onDragStart = { selectedElementKey = "code_box" },
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    val newX = (codeLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                                    val newY = (codeLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                                    onUpdateLayout("code_box", codeLayout.copy(offsetX = newX, offsetY = newY))
-                                                }
-                                            )
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(boxWidthFraction)
-                                            .clickable { selectedElementKey = "code_box" }
-                                            .then(
-                                                if (selectedElementKey == "code_box") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(8.dp)).padding(3.dp)
-                                                else Modifier.padding(3.dp)
-                                            )
-                                    ) {
-                                        when (template.codeBoxStyle) {
-                                            CodeBoxStyle.PILL_BADGE -> {
-                                                Surface(
-                                                    color = Color(template.primaryColorHex).copy(alpha = 0.2f),
-                                                    shape = CircleShape,
-                                                    border = BorderStroke(1.5.dp, Color(template.primaryColorHex)),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Text(
-                                                        text = "821 171",
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = (17 * codeLayout.scale).sp,
-                                                        color = Color.White,
-                                                        textAlign = TextAlign.Center,
-                                                        modifier = Modifier.padding(vertical = (6 * codeLayout.scale).dp)
-                                                    )
-                                                }
-                                            }
-                                            CodeBoxStyle.SCRATCH_FOIL -> {
-                                                Surface(
-                                                    color = Color(0xFFD97706),
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    border = BorderStroke(1.dp, Color(0xFFFDE68A)),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(vertical = (6 * codeLayout.scale).dp),
-                                                        horizontalArrangement = Arrangement.Center,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Text(
-                                                            text = "امسح برفق: 821171",
-                                                            fontFamily = FontFamily.Monospace,
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = (12 * codeLayout.scale).sp,
-                                                            color = Color.White
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            CodeBoxStyle.SPLIT_DIGITS -> {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceEvenly
-                                                ) {
-                                                    "821171".forEach { digit ->
-                                                        Surface(
-                                                            color = Color.White,
-                                                            shape = RoundedCornerShape(4.dp),
-                                                            border = BorderStroke(1.dp, Color(template.primaryColorHex)),
-                                                            modifier = Modifier.size((24 * codeLayout.scale).dp)
-                                                        ) {
-                                                            Box(contentAlignment = Alignment.Center) {
-                                                                Text(
-                                                                    text = digit.toString(),
-                                                                    fontFamily = FontFamily.Monospace,
-                                                                    fontWeight = FontWeight.ExtraBold,
-                                                                    fontSize = (13 * codeLayout.scale).sp,
-                                                                    color = Color(0xFF0F172A)
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            else -> {
-                                                Surface(
-                                                    color = Color.White,
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    border = BorderStroke(1.5.dp, Color(template.primaryColorHex)),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Text(
-                                                        text = "821171",
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = (18 * codeLayout.scale).sp,
-                                                        color = Color(0xFF0F172A),
-                                                        textAlign = TextAlign.Center,
-                                                        modifier = Modifier.padding(vertical = (5 * codeLayout.scale).dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
 
@@ -2030,21 +2214,21 @@ private fun SingleCardWYSIWYG(
                             val phoneLayout = template.supportPhoneLayout
                             Box(
                                 modifier = Modifier
-                                    .offset { IntOffset(phoneLayout.offsetX.dp.roundToPx(), phoneLayout.offsetY.dp.roundToPx()) }
-                                    .pointerInput("phone") {
-                                        detectDragGestures(
-                                            onDragStart = { selectedElementKey = "phone" },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val newX = (phoneLayout.offsetX + dragAmount.x / density).coerceIn(-130f, 130f)
-                                                val newY = (phoneLayout.offsetY + dragAmount.y / density).coerceIn(-65f, 65f)
-                                                onUpdateLayout("phone", phoneLayout.copy(offsetX = newX, offsetY = newY))
-                                            }
-                                        )
-                                    }
-                                    .clickable { selectedElementKey = "phone" }
+                                    .cardElementDrag(
+                                        layout = phoneLayout,
+                                        elementKey = "phone",
+                                        baseXRatio = 0.25f,
+                                        baseYRatio = 0.91f,
+                                        cardWidthPx = cardWidthPx,
+                                        cardHeightPx = cardHeightPx,
+                                        onUpdateLayout = onUpdateLayout,
+                                        onSelect = { selectedElementKey = "phone" },
+                                        enabled = isEditModeEnabled
+                                    )
+                                    .size(cardWidth * phoneLayout.widthRatio, cardHeight * phoneLayout.heightRatio)
+                                    .clickable(enabled = isEditModeEnabled) { selectedElementKey = "phone" }
                                     .then(
-                                        if (selectedElementKey == "phone") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
+                                        if (isEditModeEnabled && selectedElementKey == "phone") Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
                                         else Modifier.padding(2.dp)
                                     )
                             ) {
@@ -2053,14 +2237,15 @@ private fun SingleCardWYSIWYG(
                                         imageVector = Icons.Default.Phone,
                                         contentDescription = null,
                                         tint = Color(template.primaryColorHex),
-                                        modifier = Modifier.size((12 * phoneLayout.scale).dp)
+                                        modifier = Modifier.size((12 * phoneLayout.scale * contentScale).dp)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(4.dp * contentScale))
                                     Text(
                                         text = "الدعم: ${template.supportPhone}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        fontSize = (10 * phoneLayout.scale).sp,
-                                        color = if (customBitmap != null || !isCleanWhite) Color.LightGray else Color(0xFF475569)
+                                        fontSize = (10 * phoneLayout.scale * contentScale * phoneLayout.fontSizeScale).sp,
+                                        fontWeight = if (phoneLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                                        color = Color(phoneLayout.textColorHex)
                                     )
                                 }
                             }
@@ -2073,13 +2258,137 @@ private fun SingleCardWYSIWYG(
                                 text = "SN: #000142",
                                 fontFamily = FontFamily.Monospace,
                                 style = MaterialTheme.typography.labelSmall,
-                                fontSize = (10 * template.serialLayout.scale).sp,
-                                color = if (customBitmap != null || !isCleanWhite) Color.Gray else Color(0xFF94A3B8)
+                                fontSize = (10 * template.serialLayout.scale * contentScale * template.serialLayout.fontSizeScale).sp,
+                                fontWeight = if (template.serialLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                                color = Color(template.serialLayout.textColorHex),
+                                modifier = Modifier.cardElementDrag(
+                                    layout = template.serialLayout,
+                                    elementKey = "serial",
+                                    baseXRatio = 0.80f,
+                                    baseYRatio = 0.91f,
+                                    cardWidthPx = cardWidthPx,
+                                    cardHeightPx = cardHeightPx,
+                                    onUpdateLayout = onUpdateLayout,
+                                    onSelect = { selectedElementKey = "serial" },
+                                    enabled = isEditModeEnabled
+                                )
+                                    .clickable(enabled = isEditModeEnabled) { selectedElementKey = "serial" }
+                                    .then(
+                                    if (isEditModeEnabled && selectedElementKey == "serial") {
+                                        Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp)).padding(2.dp)
+                                    } else Modifier
+                                )
                             )
                         }
                     }
-                }
+                        }
+                    }
+                    if (template.codeBoxLayout.isVisible) {
+                        val codeLayout = template.codeBoxLayout
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(
+                                    width = cardWidth * codeLayout.widthRatio.coerceIn(0f, 1f),
+                                    height = cardHeight * codeLayout.heightRatio.coerceIn(0f, 1f)
+                                )
+                                .cardElementDrag(
+                                    layout = codeLayout,
+                                    elementKey = "code_box",
+                                    baseXRatio = 0.5f,
+                                    baseYRatio = 0.5f,
+                                    cardWidthPx = cardWidthPx,
+                                    cardHeightPx = cardHeightPx,
+                                    onUpdateLayout = onUpdateLayout,
+                                    onSelect = { selectedElementKey = "code_box" },
+                                    enabled = isEditModeEnabled
+                                )
+                                .clickable(enabled = isEditModeEnabled) { selectedElementKey = "code_box" }
+                                .then(
+                                    if (isEditModeEnabled && selectedElementKey == "code_box") {
+                                        Modifier.border(1.5.dp, BrandCyanPrimary, RoundedCornerShape(4.dp))
+                                    } else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when (template.codeBoxStyle) {
+                                CodeBoxStyle.PILL_BADGE -> Surface(
+                                    color = Color(template.primaryColorHex).copy(alpha = 0.2f),
+                                    shape = CircleShape,
+                                    border = BorderStroke(1.5.dp, Color(template.primaryColorHex)),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "821171",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = if (codeLayout.isBold) FontWeight.ExtraBold else FontWeight.Normal,
+                                            fontSize = (cardHeight.value * codeLayout.heightRatio * 0.6f * codeLayout.fontSizeScale).sp,
+                                            color = Color(codeLayout.textColorHex),
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                CodeBoxStyle.SCRATCH_FOIL -> Surface(
+                                    color = Color(0xFFD97706),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "امسح برفق: 821171",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = if (codeLayout.isBold) FontWeight.Bold else FontWeight.Normal,
+                                            fontSize = (cardHeight.value * codeLayout.heightRatio * 0.45f * codeLayout.fontSizeScale).sp,
+                                            color = Color(codeLayout.textColorHex),
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                                CodeBoxStyle.SPLIT_DIGITS -> Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    "821171".forEach { digit ->
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .padding(horizontal = 1.dp)
+                                                .border(1.dp, Color(template.primaryColorHex), RoundedCornerShape(2.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = digit.toString(),
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = if (codeLayout.isBold) FontWeight.ExtraBold else FontWeight.Normal,
+                                                fontSize = (cardHeight.value * codeLayout.heightRatio * 0.5f * codeLayout.fontSizeScale).sp,
+                                                color = Color(codeLayout.textColorHex)
+                                            )
+                                        }
+                                    }
+                                }
+                                else -> Text(
+                                    text = "821171",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = if (codeLayout.isBold) FontWeight.ExtraBold else FontWeight.Normal,
+                                    fontSize = (cardHeight.value * codeLayout.heightRatio * 0.6f * codeLayout.fontSizeScale).sp,
+                                    color = Color(codeLayout.textColorHex),
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
             }
+        }
         }
 
         // 3. Touch Controller & Precision Nudge Tool (Shown only in Designer tab)
@@ -2094,6 +2403,67 @@ private fun SingleCardWYSIWYG(
         }
     }
 }
+
+private fun Modifier.cardElementDrag(
+    layout: ElementLayout,
+    elementKey: String,
+    baseXRatio: Float,
+    baseYRatio: Float,
+    cardWidthPx: Float,
+    cardHeightPx: Float,
+    onUpdateLayout: (String, ElementLayout) -> Unit,
+    onSelect: () -> Unit,
+    enabled: Boolean
+): Modifier = composed {
+    var xRatio by remember(elementKey, layout.xRatio) { mutableStateOf(layout.xRatio) }
+    var yRatio by remember(elementKey, layout.yRatio) { mutableStateOf(layout.yRatio) }
+    val updateLayout by rememberUpdatedState(onUpdateLayout)
+    val selectElement by rememberUpdatedState(onSelect)
+
+    this
+        .absoluteOffset {
+            IntOffset(
+                x = ((xRatio - baseXRatio) * cardWidthPx).roundToInt(),
+                y = ((yRatio - baseYRatio) * cardHeightPx).roundToInt()
+            )
+        }
+        .then(
+            if (enabled) {
+                Modifier.pointerInput(elementKey, cardWidthPx, cardHeightPx, layout.xRatio, layout.yRatio) {
+                    detectDragGestures(
+                        onDragStart = { selectElement() },
+                        onDragEnd = { updateLayout(elementKey, layout.copy(xRatio = xRatio, yRatio = yRatio)) },
+                        onDragCancel = { updateLayout(elementKey, layout.copy(xRatio = xRatio, yRatio = yRatio)) },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            xRatio = (xRatio + dragAmount.x / cardWidthPx).coerceIn(0f, 1f)
+                            yRatio = (yRatio + dragAmount.y / cardHeightPx).coerceIn(0f, 1f)
+                        }
+                    )
+                }
+            } else Modifier
+        )
+}
+
+private fun Modifier.normalizedOffset(
+    layout: ElementLayout,
+    baseXRatio: Float,
+    baseYRatio: Float,
+    cardWidthPx: Float,
+    cardHeightPx: Float
+): Modifier = absoluteOffset {
+    IntOffset(
+        x = ((layout.xRatio - baseXRatio) * cardWidthPx).roundToInt(),
+        y = ((layout.yRatio - baseYRatio) * cardHeightPx).roundToInt()
+    )
+}
+
+private fun PrintPageFormat.cardAspectRatio(): Float =
+    if (this == PrintPageFormat.THERMAL_ROLL_80MM) {
+        226f / 220f
+    } else {
+        ((595f - 32f) / cols - 4f) / ((842f - 44f) / rows - 4f)
+    }
 
 /**
  * Interactive Touch Drag & Scale Controller Toolbar.
@@ -2114,6 +2484,7 @@ private fun ElementTouchControlBar(
         "qr" -> template.qrCodeLayout
         "meta" -> template.metaLayout
         "phone" -> template.supportPhoneLayout
+        "date" -> template.creationDateLayout
         "serial" -> template.serialLayout
         else -> template.codeBoxLayout
     }
@@ -2125,7 +2496,8 @@ private fun ElementTouchControlBar(
         "qr" to "رمز QR 📱",
         "meta" to "الرصيد/الوقت 📊",
         "phone" to "الدعم 📞",
-        "serial" to "تاريخ الكرت 📅"
+        "date" to "تاريخ الكرت 📅",
+        "serial" to "الرقم التسلسلي 🔢"
     )
 
     Surface(
@@ -2168,6 +2540,90 @@ private fun ElementTouchControlBar(
                 }
             }
 
+            if (selectedKey in setOf("code_box", "price", "network", "meta", "phone", "date", "serial")) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("لون النص:", fontSize = 10.sp, color = Color.LightGray)
+                    val swatches = listOf(
+                        "أسود" to 0xFF000000L,
+                        "أبيض" to 0xFFFFFFFFL,
+                        "كحلي" to 0xFF0F172AL,
+                        "ذهبي" to 0xFFFBBF24L,
+                        "زمردي" to 0xFF10B981L,
+                        "أحمر" to 0xFFEF4444L,
+                        "سماوي" to 0xFF22D3EEL
+                    )
+                    swatches.forEach { (label, hex) ->
+                        Surface(
+                            color = Color(hex),
+                            shape = CircleShape,
+                            border = BorderStroke(
+                                if (currentLayout.textColorHex == hex) 2.dp else 1.dp,
+                                if (currentLayout.textColorHex == hex) BrandCyanPrimary else Color.White.copy(alpha = 0.55f)
+                            ),
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clickable {
+                                    onUpdateLayout(selectedKey, currentLayout.copy(textColorHex = hex))
+                                }
+                        ) {}
+                    }
+                    Text(
+                        text = "حجم الخط:",
+                        fontSize = 10.sp,
+                        color = Color.LightGray
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier.size(24.dp).clickable {
+                            onUpdateLayout(
+                                selectedKey,
+                                currentLayout.copy(fontSizeScale = (currentLayout.fontSizeScale - 0.1f).coerceIn(0.5f, 2f))
+                            )
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("−", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Text(
+                        "${(currentLayout.fontSizeScale * 100).toInt()}%",
+                        fontSize = 10.sp,
+                        color = BrandCyanPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier.size(24.dp).clickable {
+                            onUpdateLayout(
+                                selectedKey,
+                                currentLayout.copy(fontSizeScale = (currentLayout.fontSizeScale + 0.1f).coerceIn(0.5f, 2f))
+                            )
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("+", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    FilterChip(
+                        selected = currentLayout.isBold,
+                        onClick = { onUpdateLayout(selectedKey, currentLayout.copy(isBold = !currentLayout.isBold)) },
+                        label = { Text("عريض", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BrandCyanPrimary,
+                            selectedLabelColor = Color.Black
+                        )
+                    )
+                }
+            }
+
             // Controls for active element: Scale, Width/Length & Directional Nudge Pad
             Row(
                 modifier = Modifier
@@ -2188,8 +2644,8 @@ private fun ElementTouchControlBar(
                         modifier = Modifier
                             .size(26.dp)
                             .clickable {
-                                val newScale = (currentLayout.scale - 0.1f).coerceIn(0.6f, 1.8f)
-                                onUpdateLayout(selectedKey, currentLayout.copy(scale = newScale))
+                                val newHeight = (currentLayout.heightRatio - 0.015f).coerceIn(0.06f, 0.45f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(heightRatio = newHeight))
                             }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -2197,7 +2653,7 @@ private fun ElementTouchControlBar(
                         }
                     }
                     Text(
-                        text = "${(currentLayout.scale * 100).toInt()}%",
+                        text = "${(currentLayout.heightRatio / ElementLayout.DEFAULT_HEIGHT_RATIO * 100).toInt()}%",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = BrandCyanPrimary
@@ -2208,8 +2664,8 @@ private fun ElementTouchControlBar(
                         modifier = Modifier
                             .size(26.dp)
                             .clickable {
-                                val newScale = (currentLayout.scale + 0.1f).coerceIn(0.6f, 1.8f)
-                                onUpdateLayout(selectedKey, currentLayout.copy(scale = newScale))
+                                val newHeight = (currentLayout.heightRatio + 0.015f).coerceIn(0.06f, 0.45f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(heightRatio = newHeight))
                             }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -2230,8 +2686,8 @@ private fun ElementTouchControlBar(
                         modifier = Modifier
                             .size(26.dp)
                             .clickable {
-                                val newWidth = (currentLayout.widthScale - 0.1f).coerceIn(0.4f, 2.0f)
-                                onUpdateLayout(selectedKey, currentLayout.copy(widthScale = newWidth))
+                                val newWidth = (currentLayout.widthRatio - 0.03f).coerceIn(0.08f, 0.95f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(widthRatio = newWidth))
                             }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -2239,7 +2695,7 @@ private fun ElementTouchControlBar(
                         }
                     }
                     Text(
-                        text = "${(currentLayout.widthScale * 100).toInt()}%",
+                        text = "${(currentLayout.widthRatio / ElementLayout.DEFAULT_WIDTH_RATIO * 100).toInt()}%",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFEAB308)
@@ -2250,8 +2706,8 @@ private fun ElementTouchControlBar(
                         modifier = Modifier
                             .size(26.dp)
                             .clickable {
-                                val newWidth = (currentLayout.widthScale + 0.1f).coerceIn(0.4f, 2.0f)
-                                onUpdateLayout(selectedKey, currentLayout.copy(widthScale = newWidth))
+                                val newWidth = (currentLayout.widthRatio + 0.03f).coerceIn(0.08f, 0.95f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(widthRatio = newWidth))
                             }
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -2261,46 +2717,48 @@ private fun ElementTouchControlBar(
                 }
 
                 // Precision Nudge pad (Move in 4 directions)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text("تحريك:", fontSize = 10.sp, color = Color.LightGray)
-                    IconButton(
-                        onClick = {
-                            val newX = (currentLayout.offsetX - 4f).coerceIn(-130f, 130f)
-                            onUpdateLayout(selectedKey, currentLayout.copy(offsetX = newX))
-                        },
-                        modifier = Modifier.size(24.dp)
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Text("◀", fontSize = 10.sp, color = BrandCyanPrimary)
-                    }
-                    IconButton(
-                        onClick = {
-                            val newY = (currentLayout.offsetY - 4f).coerceIn(-70f, 70f)
-                            onUpdateLayout(selectedKey, currentLayout.copy(offsetY = newY))
-                        },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Text("▲", fontSize = 10.sp, color = BrandCyanPrimary)
-                    }
-                    IconButton(
-                        onClick = {
-                            val newY = (currentLayout.offsetY + 4f).coerceIn(-70f, 70f)
-                            onUpdateLayout(selectedKey, currentLayout.copy(offsetY = newY))
-                        },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Text("▼", fontSize = 10.sp, color = BrandCyanPrimary)
-                    }
-                    IconButton(
-                        onClick = {
-                            val newX = (currentLayout.offsetX + 4f).coerceIn(-130f, 130f)
-                            onUpdateLayout(selectedKey, currentLayout.copy(offsetX = newX))
-                        },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Text("▶", fontSize = 10.sp, color = BrandCyanPrimary)
+                        Text("تحريك:", fontSize = 10.sp, color = Color.LightGray)
+                        IconButton(
+                            onClick = {
+                                val newX = (currentLayout.xRatio - 0.02f).coerceIn(0f, 1f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(xRatio = newX))
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Text("◀", fontSize = 10.sp, color = BrandCyanPrimary)
+                        }
+                        IconButton(
+                            onClick = {
+                                val newY = (currentLayout.yRatio - 0.02f).coerceIn(0f, 1f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(yRatio = newY))
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Text("▲", fontSize = 10.sp, color = BrandCyanPrimary)
+                        }
+                        IconButton(
+                            onClick = {
+                                val newY = (currentLayout.yRatio + 0.02f).coerceIn(0f, 1f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(yRatio = newY))
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Text("▼", fontSize = 10.sp, color = BrandCyanPrimary)
+                        }
+                        IconButton(
+                            onClick = {
+                                val newX = (currentLayout.xRatio + 0.02f).coerceIn(0f, 1f)
+                                onUpdateLayout(selectedKey, currentLayout.copy(xRatio = newX))
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Text("▶", fontSize = 10.sp, color = BrandCyanPrimary)
+                        }
                     }
                 }
 
@@ -2309,7 +2767,7 @@ private fun ElementTouchControlBar(
                     shape = RoundedCornerShape(4.dp),
                     color = Color(0xFF1E293B),
                     modifier = Modifier.clickable {
-                        onUpdateLayout(selectedKey, ElementLayout())
+                        onUpdateLayout(selectedKey, defaultElementLayout(selectedKey))
                     }
                 ) {
                     Text(
@@ -4286,73 +4744,80 @@ private fun ElementToggleRow(label: String, checked: Boolean, onCheckedChange: (
 private fun BatchesAndPrintTab(
     batches: List<CardBatch>,
     selectedFormat: PrintPageFormat,
+    template: CardTemplate,
     onSelectFormat: (PrintPageFormat) -> Unit,
+    onUpdateTemplate: (CardTemplate) -> Unit,
     onExportPdf: (CardBatch, PrintPageFormat) -> Unit,
     onShareScript: (CardBatch) -> Unit,
     onInjectToRouter: (CardBatch) -> Unit,
     onDeleteBatch: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Format Selector Bar
-        Text("مقاس ورقة الطباعة المستهدفة:", style = MaterialTheme.typography.labelMedium, color = Color.White)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            PrintPageFormat.values().forEach { format ->
-                FilterChip(
-                    selected = selectedFormat == format,
-                    onClick = { onSelectFormat(format) },
-                    label = { Text(format.displayNameAr, fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = BrandCyanPrimary,
-                        selectedLabelColor = Color.Black
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("مقاس ورقة الطباعة المستهدفة:", style = MaterialTheme.typography.labelMedium, color = Color.White)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PrintPageFormat.values().forEach { format ->
+                        FilterChip(
+                            selected = selectedFormat == format,
+                            onClick = { onSelectFormat(format) },
+                            label = { Text(format.displayNameAr, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = BrandCyanPrimary,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                }
+
+                if (selectedFormat != PrintPageFormat.THERMAL_ROLL_80MM) {
+                    PrintGridSettingsPanel(
+                        template = template,
+                        format = selectedFormat,
+                        onUpdateTemplate = onUpdateTemplate
                     )
-                )
+                }
             }
         }
 
         if (batches.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Style,
-                        contentDescription = null,
-                        tint = Color.Gray,
-                        modifier = Modifier.size(56.dp)
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "لا توجد دفعات كروت مولدة حتى الآن",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.LightGray
-                    )
-                    Text(
-                        text = "انتقل إلى تبويب 'معايير وتوليد الدفعة ⚡' لإنشاء أول دفعة كروت جاهزة للطباعة",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
-                    )
+            item {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Style,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "لا توجد دفعات كروت مولدة حتى الآن",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.LightGray
+                        )
+                        Text(
+                            text = "انتقل إلى تبويب 'معايير وتوليد الدفعة ⚡' لإنشاء أول دفعة كروت جاهزة للطباعة",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(batches, key = { it.id }) { batch ->
-                    Card(
+            items(batches, key = { it.id }) { batch ->
+                Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
                         shape = RoundedCornerShape(12.dp),
@@ -4428,7 +4893,6 @@ private fun BatchesAndPrintTab(
                                     Icon(Icons.Default.ContentCopy, contentDescription = null, tint = BrandCyanPrimary, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("سكربت RSC 📜", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
                             }
                         }
                     }

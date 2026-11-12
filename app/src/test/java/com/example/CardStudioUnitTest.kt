@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.data.card.CardBatch
+import com.example.data.card.CardPrintGridSettings
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
 import com.example.data.card.CodeBoxStyle
@@ -130,9 +131,78 @@ class CardStudioUnitTest {
         assertEquals(3, PrintPageFormat.A4_GRID_24.cols)
         assertEquals(8, PrintPageFormat.A4_GRID_24.rows)
 
+        assertEquals(42, PrintPageFormat.A4_GRID_42.cardsPerPage)
+        assertEquals(3, PrintPageFormat.A4_GRID_42.cols)
+        assertEquals(14, PrintPageFormat.A4_GRID_42.rows)
         assertEquals(18, PrintPageFormat.A4_GRID_18.cardsPerPage)
         assertEquals(10, PrintPageFormat.A4_GRID_10.cardsPerPage)
         assertEquals(1, PrintPageFormat.THERMAL_ROLL_80MM.cardsPerPage)
+    }
+
+    @Test
+    fun testCardElementLayoutsUseNormalizedRatios() {
+        val template = CardTemplate()
+        val layouts = listOf(
+            template.priceLayout,
+            template.networkLayout,
+            template.codeBoxLayout,
+            template.qrCodeLayout,
+            template.metaLayout,
+            template.supportPhoneLayout,
+            template.creationDateLayout,
+            template.serialLayout
+        )
+
+        layouts.forEach { layout ->
+            assertTrue(layout.xRatio in 0f..1f)
+            assertTrue(layout.yRatio in 0f..1f)
+            assertTrue(layout.widthRatio in 0f..1f)
+            assertTrue(layout.heightRatio in 0f..1f)
+        }
+
+        val codeLayout = template.codeBoxLayout
+        assertEquals(0.29f, codeLayout.leftRatio, 0.001f)
+        assertEquals(0.39f, codeLayout.topRatio, 0.001f)
+        assertEquals(0.91f, codeLayout.rightRatio, 0.001f)
+        assertEquals(0.69f, codeLayout.bottomRatio, 0.001f)
+    }
+
+    @Test
+    fun testPrintGridCellDimensionsAndPageBounds() {
+        val defaults = CardPrintGridSettings().normalized()
+        assertEquals(3, defaults.columns)
+        assertEquals(8, defaults.rows)
+        assertEquals(2.5f, defaults.horizontalGapMm, 0.001f)
+        assertEquals(2.5f, defaults.verticalGapMm, 0.001f)
+        assertEquals(6.5f, defaults.horizontalMarginMm, 0.001f)
+        assertEquals(6f, defaults.verticalMarginMm, 0.001f)
+
+        val miniGrid = defaults.copy(rows = 14)
+        assertEquals(64f, miniGrid.availableCellWidthMm(), 0.001f)
+        assertEquals((297f - 12f - 13 * 2.5f) / 14f, miniGrid.availableCellHeightMm(), 0.001f)
+
+        val grid = CardPrintGridSettings(
+            isCustom = true,
+            columns = 3,
+            rows = 8,
+            horizontalGapMm = 2f,
+            verticalGapMm = 2f,
+            horizontalMarginMm = 4f,
+            verticalMarginMm = 8f
+        )
+        assertEquals(66f, grid.availableCellWidthMm(), 0.001f)
+        assertEquals(33.375f, grid.availableCellHeightMm(), 0.001f)
+
+        val bounded = CardPrintGridSettings(
+            columns = 5,
+            rows = 16,
+            horizontalGapMm = 100f,
+            verticalGapMm = 100f,
+            horizontalMarginMm = 40f,
+            verticalMarginMm = 40f
+        ).normalized()
+        assertTrue(2f * bounded.horizontalMarginMm + (bounded.columns - 1) * bounded.horizontalGapMm <= 210f)
+        assertTrue(2f * bounded.verticalMarginMm + (bounded.rows - 1) * bounded.verticalGapMm <= 297f)
     }
 
     @Test
