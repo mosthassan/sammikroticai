@@ -326,6 +326,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val currentUser: StateFlow<UserSession?> = authManager.currentUser
     val activeRole: StateFlow<AppUserRole> = authManager.activeRole
     val activeAgentPermissions: StateFlow<AgentPermissions> = authManager.activeAgentPermissions
+    val isOnboardingComplete: StateFlow<Boolean> = authManager.isOnboardingComplete
     val accessCodes: StateFlow<List<AccessCodeEntry>> = authManager.accessCodes
     val documentVerifications: StateFlow<Map<String, DocumentVerificationRecord>> = authManager.documentVerifications
     val posRestockOrders: StateFlow<List<PosRestockOrder>> = authManager.posRestockOrders
@@ -2444,6 +2445,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun loginWithAgentInviteCode(
         codeInput: String,
         nameOrPinInput: String,
+        emailInput: String = "",
         onSuccess: (UserSession) -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -2452,12 +2454,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val res = authManager.loginWithAgentInviteCode(
                 codeInput = codeInput,
                 nameOrPinInput = nameOrPinInput,
+                emailInput = emailInput,
                 cloudLookup = { cleanCode ->
                     syncManager.fetchAccessCodeFromCloud(netId, cleanCode)
                 }
             )
             if (res.isSuccess) {
                 val session = res.getOrThrow()
+                authManager.buildCloudBindingForSession(session)?.let { binding ->
+                    syncManager.bindUserEmailIdentityToCloud(binding)
+                }
+                syncPosOrdersAndTicketsWithCloud()
                 _userMessage.emit("تم الدخول بوضع الوكيل الميداني: ${session.agentName ?: session.displayName}")
                 onSuccess(session)
             } else {
@@ -2470,6 +2477,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loginWithPosTransparencyCode(
         codeInput: String,
+        emailInput: String = "",
         onSuccess: (UserSession) -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -2477,15 +2485,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val res = authManager.loginWithPosTransparencyCode(
                 codeInput = codeInput,
+                emailInput = emailInput,
                 cloudLookup = { cleanCode ->
                     syncManager.fetchAccessCodeFromCloud(netId, cleanCode)
                 }
             )
             if (res.isSuccess) {
                 val session = res.getOrThrow()
+                authManager.buildCloudBindingForSession(session)?.let { binding ->
+                    syncManager.bindUserEmailIdentityToCloud(binding)
+                }
                 val pid = session.boundPartyId
                 if (!pid.isNullOrBlank()) {
                     loadStatementOfAccount(pid, AccountConstants.ACCOUNTS_RECEIVABLE, null, null)
+                    syncPartyVerificationsWithCloud(pid)
+                    syncPosOrdersAndTicketsWithCloud(pid)
                 }
                 _userMessage.emit("مرحباً بك في بوابة الشفافية الرقمية: ${session.boundPartyName ?: session.displayName}")
                 onSuccess(session)
@@ -2494,6 +2508,136 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.emit(err)
                 onError(err)
             }
+        }
+    }
+
+    /**
+     * Checks `users_by_email/{sanitizedEmail}` in Firestore for a returning user or binds a new session:
+     * - If a bound profile is found in Firestore, automatically restores their role, networkId, and code!
+     * - Otherwise creates a new Owner session or requests the Agent/POS code for first-time binding.
+     */
+    fun recoverOrBindEmailIdentity(
+        email: String,
+        displayName: String = "",
+        selectedRole: AppUserRole? = null,
+        onResult: (com.example.data.auth.EmailIdentityResolution) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        val netIdHint = resolveCurrentNetworkId()
+        val netNameHint = resolveCurrentNetworkName()
+        viewModelScope.launch {
+            val res = authManager.recoverOrBindSessionByEmail(
+                email = email,
+                displayName = displayName,
+                selectedRole = selectedRole,
+                networkIdHint = netIdHint,
+                networkNameHint = netNameHint,
+                cloudIdentityLookup = { cleanEmail ->
+                    syncManager.fetchUserEmailIdentityFromCloud(cleanEmail)
+                },
+                cloudAccessCodeLookup = { netId, code ->
+                    syncManager.fetchAccessCodeFromCloud(netId, code)
+                }
+            )
+            if (res.isSuccess) {
+                val resolution = res.getOrThrow()
+                when (resolution) {
+                    is com.example.data.auth.EmailIdentityResolution.RestoredFromCloud -> {
+                        syncManager.bindUserEmailIdentityToCloud(resolution.binding)
+                        val s = resolution.session
+                        if (s.role == AppUserRole.POS_MERCHANT && !s.boundPartyId.isNullOrBlank()) {
+                            loadStatementOfAccount(s.boundPartyId, AccountConstants.ACCOUNTS_RECEIVABLE, null, null)
+                            syncPartyVerificationsWithCloud(s.boundPartyId)
+                            syncPosOrdersAndTicketsWithCloud(s.boundPartyId)
+                        } else if (s.role == AppUserRole.NETWORK_OWNER) {
+                            triggerInitialCloudSyncOnLogin(s)
+                            syncPosOrdersAndTicketsWithCloud()
+                        } else {
+                            syncPosOrdersAndTicketsWithCloud()
+                        }
+                        _userMessage.emit("☁️ تم استرجاع هويتك السحابية تلقائياً (${s.role.badgeAr} • ${s.displayName})")
+                    }
+                    is com.example.data.auth.EmailIdentityResolution.NewOwnerSessionCreated -> {
+                        syncManager.bindUserEmailIdentityToCloud(resolution.binding)
+                        triggerInitialCloudSyncOnLogin(resolution.session)
+                        _userMessage.emit("👑 تم ربط البريد الإلكتروني (${resolution.session.email}) بحساب مالك الشبكة")
+                    }
+                    is com.example.data.auth.EmailIdentityResolution.RequiresRoleCode -> {
+                        // User needs to enter their AGT-XXXX or POS-XXXXXX code once to bind it to their email
+                    }
+                }
+                onResult(resolution)
+            } else {
+                val err = res.exceptionOrNull()?.message ?: "تعذر التحقق من البريد الإلكتروني"
+                _userMessage.emit(err)
+                onError(err)
+            }
+        }
+    }
+
+    /**
+     * One-Tap Google Sign-In directly from the Splash Role Gateway, followed by automatic cloud profile recovery/binding.
+     */
+    fun signInWithGoogleForRoleGateway(
+        context: android.content.Context,
+        selectedRole: AppUserRole? = null,
+        onResult: (com.example.data.auth.EmailIdentityResolution) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            try {
+                val res = googleAuthManager.signInWithGoogleOneTap(context)
+                if (res.isSuccess) {
+                    val profile = res.getOrNull()
+                    if (profile != null) {
+                        recoverOrBindEmailIdentity(
+                            email = profile.email,
+                            displayName = profile.displayName,
+                            selectedRole = selectedRole,
+                            onResult = onResult,
+                            onError = onError
+                        )
+                    }
+                } else {
+                    val err = res.exceptionOrNull()?.localizedMessage ?: "تعذر اختيار حساب Google، يمكنك إدخال البريد يدوياً"
+                    onError(err)
+                }
+            } catch (e: Exception) {
+                val err = e.localizedMessage ?: "تعذر اختيار حساب Google، يمكنك إدخال البريد يدوياً"
+                onError(err)
+            }
+        }
+    }
+
+    fun completeOwnerOnboarding(
+        email: String = "",
+        displayName: String = "",
+        onCompleted: (UserSession) -> Unit = {}
+    ) {
+        val session = authManager.completeOwnerOnboarding(
+            email = email,
+            displayName = displayName,
+            networkId = resolveCurrentNetworkId(),
+            networkName = resolveCurrentNetworkName()
+        )
+        viewModelScope.launch {
+            authManager.buildCloudBindingForSession(session)?.let { binding ->
+                syncManager.bindUserEmailIdentityToCloud(binding)
+            }
+        }
+        onCompleted(session)
+    }
+
+    fun logoutAndReturnToRoleGateway(onLoggedOut: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                googleAuthManager.signOut()
+                authManager.signOut()
+                _userMessage.emit("تم تسجيل الخروج والعودة لبوابة اختيار الدور")
+            } catch (e: Exception) {
+                authManager.signOut()
+            }
+            onLoggedOut()
         }
     }
 

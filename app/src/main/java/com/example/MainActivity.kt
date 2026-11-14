@@ -236,9 +236,23 @@ class MainActivity : ComponentActivity() {
                 var showDeviceMonitorScreen by rememberSaveable { mutableStateOf(false) }
                 var showHotspotUsersScreen by rememberSaveable { mutableStateOf(false) }
                 var showRouterLoginScreen by rememberSaveable { mutableStateOf(false) }
-                var isRouterSessionLoggedIn by rememberSaveable { mutableStateOf(false) }
+                var isRouterSessionLoggedIn by rememberSaveable {
+                    mutableStateOf(appViewModel.isOnboardingComplete.value && appViewModel.currentUser.value != null)
+                }
                 var showSplashScreen by rememberSaveable { mutableStateOf(true) }
+                var skipSplashAnimation by rememberSaveable { mutableStateOf(false) }
+                var showCloudAccountMenuDialog by rememberSaveable { mutableStateOf(false) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+                val triggerAccountSwitchToSplash: () -> Unit = {
+                    appViewModel.logoutAndReturnToRoleGateway {
+                        showCloudAccountMenuDialog = false
+                        showRouterLoginScreen = false
+                        isRouterSessionLoggedIn = false
+                        skipSplashAnimation = true
+                        showSplashScreen = true
+                    }
+                }
 
                 // Ensure selectedTabIndex is always valid for the current role
                 LaunchedEffect(activeRole, visibleTabs) {
@@ -269,7 +283,29 @@ class MainActivity : ComponentActivity() {
 
                 if (showSplashScreen) {
                     com.example.ui.screens.SplashScreen(
-                        onSplashFinished = { showSplashScreen = false }
+                        viewModel = appViewModel,
+                        skipAnimation = skipSplashAnimation,
+                        onSplashFinished = {
+                            showSplashScreen = false
+                            skipSplashAnimation = false
+                        },
+                        onRoleCompleted = { role ->
+                            showSplashScreen = false
+                            skipSplashAnimation = false
+                            when (role) {
+                                AppUserRole.NETWORK_OWNER -> {
+                                    isRouterSessionLoggedIn = true
+                                    selectedTabIndex = 1 // Open Owner Financial/Operations workspace directly
+                                }
+                                AppUserRole.DISTRIBUTOR_AGENT -> {
+                                    showRouterLoginScreen = false
+                                    selectedTabIndex = 2
+                                }
+                                AppUserRole.POS_MERCHANT -> {
+                                    showRouterLoginScreen = false
+                                }
+                            }
+                        }
                     )
                 } else if (showRouterLoginScreen || (activeRole == AppUserRole.NETWORK_OWNER && selectedTabIndex == 0 && !isRouterSessionLoggedIn)) {
                     BackHandler(enabled = isRouterSessionLoggedIn || selectedTabIndex != 0 || activeRole != AppUserRole.NETWORK_OWNER) {
@@ -287,18 +323,16 @@ class MainActivity : ComponentActivity() {
                             selectedTabIndex = 0
                         },
                         onOfflineEnter = {
+                            isRouterSessionLoggedIn = true
                             showRouterLoginScreen = false
                             selectedTabIndex = if (appViewModel.activeRole.value == AppUserRole.DISTRIBUTOR_AGENT) 2 else 1
-                        }
+                        },
+                        onSwitchAccountOrRole = triggerAccountSwitchToSplash
                     )
                 } else if (activeRole == AppUserRole.POS_MERCHANT) {
                     PosMerchantPortalScreen(
                         viewModel = appViewModel,
-                        onSwitchOrLogoutRole = {
-                            appViewModel.switchToNetworkOwnerRole {
-                                showRouterLoginScreen = true
-                            }
-                        }
+                        onSwitchOrLogoutRole = triggerAccountSwitchToSplash
                     )
                 } else if (showPosInboxScreen && (activeRole == AppUserRole.NETWORK_OWNER || activeRole == AppUserRole.DISTRIBUTOR_AGENT)) {
                     com.example.ui.screens.PosInboxScreen(
@@ -469,9 +503,7 @@ class MainActivity : ComponentActivity() {
                                                 .padding(end = 6.dp)
                                                 .clip(RoundedCornerShape(10.dp))
                                                 .clickable {
-                                                    appViewModel.switchToNetworkOwnerRole {
-                                                        showRouterLoginScreen = true
-                                                    }
+                                                    showCloudAccountMenuDialog = true
                                                 }
                                                 .testTag("top_bar_switch_role_btn")
                                         ) {
@@ -482,12 +514,12 @@ class MainActivity : ComponentActivity() {
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.SwapHoriz,
-                                                    contentDescription = "تبديل الدور",
+                                                    contentDescription = "تبديل الحساب أو تسجيل الخروج",
                                                     tint = TextPrimaryDark,
                                                     modifier = Modifier.size(15.dp)
                                                 )
                                                 Text(
-                                                    text = "تبديل الدور",
+                                                    text = "تبديل الحساب / خروج",
                                                     color = TextPrimaryDark,
                                                     fontSize = 10.5.sp,
                                                     fontWeight = FontWeight.Bold
@@ -611,6 +643,18 @@ class MainActivity : ComponentActivity() {
                                                 contentDescription = "مساعد سامي الذكي (ERP AI)",
                                                 tint = BrandCyanPrimary,
                                                 modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { showCloudAccountMenuDialog = true },
+                                            modifier = Modifier.testTag("top_bar_cloud_account_btn")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.SwapHoriz,
+                                                contentDescription = "الحساب السحابي النشط وتبديل الحساب",
+                                                tint = BrandCyanPrimary,
+                                                modifier = Modifier.size(20.dp)
                                             )
                                         }
                                     }
@@ -939,6 +983,64 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.testTag("btn_dismiss_restore_cloud")
                             ) {
                                 Text("تخطي والبدء بحساب فارغ")
+                            }
+                        }
+                    )
+                }
+
+                if (showCloudAccountMenuDialog) {
+                    val activeEmail = currentUser?.email?.takeIf {
+                        it.isNotBlank() && !it.endsWith("@sammikrotik.local")
+                    } ?: "غير مرتبط ببريد خارجي"
+                    val boundCodeLabel = currentUser?.accessCode?.takeIf { it.isNotBlank() }
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showCloudAccountMenuDialog = false },
+                        title = {
+                            Text(
+                                text = "الحساب السحابي النشط: $activeEmail • تبديل الحساب / خروج",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "الصفة الحالية: ${activeRole.badgeAr}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "البريد السحابي: $activeEmail",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (boundCodeLabel != null) {
+                                    Text(
+                                        text = "الكود المرتبط: $boundCodeLabel",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = BrandCyanPrimary
+                                    )
+                                }
+                                Text(
+                                    text = "يمكنك تسجيل الخروج أو تبديل الحساب للعودة إلى بوابة اختيار الدور على شاشة البداية.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.Button(
+                                onClick = triggerAccountSwitchToSplash,
+                                colors = ButtonDefaults.buttonColors(containerColor = SemanticExpenseRed),
+                                modifier = Modifier.testTag("btn_confirm_logout_switch_account")
+                            ) {
+                                Text("تسجيل الخروج / تبديل الحساب", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(
+                                onClick = { showCloudAccountMenuDialog = false }
+                            ) {
+                                Text("إغلاق")
                             }
                         }
                     )

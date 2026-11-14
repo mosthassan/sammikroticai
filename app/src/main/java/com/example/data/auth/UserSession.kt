@@ -768,4 +768,158 @@ data class PosSupportTicket(
     }
 }
 
+/**
+ * Cloud Identity Binding stored in Firestore under `users_by_email/{sanitizedEmail}`.
+ * Links a user's verified email address to their active SaaS role (`NETWORK_OWNER`, `DISTRIBUTOR_AGENT`, or `POS_MERCHANT`),
+ * `networkId`, and bound invite/transparency code (`AGT-XXXX` or `POS-XXXXXX`) for automatic new-device recovery.
+ */
+data class CloudUserIdentityBinding(
+    val email: String,
+    val role: AppUserRole,
+    val networkId: String = "DEFAULT_ORG",
+    val networkName: String = "",
+    val agentCode: String? = null,
+    val posCode: String? = null,
+    val partyId: String? = null,
+    val partyName: String? = null,
+    val agentId: String? = null,
+    val agentName: String? = null,
+    val permissions: AgentPermissions = AgentPermissions(),
+    val displayName: String = "",
+    val uid: String = "",
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    val sanitizedEmail: String
+        get() = sanitizeEmailKey(email)
+
+    val boundCode: String?
+        get() = agentCode?.takeIf { it.isNotBlank() } ?: posCode?.takeIf { it.isNotBlank() }
+
+    fun toMap(): Map<String, Any?> = mapOf(
+        "email" to email.trim().lowercase(),
+        "sanitizedEmail" to sanitizedEmail,
+        "role" to role.name,
+        "networkId" to networkId.ifBlank { "DEFAULT_ORG" },
+        "networkName" to networkName,
+        "agentCode" to (agentCode ?: ""),
+        "posCode" to (posCode ?: ""),
+        "partyId" to (partyId ?: ""),
+        "partyName" to (partyName ?: ""),
+        "agentId" to (agentId ?: ""),
+        "agentName" to (agentName ?: ""),
+        "permissions" to permissions.toMap(),
+        "displayName" to displayName,
+        "uid" to uid,
+        "updatedAt" to updatedAt
+    )
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("email", email.trim().lowercase())
+        put("sanitizedEmail", sanitizedEmail)
+        put("role", role.name)
+        put("networkId", networkId.ifBlank { "DEFAULT_ORG" })
+        put("networkName", networkName)
+        put("agentCode", agentCode ?: "")
+        put("posCode", posCode ?: "")
+        put("partyId", partyId ?: "")
+        put("partyName", partyName ?: "")
+        put("agentId", agentId ?: "")
+        put("agentName", agentName ?: "")
+        put("permissions", permissions.toJson())
+        put("displayName", displayName)
+        put("uid", uid)
+        put("updatedAt", updatedAt)
+    }
+
+    companion object {
+        fun sanitizeEmailKey(email: String): String {
+            return email.trim().lowercase()
+                .replace("@", "_at_")
+                .replace(".", "_")
+                .replace(Regex("[^a-z0-9_\\-]"), "_")
+                .trim('_')
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        fun fromMap(map: Map<String, Any?>?): CloudUserIdentityBinding? {
+            if (map == null) return null
+            val rawEmail = map["email"]?.toString()?.trim()?.lowercase().orEmpty()
+            if (rawEmail.isBlank()) return null
+            val role = AppUserRole.fromNameOrDefault(map["role"]?.toString())
+            val permsMap = map["permissions"] as? Map<String, Any?>
+            val defaultPerms = when (role) {
+                AppUserRole.NETWORK_OWNER -> AgentPermissions.FULL_OWNER
+                AppUserRole.DISTRIBUTOR_AGENT -> AgentPermissions()
+                AppUserRole.POS_MERCHANT -> AgentPermissions.READ_ONLY_NONE
+            }
+            return CloudUserIdentityBinding(
+                email = rawEmail,
+                role = role,
+                networkId = map["networkId"]?.toString()?.trim().orEmpty().ifBlank { "DEFAULT_ORG" },
+                networkName = map["networkName"]?.toString()?.trim().orEmpty(),
+                agentCode = map["agentCode"]?.toString()?.trim()?.takeIf { it.isNotBlank() },
+                posCode = map["posCode"]?.toString()?.trim()?.takeIf { it.isNotBlank() },
+                partyId = map["partyId"]?.toString()?.trim()?.takeIf { it.isNotBlank() },
+                partyName = map["partyName"]?.toString()?.trim()?.takeIf { it.isNotBlank() },
+                agentId = map["agentId"]?.toString()?.trim()?.takeIf { it.isNotBlank() },
+                agentName = map["agentName"]?.toString()?.trim()?.takeIf { it.isNotBlank() },
+                permissions = if (permsMap != null) AgentPermissions.fromMap(permsMap) else defaultPerms,
+                displayName = map["displayName"]?.toString()?.trim().orEmpty().ifBlank { rawEmail.substringBefore("@") },
+                uid = map["uid"]?.toString()?.trim().orEmpty().ifBlank { sanitizeEmailKey(rawEmail) },
+                updatedAt = (map["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
+            )
+        }
+
+        fun fromJson(json: JSONObject?): CloudUserIdentityBinding? {
+            if (json == null) return null
+            val rawEmail = json.optString("email", "").trim().lowercase()
+            if (rawEmail.isBlank()) return null
+            val role = AppUserRole.fromNameOrDefault(json.optString("role"))
+            val permsJson = json.optJSONObject("permissions")
+            val defaultPerms = when (role) {
+                AppUserRole.NETWORK_OWNER -> AgentPermissions.FULL_OWNER
+                AppUserRole.DISTRIBUTOR_AGENT -> AgentPermissions()
+                AppUserRole.POS_MERCHANT -> AgentPermissions.READ_ONLY_NONE
+            }
+            return CloudUserIdentityBinding(
+                email = rawEmail,
+                role = role,
+                networkId = json.optString("networkId", "DEFAULT_ORG").ifBlank { "DEFAULT_ORG" },
+                networkName = json.optString("networkName", "").trim(),
+                agentCode = json.optString("agentCode", "").trim().takeIf { it.isNotBlank() },
+                posCode = json.optString("posCode", "").trim().takeIf { it.isNotBlank() },
+                partyId = json.optString("partyId", "").trim().takeIf { it.isNotBlank() },
+                partyName = json.optString("partyName", "").trim().takeIf { it.isNotBlank() },
+                agentId = json.optString("agentId", "").trim().takeIf { it.isNotBlank() },
+                agentName = json.optString("agentName", "").trim().takeIf { it.isNotBlank() },
+                permissions = if (permsJson != null) AgentPermissions.fromJson(permsJson) else defaultPerms,
+                displayName = json.optString("displayName", "").trim().ifBlank { rawEmail.substringBefore("@") },
+                uid = json.optString("uid", "").trim().ifBlank { sanitizeEmailKey(rawEmail) },
+                updatedAt = json.optLong("updatedAt", System.currentTimeMillis())
+            )
+        }
+    }
+}
+
+/**
+ * Outcome of checking/binding a user's email during Splash Role Gateway onboarding or new-device recovery.
+ */
+sealed class EmailIdentityResolution {
+    data class RestoredFromCloud(
+        val session: UserSession,
+        val binding: CloudUserIdentityBinding
+    ) : EmailIdentityResolution()
+
+    data class NewOwnerSessionCreated(
+        val session: UserSession,
+        val binding: CloudUserIdentityBinding
+    ) : EmailIdentityResolution()
+
+    data class RequiresRoleCode(
+        val email: String,
+        val role: AppUserRole
+    ) : EmailIdentityResolution()
+}
+
+
 

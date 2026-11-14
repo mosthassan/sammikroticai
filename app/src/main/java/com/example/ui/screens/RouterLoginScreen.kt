@@ -140,12 +140,14 @@ fun RouterLoginScreen(
     viewModel: AppViewModel,
     onLoginSuccess: (RouterConnectionProfile) -> Unit,
     onOfflineEnter: () -> Unit,
+    onSwitchAccountOrRole: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val profiles by repository.profiles.collectAsState()
     val activeProfile by repository.activeProfile.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var selectedProfileId by rememberSaveable {
@@ -180,13 +182,6 @@ fun RouterLoginScreen(
     var authJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var authErrorTitle by remember { mutableStateOf<String?>(null) }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
-
-    var selectedLoginRole by rememberSaveable { mutableStateOf(AppUserRole.NETWORK_OWNER) }
-    var agentInviteCodeInput by rememberSaveable { mutableStateOf("") }
-    var agentNameOrPinInput by rememberSaveable { mutableStateOf("") }
-    var posAccessCodeInput by rememberSaveable { mutableStateOf("") }
-    var roleCodeError by rememberSaveable { mutableStateOf<String?>(null) }
-    val savedAccessCodes by viewModel.accessCodes.collectAsState()
 
     suspend fun completeLogin(profile: RouterConnectionProfile) {
         viewModel.switchToNetworkOwnerRole()
@@ -337,12 +332,15 @@ fun RouterLoginScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimaryDark
                             )
+                            val activeEmailLabel = currentUser?.email?.takeIf {
+                                it.isNotBlank() && !it.endsWith("@sammikrotik.local")
+                            }
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color(0xFF134E5E)
                             ) {
                                 Text(
-                                    text = "v2.0.1 • إصدار الشبكات",
+                                    text = if (activeEmailLabel != null) "👑 $activeEmailLabel" else "v2.0.1 • بوابة اتصال الميكروتك",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MikroTikCyan,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -351,8 +349,30 @@ fun RouterLoginScreen(
                         }
                     }
 
-                    // Left side toggles: Language & Theme
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Left side toggles: Switch Account/Role, Language & Theme
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (onSwitchAccountOrRole != null) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFF174C5B),
+                                border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onSwitchAccountOrRole() }
+                                    .testTag("router_login_switch_account_btn")
+                            ) {
+                                Text(
+                                    text = "تبديل الحساب / خروج",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MikroTikCyan,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = {
                                 Toast.makeText(context, "اللغة الحالية: العربية", Toast.LENGTH_SHORT).show()
@@ -391,65 +411,9 @@ fun RouterLoginScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 1.5 Multi-Role Selector Segmented Control (Owner / Agent / POS)
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = CyberDarkSurface,
-                border = BorderStroke(1.dp, CyberBorder),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("login_role_selector_bar")
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val roles = listOf(
-                        AppUserRole.NETWORK_OWNER to "👑 مالك الشبكة",
-                        AppUserRole.DISTRIBUTOR_AGENT to "🚚 وكيل / موزع",
-                        AppUserRole.POS_MERCHANT to "🏪 نقطة بيع (بقالة)"
-                    )
-                    roles.forEach { (roleItem, label) ->
-                        val isSelected = selectedLoginRole == roleItem
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) MikroTikCyan.copy(alpha = 0.18f) else Color.Transparent,
-                            border = if (isSelected) BorderStroke(1.dp, MikroTikCyan) else null,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    selectedLoginRole = roleItem
-                                    roleCodeError = null
-                                }
-                                .testTag("role_segment_${roleItem.name.lowercase()}")
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp)
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) MikroTikCyan else TextSecondaryDark,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (selectedLoginRole == AppUserRole.NETWORK_OWNER) {
-            // 2. Login, saved routers, and local discovery tabs.
+            // 2. Login, saved routers, and local discovery tabs (Exclusively for NETWORK_OWNER)
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = CyberDarkCardElevated,
@@ -534,61 +498,10 @@ fun RouterLoginScreen(
             }
 
             Spacer(modifier = Modifier.height(14.dp))
-            }
 
             // 3. Tab Body
             Box(modifier = Modifier.weight(1f)) {
-                if (selectedLoginRole == AppUserRole.DISTRIBUTOR_AGENT) {
-                    DistributorAgentCodeLoginCard(
-                        inviteCode = agentInviteCodeInput,
-                        onInviteCodeChange = {
-                            agentInviteCodeInput = it.uppercase()
-                            roleCodeError = null
-                        },
-                        agentNameOrPin = agentNameOrPinInput,
-                        onAgentNameOrPinChange = {
-                            agentNameOrPinInput = it
-                            roleCodeError = null
-                        },
-                        errorMessage = roleCodeError,
-                        availableAgentCodes = savedAccessCodes.filter { it.role == AppUserRole.DISTRIBUTOR_AGENT && it.isActive },
-                        onLoginClick = {
-                            roleCodeError = null
-                            viewModel.loginWithAgentInviteCode(
-                                codeInput = agentInviteCodeInput,
-                                nameOrPinInput = agentNameOrPinInput,
-                                onSuccess = {
-                                    onOfflineEnter()
-                                },
-                                onError = { err ->
-                                    roleCodeError = err
-                                }
-                            )
-                        }
-                    )
-                } else if (selectedLoginRole == AppUserRole.POS_MERCHANT) {
-                    PosMerchantTransparencyLoginCard(
-                        posCode = posAccessCodeInput,
-                        onPosCodeChange = {
-                            posAccessCodeInput = it.uppercase()
-                            roleCodeError = null
-                        },
-                        errorMessage = roleCodeError,
-                        availablePosCodes = savedAccessCodes.filter { it.role == AppUserRole.POS_MERCHANT && it.isActive },
-                        onLoginClick = {
-                            roleCodeError = null
-                            viewModel.loginWithPosTransparencyCode(
-                                codeInput = posAccessCodeInput,
-                                onSuccess = {
-                                    onOfflineEnter()
-                                },
-                                onError = { err ->
-                                    roleCodeError = err
-                                }
-                            )
-                        }
-                    )
-                } else if (selectedTab == 1) {
+                if (selectedTab == 1) {
                     // TAB 1: الراوترات المسجلة
                     SavedRoutersTabContent(
                         profiles = profiles,

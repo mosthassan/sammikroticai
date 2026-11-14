@@ -552,6 +552,255 @@ class SaasRbacAndAccessCodesTest {
             ledgerDb.close()
         }
     }
+
+    @Test
+    fun splashGatewayRouting_andPersistentAutoLogin_andSignOutReset() = runBlocking {
+        context.getSharedPreferences("sammikrotik_auth_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        // 1. First-time launch: no active session saved -> SHOW_ROLE_SELECTION_GATEWAY
+        val initialAuth = AuthManager(context)
+        assertTrue(initialAuth.isFirstTimeOrLoggedOut)
+        assertFalse(initialAuth.isOnboardingComplete.value)
+        assertEquals(
+            com.example.ui.screens.SplashGatewayDestination.SHOW_ROLE_SELECTION_GATEWAY,
+            com.example.ui.screens.resolveSplashGatewayDestination(
+                isOnboardingComplete = initialAuth.isOnboardingComplete.value,
+                currentUser = initialAuth.currentUser.value,
+                activeRole = initialAuth.activeRole.value
+            )
+        )
+
+        // 2. Complete Owner onboarding -> subsequent app launch auto-routes to AUTO_ROUTE_OWNER
+        val ownerSession = initialAuth.completeOwnerOnboarding(
+            email = "owner@sammikrotik.com",
+            displayName = "مالك الشبكة الرئيسي",
+            networkId = "NET_CLOUD_1"
+        )
+        assertTrue(initialAuth.isOnboardingComplete.value)
+        assertEquals(AppUserRole.NETWORK_OWNER, ownerSession.role)
+
+        val relaunchedOwnerAuth = AuthManager(context)
+        assertTrue(relaunchedOwnerAuth.isOnboardingComplete.value)
+        assertFalse(relaunchedOwnerAuth.isFirstTimeOrLoggedOut)
+        assertEquals("owner@sammikrotik.com", relaunchedOwnerAuth.currentUser.value?.email)
+        assertEquals(
+            com.example.ui.screens.SplashGatewayDestination.AUTO_ROUTE_OWNER,
+            com.example.ui.screens.resolveSplashGatewayDestination(
+                isOnboardingComplete = relaunchedOwnerAuth.isOnboardingComplete.value,
+                currentUser = relaunchedOwnerAuth.currentUser.value,
+                activeRole = relaunchedOwnerAuth.activeRole.value
+            )
+        )
+
+        // Generate Agent & POS codes while logged in as Owner
+        val agentRecord = relaunchedOwnerAuth.createOrUpdateAgentInviteCode(
+            agentName = "الموزع خالد",
+            permissions = AgentPermissions(canCreateSalesInvoices = true, canCollectReceipts = true),
+            networkId = "NET_CLOUD_1"
+        )
+        val posRecord = relaunchedOwnerAuth.generateOrGetPosCode(
+            partyId = "PARTY_88",
+            partyName = "بقالة الأمل",
+            networkId = "NET_CLOUD_1"
+        )
+
+        // 3. Explicit sign-out resets to SHOW_ROLE_SELECTION_GATEWAY
+        relaunchedOwnerAuth.signOut()
+        assertFalse(relaunchedOwnerAuth.isOnboardingComplete.value)
+        assertTrue(relaunchedOwnerAuth.isFirstTimeOrLoggedOut)
+        assertEquals(
+            com.example.ui.screens.SplashGatewayDestination.SHOW_ROLE_SELECTION_GATEWAY,
+            com.example.ui.screens.resolveSplashGatewayDestination(
+                isOnboardingComplete = relaunchedOwnerAuth.isOnboardingComplete.value,
+                currentUser = relaunchedOwnerAuth.currentUser.value,
+                activeRole = relaunchedOwnerAuth.activeRole.value
+            )
+        )
+
+        // Verify relaunching after sign-out still shows the Role Selection Gateway
+        val relaunchedAfterSignOut = AuthManager(context)
+        assertFalse(relaunchedAfterSignOut.isOnboardingComplete.value)
+        assertEquals(
+            com.example.ui.screens.SplashGatewayDestination.SHOW_ROLE_SELECTION_GATEWAY,
+            com.example.ui.screens.resolveSplashGatewayDestination(
+                isOnboardingComplete = relaunchedAfterSignOut.isOnboardingComplete.value,
+                currentUser = relaunchedAfterSignOut.currentUser.value,
+                activeRole = relaunchedAfterSignOut.activeRole.value
+            )
+        )
+
+        // 4. Login as Distributor Agent with Email -> subsequent app launch auto-routes to AUTO_ROUTE_AGENT
+        val agentLogin = relaunchedAfterSignOut.loginWithAgentInviteCode(
+            codeInput = agentRecord.code,
+            nameOrPinInput = "الموزع خالد",
+            emailInput = "khaled.agent@sammikrotik.com"
+        )
+        assertTrue(agentLogin.isSuccess)
+        val relaunchedAgentAuth = AuthManager(context)
+        assertTrue(relaunchedAgentAuth.isOnboardingComplete.value)
+        assertEquals(AppUserRole.DISTRIBUTOR_AGENT, relaunchedAgentAuth.activeRole.value)
+        assertEquals("khaled.agent@sammikrotik.com", relaunchedAgentAuth.currentUser.value?.email)
+        assertEquals(
+            com.example.ui.screens.SplashGatewayDestination.AUTO_ROUTE_AGENT,
+            com.example.ui.screens.resolveSplashGatewayDestination(
+                isOnboardingComplete = relaunchedAgentAuth.isOnboardingComplete.value,
+                currentUser = relaunchedAgentAuth.currentUser.value,
+                activeRole = relaunchedAgentAuth.activeRole.value
+            )
+        )
+
+        // 5. Switch to POS Merchant with Email -> subsequent app launch auto-routes to AUTO_ROUTE_POS
+        relaunchedAgentAuth.signOut()
+        val posLogin = relaunchedAgentAuth.loginWithPosTransparencyCode(
+            codeInput = posRecord.code,
+            emailInput = "amal.pos@sammikrotik.com"
+        )
+        assertTrue(posLogin.isSuccess)
+        val relaunchedPosAuth = AuthManager(context)
+        assertTrue(relaunchedPosAuth.isOnboardingComplete.value)
+        assertEquals(AppUserRole.POS_MERCHANT, relaunchedPosAuth.activeRole.value)
+        assertEquals("PARTY_88", relaunchedPosAuth.currentUser.value?.boundPartyId)
+        assertEquals(
+            com.example.ui.screens.SplashGatewayDestination.AUTO_ROUTE_POS,
+            com.example.ui.screens.resolveSplashGatewayDestination(
+                isOnboardingComplete = relaunchedPosAuth.isOnboardingComplete.value,
+                currentUser = relaunchedPosAuth.currentUser.value,
+                activeRole = relaunchedPosAuth.activeRole.value
+            )
+        )
+    }
+
+    @Test
+    fun cloudEmailIdentityBinding_andNewDeviceRecovery_restoresOwnerAgentAndPosSessions() = runBlocking {
+        context.getSharedPreferences("sammikrotik_auth_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("sammikrotik_cloud_sync_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val adapter = InMemoryFirestoreAdapter()
+        val syncManager = FirestoreSyncManager(
+            context = context,
+            db = db,
+            backupRestoreUseCase = BackupRestoreUseCase(db, context = context),
+            firestoreAdapter = adapter
+        )
+        val deviceOneAuth = AuthManager(context)
+
+        // 1. Setup Owner, Agent, and POS on Device 1 and sync their access codes + email bindings to Firestore
+        val ownerSession = deviceOneAuth.completeOwnerOnboarding(
+            email = "admin@isp-network.com",
+            displayName = "المهندس سام",
+            networkId = "NET_ISP_99"
+        )
+        val ownerBinding = deviceOneAuth.buildCloudBindingForSession(ownerSession)!!
+        assertTrue(syncManager.bindUserEmailIdentityToCloud(ownerBinding).isSuccess)
+        assertNotNull(adapter.docs["users_by_email/${ownerBinding.sanitizedEmail}"])
+
+        val agentRecord = deviceOneAuth.createOrUpdateAgentInviteCode(
+            agentName = "الموزع ياسر",
+            permissions = AgentPermissions(
+                canCreateSalesInvoices = true,
+                canCollectReceipts = true,
+                canCreateDisbursements = true,
+                canViewAssignedStock = true,
+                canGeneratePosCodes = false
+            ),
+            networkId = "NET_ISP_99"
+        )
+        assertTrue(syncManager.syncAccessCodeToCloud("NET_ISP_99", agentRecord).isSuccess)
+
+        val posRecord = deviceOneAuth.generateOrGetPosCode(
+            partyId = "PARTY_402",
+            partyName = "سوبرماركت النخيل",
+            networkId = "NET_ISP_99"
+        )
+        assertTrue(syncManager.syncAccessCodeToCloud("NET_ISP_99", posRecord).isSuccess)
+
+        // Agent logs in on Device 1 with email -> bind to users_by_email
+        val agentSession = deviceOneAuth.loginWithAgentInviteCode(
+            codeInput = agentRecord.code,
+            nameOrPinInput = "الموزع ياسر",
+            emailInput = "yasser.agent@isp-network.com"
+        ).getOrThrow()
+        val agentBinding = deviceOneAuth.buildCloudBindingForSession(agentSession)!!
+        assertEquals(agentRecord.code, agentBinding.agentCode)
+        assertTrue(syncManager.bindUserEmailIdentityToCloud(agentBinding).isSuccess)
+        assertNotNull(adapter.docs["users_by_email/${agentBinding.sanitizedEmail}"])
+
+        // POS logs in on Device 1 with email -> bind to users_by_email
+        val posSession = deviceOneAuth.loginWithPosTransparencyCode(
+            codeInput = posRecord.code,
+            emailInput = "nakheel.pos@isp-network.com"
+        ).getOrThrow()
+        val posBinding = deviceOneAuth.buildCloudBindingForSession(posSession)!!
+        assertEquals(posRecord.code, posBinding.posCode)
+        assertTrue(syncManager.bindUserEmailIdentityToCloud(posBinding).isSuccess)
+        assertNotNull(adapter.docs["users_by_email/${posBinding.sanitizedEmail}"])
+
+        // 2. Simulate New Device (Wipe local SharedPreferences completely; keep only cloud adapter)
+        context.getSharedPreferences("sammikrotik_auth_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("sammikrotik_cloud_sync_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val newDeviceAuth = AuthManager(context)
+        assertTrue(newDeviceAuth.isFirstTimeOrLoggedOut)
+        assertTrue(newDeviceAuth.accessCodes.value.isEmpty())
+
+        // 2a. Recover POS Merchant on New Device by Email ONLY (no manual POS-XXXXXX code entry needed!)
+        val posRecovery = newDeviceAuth.recoverOrBindSessionByEmail(
+            email = "NAKHEEL.POS@isp-network.com",
+            selectedRole = AppUserRole.POS_MERCHANT,
+            cloudIdentityLookup = { email -> syncManager.fetchUserEmailIdentityFromCloud(email) },
+            cloudAccessCodeLookup = { netId, code -> syncManager.fetchAccessCodeFromCloud(netId, code) }
+        ).getOrThrow()
+        assertTrue(posRecovery is com.example.data.auth.EmailIdentityResolution.RestoredFromCloud)
+        val restoredPosSession = (posRecovery as com.example.data.auth.EmailIdentityResolution.RestoredFromCloud).session
+        assertEquals(AppUserRole.POS_MERCHANT, restoredPosSession.role)
+        assertEquals("NET_ISP_99", restoredPosSession.networkId)
+        assertEquals(posRecord.code, restoredPosSession.accessCode)
+        assertEquals("PARTY_402", restoredPosSession.boundPartyId)
+        assertTrue(newDeviceAuth.isOnboardingComplete.value)
+
+        // 2b. Recover Distributor Agent on New Device by Email ONLY (no manual AGT-XXXX code entry needed!)
+        newDeviceAuth.signOut()
+        val agentRecovery = newDeviceAuth.recoverOrBindSessionByEmail(
+            email = "yasser.agent@isp-network.com",
+            selectedRole = AppUserRole.DISTRIBUTOR_AGENT,
+            cloudIdentityLookup = { email -> syncManager.fetchUserEmailIdentityFromCloud(email) },
+            cloudAccessCodeLookup = { netId, code -> syncManager.fetchAccessCodeFromCloud(netId, code) }
+        ).getOrThrow()
+        assertTrue(agentRecovery is com.example.data.auth.EmailIdentityResolution.RestoredFromCloud)
+        val restoredAgentSession = (agentRecovery as com.example.data.auth.EmailIdentityResolution.RestoredFromCloud).session
+        assertEquals(AppUserRole.DISTRIBUTOR_AGENT, restoredAgentSession.role)
+        assertEquals("NET_ISP_99", restoredAgentSession.networkId)
+        assertEquals(agentRecord.code, restoredAgentSession.accessCode)
+        assertEquals(agentRecord.agentId, restoredAgentSession.agentId)
+        assertTrue(restoredAgentSession.agentPermissions.canCreateDisbursements)
+        assertFalse(restoredAgentSession.agentPermissions.canGeneratePosCodes)
+
+        // 2c. Recover Network Owner on New Device by Email ONLY
+        newDeviceAuth.signOut()
+        val ownerRecovery = newDeviceAuth.recoverOrBindSessionByEmail(
+            email = "admin@isp-network.com",
+            selectedRole = AppUserRole.NETWORK_OWNER,
+            cloudIdentityLookup = { email -> syncManager.fetchUserEmailIdentityFromCloud(email) },
+            cloudAccessCodeLookup = { netId, code -> syncManager.fetchAccessCodeFromCloud(netId, code) }
+        ).getOrThrow()
+        assertTrue(ownerRecovery is com.example.data.auth.EmailIdentityResolution.RestoredFromCloud)
+        val restoredOwnerSession = (ownerRecovery as com.example.data.auth.EmailIdentityResolution.RestoredFromCloud).session
+        assertEquals(AppUserRole.NETWORK_OWNER, restoredOwnerSession.role)
+        assertEquals("NET_ISP_99", restoredOwnerSession.networkId)
+        assertEquals("المهندس سام", restoredOwnerSession.displayName)
+
+        // 2d. Unknown Email for Agent requires first-time AGT-XXXX code entry
+        newDeviceAuth.signOut()
+        val unknownAgentResolution = newDeviceAuth.recoverOrBindSessionByEmail(
+            email = "new.agent@isp-network.com",
+            selectedRole = AppUserRole.DISTRIBUTOR_AGENT,
+            cloudIdentityLookup = { email -> syncManager.fetchUserEmailIdentityFromCloud(email) },
+            cloudAccessCodeLookup = { netId, code -> syncManager.fetchAccessCodeFromCloud(netId, code) }
+        ).getOrThrow()
+        assertTrue(unknownAgentResolution is com.example.data.auth.EmailIdentityResolution.RequiresRoleCode)
+    }
 }
+
+
 
 

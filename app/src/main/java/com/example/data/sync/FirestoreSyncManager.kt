@@ -1540,6 +1540,97 @@ class FirestoreSyncManager(
         mergedById.values.sortedByDescending { it.createdAtEpochMs }
     }
 
+    // --- Cloud Email Identity Binding & New-Device Recovery (users_by_email/{sanitizedEmail}) ---
+
+    private fun saveLocalEmailIdentityFallback(binding: com.example.data.auth.CloudUserIdentityBinding) {
+        try {
+            val raw = prefs.getString("local_users_by_email_fallback_json", null)
+            val obj = if (!raw.isNullOrBlank()) runCatching { JSONObject(raw) }.getOrNull() ?: JSONObject() else JSONObject()
+            obj.put(binding.sanitizedEmail, binding.toJson())
+            prefs.edit().putString("local_users_by_email_fallback_json", obj.toString()).apply()
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "saveLocalEmailIdentityFallback error: ${e.message}")
+        }
+    }
+
+    fun getLocalEmailIdentityFallback(email: String): com.example.data.auth.CloudUserIdentityBinding? {
+        return try {
+            val key = com.example.data.auth.CloudUserIdentityBinding.sanitizeEmailKey(email)
+            if (key.isBlank()) return null
+            val raw = prefs.getString("local_users_by_email_fallback_json", null) ?: return null
+            val obj = JSONObject(raw)
+            com.example.data.auth.CloudUserIdentityBinding.fromJson(obj.optJSONObject(key))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Stores or updates the user's cloud identity mapping in Firestore under `users_by_email/{sanitizedEmail}`
+     * containing `email`, `role`, `networkId`, `agentCode` / `posCode`, `partyId`, `displayName`, and `updatedAt`,
+     * with full local fallback.
+     */
+    suspend fun bindUserEmailIdentityToCloud(
+        binding: com.example.data.auth.CloudUserIdentityBinding
+    ): Result<com.example.data.auth.CloudUserIdentityBinding> = withContext(Dispatchers.IO) {
+        val cleanEmail = binding.email.trim().lowercase()
+        val safeKey = com.example.data.auth.CloudUserIdentityBinding.sanitizeEmailKey(cleanEmail)
+        if (cleanEmail.isBlank() || safeKey.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("البريد الإلكتروني غير صالح للربط السحابي"))
+        }
+
+        val normalized = binding.copy(
+            email = cleanEmail,
+            networkId = sanitizeNetworkId(binding.networkId),
+            updatedAt = binding.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+        )
+        saveLocalEmailIdentityFallback(normalized)
+
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) {
+            return@withContext Result.success(normalized)
+        }
+        try {
+            val path = "users_by_email/$safeKey"
+            adapter.set(path, normalized.toMap(), true)
+            Result.success(normalized)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "bindUserEmailIdentityToCloud offline fallback used: ${e.message}")
+            Result.success(normalized)
+        }
+    }
+
+    /**
+     * Queries `users_by_email/{sanitizedEmail}` in Firestore (with local fallback) to automatically
+     * recover a returning Owner, Distributor Agent, or POS Merchant's role, networkId, and bound code on a new device.
+     */
+    suspend fun fetchUserEmailIdentityFromCloud(
+        email: String
+    ): com.example.data.auth.CloudUserIdentityBinding? = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim().lowercase()
+        val safeKey = com.example.data.auth.CloudUserIdentityBinding.sanitizeEmailKey(cleanEmail)
+        if (cleanEmail.isBlank() || safeKey.isBlank()) return@withContext null
+
+        val local = getLocalEmailIdentityFallback(cleanEmail)
+        val adapter = effectiveAdapter
+        if (adapter.isAvailable()) {
+            try {
+                val path = "users_by_email/$safeKey"
+                val map = adapter.get(path)
+                val remote = com.example.data.auth.CloudUserIdentityBinding.fromMap(map)
+                if (remote != null) {
+                    if (local == null || remote.updatedAt >= local.updatedAt) {
+                        saveLocalEmailIdentityFallback(remote)
+                        return@withContext remote
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("FirestoreSyncManager", "fetchUserEmailIdentityFromCloud error: ${e.message}")
+            }
+        }
+        local
+    }
+
     private fun logSync(
         action: String,
         email: String,
@@ -1560,5 +1651,6 @@ class FirestoreSyncManager(
         _syncHistory.value = updated
     }
 }
+
 
 

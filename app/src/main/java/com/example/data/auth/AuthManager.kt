@@ -65,6 +65,18 @@ class AuthManager(private val context: Context) {
     private val _posSupportTickets = MutableStateFlow<List<PosSupportTicket>>(emptyList())
     val posSupportTickets: StateFlow<List<PosSupportTicket>> = _posSupportTickets.asStateFlow()
 
+    private val _emailIdentityBindings = MutableStateFlow<Map<String, CloudUserIdentityBinding>>(emptyMap())
+    val emailIdentityBindings: StateFlow<Map<String, CloudUserIdentityBinding>> = _emailIdentityBindings.asStateFlow()
+
+    private val _isOnboardingComplete = MutableStateFlow(false)
+    val isOnboardingComplete: StateFlow<Boolean> = _isOnboardingComplete.asStateFlow()
+
+    val isFirstTimeOrLoggedOut: Boolean
+        get() = !_isOnboardingComplete.value || _currentUser.value == null
+
+    private var pendingOnboardingEmail: String? = null
+    private var pendingOnboardingName: String? = null
+
     private val _authError = MutableStateFlow<String?>(null)
     val authError: StateFlow<String?> = _authError.asStateFlow()
 
@@ -79,6 +91,7 @@ class AuthManager(private val context: Context) {
         loadPersistedDocumentVerifications()
         loadPersistedPosRestockOrders()
         loadPersistedPosSupportTickets()
+        loadPersistedEmailBindings()
         loadPersistedSession()
     }
 
@@ -192,6 +205,58 @@ class AuthManager(private val context: Context) {
         _posSupportTickets.value = list.sortedByDescending { it.createdAtEpochMs }
     }
 
+    private fun loadPersistedEmailBindings() {
+        val raw = prefs.getString(KEY_EMAIL_BINDINGS_JSON, null)
+        if (raw.isNullOrBlank()) {
+            _emailIdentityBindings.value = emptyMap()
+            return
+        }
+        try {
+            val arr = JSONArray(raw)
+            val parsed = mutableMapOf<String, CloudUserIdentityBinding>()
+            for (i in 0 until arr.length()) {
+                CloudUserIdentityBinding.fromJson(arr.optJSONObject(i))?.let {
+                    parsed[it.sanitizedEmail] = it
+                }
+            }
+            _emailIdentityBindings.value = parsed
+        } catch (e: Exception) {
+            Log.w("AuthManager", "Failed to parse persisted email bindings: ${e.message}")
+            _emailIdentityBindings.value = emptyMap()
+        }
+    }
+
+    private fun saveEmailBindingToPrefs(binding: CloudUserIdentityBinding) {
+        val updated = _emailIdentityBindings.value.toMutableMap()
+        updated[binding.sanitizedEmail] = binding
+        val arr = JSONArray()
+        updated.values.forEach { arr.put(it.toJson()) }
+        prefs.edit().putString(KEY_EMAIL_BINDINGS_JSON, arr.toString()).apply()
+        _emailIdentityBindings.value = updated.toMap()
+    }
+
+    fun buildCloudBindingForSession(session: UserSession? = _currentUser.value): CloudUserIdentityBinding? {
+        val target = session ?: return null
+        val cleanEmail = target.email.trim().lowercase()
+        if (cleanEmail.isBlank() || cleanEmail.endsWith("@sammikrotik.local")) return null
+        return CloudUserIdentityBinding(
+            email = cleanEmail,
+            role = target.role,
+            networkId = target.networkId.ifBlank { resolveActiveNetworkId() },
+            networkName = target.networkName,
+            agentCode = if (target.role == AppUserRole.DISTRIBUTOR_AGENT) target.accessCode else null,
+            posCode = if (target.role == AppUserRole.POS_MERCHANT) target.accessCode else null,
+            partyId = target.boundPartyId,
+            partyName = target.boundPartyName,
+            agentId = target.agentId,
+            agentName = target.agentName,
+            permissions = target.agentPermissions,
+            displayName = target.displayName,
+            uid = target.uid.ifBlank { CloudUserIdentityBinding.sanitizeEmailKey(cleanEmail) },
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     private fun readPersistedPermissions(role: AppUserRole): AgentPermissions {
         if (role == AppUserRole.NETWORK_OWNER) return AgentPermissions.FULL_OWNER
         if (role == AppUserRole.POS_MERCHANT) return AgentPermissions.READ_ONLY_NONE
@@ -204,6 +269,8 @@ class AuthManager(private val context: Context) {
     }
 
     private fun loadPersistedSession() {
+        val explicitLoggedOut = prefs.getBoolean(KEY_EXPLICIT_LOGGED_OUT, false)
+        val persistedOnboardingFlag = prefs.getBoolean(KEY_ONBOARDING_COMPLETE, false)
         val persistedRole = AppUserRole.fromNameOrDefault(
             prefs.getString("user_role", AppUserRole.NETWORK_OWNER.name)
         )
@@ -218,6 +285,12 @@ class AuthManager(private val context: Context) {
 
         _activeRole.value = persistedRole
         _activeAgentPermissions.value = persistedPermissions
+
+        if (explicitLoggedOut) {
+            _currentUser.value = null
+            _isOnboardingComplete.value = false
+            return
+        }
 
         // If user is in DISTRIBUTOR_AGENT or POS_MERCHANT role, restore that role session first
         if (persistedRole != AppUserRole.NETWORK_OWNER) {
@@ -245,6 +318,7 @@ class AuthManager(private val context: Context) {
                 agentPermissions = persistedPermissions
             )
             _currentUser.value = session
+            _isOnboardingComplete.value = true
             return
         }
 
@@ -295,10 +369,28 @@ class AuthManager(private val context: Context) {
             _currentUser.value = session
             _activeRole.value = session.role
             _activeAgentPermissions.value = session.agentPermissions
+            _isOnboardingComplete.value = true
+        } else if (persistedOnboardingFlag) {
+            // Direct router login without Google email previously completed onboarding
+            val fallbackSession = UserSession(
+                email = "owner@sammikrotik.local",
+                displayName = "مالك الشبكة",
+                uid = "OWNER_LOCAL",
+                isSignedIn = true,
+                role = AppUserRole.NETWORK_OWNER,
+                networkId = networkId,
+                networkName = networkName,
+                agentPermissions = AgentPermissions.FULL_OWNER
+            )
+            _currentUser.value = fallbackSession
+            _activeRole.value = AppUserRole.NETWORK_OWNER
+            _activeAgentPermissions.value = AgentPermissions.FULL_OWNER
+            _isOnboardingComplete.value = true
         } else {
             _currentUser.value = null
             _activeRole.value = AppUserRole.NETWORK_OWNER
             _activeAgentPermissions.value = AgentPermissions.FULL_OWNER
+            _isOnboardingComplete.value = false
         }
     }
 
@@ -651,11 +743,13 @@ class AuthManager(private val context: Context) {
     }
 
     /**
-     * Authenticates a Field Distributor/Agent using their `AGT-XXXX` invite code and optional Name/PIN.
+     * Authenticates a Field Distributor/Agent using their `AGT-XXXX` invite code and optional Name/PIN,
+     * binding their [emailInput] (if provided) to the role session.
      */
     suspend fun loginWithAgentInviteCode(
         codeInput: String,
         nameOrPinInput: String = "",
+        emailInput: String = "",
         cloudLookup: (suspend (String) -> AccessCodeEntry?)? = null
     ): Result<UserSession> = withContext(Dispatchers.IO) {
         val cleanCode = codeInput.trim().uppercase()
@@ -698,18 +792,26 @@ class AuthManager(private val context: Context) {
             return@withContext Result.failure(IllegalArgumentException(err))
         }
 
+        val effectiveEmail = emailInput.trim().lowercase().takeIf { it.isNotBlank() }
+            ?: pendingOnboardingEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
         val session = activateRoleSessionFromEntry(
             entry = matched,
-            overrideDisplayName = matched.agentName.ifBlank { cleanPinInput.ifBlank { "وكيل ميداني" } }
+            overrideDisplayName = matched.agentName.ifBlank { cleanPinInput.ifBlank { pendingOnboardingName ?: "وكيل ميداني" } },
+            overrideEmail = effectiveEmail
         )
+        pendingOnboardingEmail = null
+        pendingOnboardingName = null
         Result.success(session)
     }
 
     /**
-     * Authenticates a Point of Sale / Grocery owner (`POS_MERCHANT`) using their Digital Transparency Code (`POS-XXXXXX`).
+     * Authenticates a Point of Sale / Grocery owner (`POS_MERCHANT`) using their Digital Transparency Code (`POS-XXXXXX`),
+     * binding their [emailInput] (if provided) to the role session.
      */
     suspend fun loginWithPosTransparencyCode(
         codeInput: String,
+        emailInput: String = "",
         cloudLookup: (suspend (String) -> AccessCodeEntry?)? = null
     ): Result<UserSession> = withContext(Dispatchers.IO) {
         val cleanCode = codeInput.trim().uppercase()
@@ -748,10 +850,16 @@ class AuthManager(private val context: Context) {
             return@withContext Result.failure(IllegalStateException(err))
         }
 
+        val effectiveEmail = emailInput.trim().lowercase().takeIf { it.isNotBlank() }
+            ?: pendingOnboardingEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
         val session = activateRoleSessionFromEntry(
             entry = matched,
-            overrideDisplayName = matched.partyName.ifBlank { "نقطة بيع" }
+            overrideDisplayName = matched.partyName.ifBlank { pendingOnboardingName ?: "نقطة بيع" },
+            overrideEmail = effectiveEmail
         )
+        pendingOnboardingEmail = null
+        pendingOnboardingName = null
         Result.success(session)
     }
 
@@ -760,7 +868,8 @@ class AuthManager(private val context: Context) {
      */
     fun activateRoleSessionFromEntry(
         entry: AccessCodeEntry,
-        overrideDisplayName: String? = null
+        overrideDisplayName: String? = null,
+        overrideEmail: String? = null
     ): UserSession {
         val current = _currentUser.value
         if (current != null && current.role == AppUserRole.NETWORK_OWNER) {
@@ -780,11 +889,21 @@ class AuthManager(private val context: Context) {
                 AppUserRole.NETWORK_OWNER -> "مالك الشبكة"
             }
 
+        val chosenEmail = overrideEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            ?: current?.email?.takeIf { it.isNotBlank() && !it.endsWith("@sammikrotik.local") }
+            ?: "${entry.code.lowercase()}@sammikrotik.local"
+
+        val chosenUid = if (!chosenEmail.endsWith("@sammikrotik.local")) {
+            CloudUserIdentityBinding.sanitizeEmailKey(chosenEmail)
+        } else {
+            current?.uid?.takeIf { it.isNotBlank() } ?: entry.code
+        }
+
         val session = UserSession(
-            email = current?.email?.takeIf { it.isNotBlank() } ?: "${entry.code.lowercase()}@sammikrotik.local",
+            email = chosenEmail,
             displayName = displayName,
             photoUrl = current?.photoUrl,
-            uid = current?.uid?.takeIf { it.isNotBlank() } ?: entry.code,
+            uid = chosenUid,
             isSignedIn = true,
             role = entry.role,
             agentId = entry.agentId,
@@ -800,6 +919,167 @@ class AuthManager(private val context: Context) {
         _currentUser.value = session
         _activeRole.value = session.role
         _activeAgentPermissions.value = effectivePermissions
+        _authError.value = null
+        buildCloudBindingForSession(session)?.let { saveEmailBindingToPrefs(it) }
+        return session
+    }
+
+    /**
+     * First-Time Email Identity & Smart Cloud Recovery (`users_by_email/{sanitizedEmail}`).
+     *
+     * - Checks if a bound profile already exists in Firestore (or local cache) for [email]:
+     *   * If found (and matches [selectedRole] or [selectedRole] is null/same): automatically restores
+     *     the user's `role`, `networkId`, `AGT-XXXX` / `POS-XXXXXX` code, `partyId`, and `permissions`
+     *     without forcing manual invite code entry!
+     * - If no bound profile exists yet:
+     *   * For [AppUserRole.NETWORK_OWNER]: creates and persists the Owner session & binding immediately.
+     *   * For [AppUserRole.DISTRIBUTOR_AGENT] / [AppUserRole.POS_MERCHANT]: stores the verified email
+     *     and returns [EmailIdentityResolution.RequiresRoleCode] so the user can enter their invite/POS code once.
+     */
+    suspend fun recoverOrBindSessionByEmail(
+        email: String,
+        displayName: String = "",
+        selectedRole: AppUserRole? = null,
+        networkIdHint: String = "DEFAULT_ORG",
+        networkNameHint: String = "",
+        cloudIdentityLookup: (suspend (String) -> CloudUserIdentityBinding?)? = null,
+        cloudAccessCodeLookup: (suspend (String, String) -> AccessCodeEntry?)? = null
+    ): Result<EmailIdentityResolution> = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
+            val err = "يرجى إدخال بريد إلكتروني صحيح للربط السحابي واسترجاع الهوية"
+            _authError.value = err
+            return@withContext Result.failure(IllegalArgumentException(err))
+        }
+
+        val sanitizedKey = CloudUserIdentityBinding.sanitizeEmailKey(cleanEmail)
+        val remoteBinding = if (cloudIdentityLookup != null) {
+            runCatching { cloudIdentityLookup(cleanEmail) }.getOrNull()
+        } else null
+        val localBinding = _emailIdentityBindings.value[sanitizedKey]
+
+        val existingBinding = when {
+            remoteBinding != null && localBinding != null ->
+                if (remoteBinding.updatedAt >= localBinding.updatedAt) remoteBinding else localBinding
+            remoteBinding != null -> remoteBinding
+            else -> localBinding
+        }
+
+        if (existingBinding != null && (selectedRole == null || selectedRole == existingBinding.role)) {
+            // Check if there is an updated AccessCodeEntry in cloud for Agent or POS
+            val boundCode = existingBinding.boundCode
+            val remoteCodeEntry = if (!boundCode.isNullOrBlank() && cloudAccessCodeLookup != null) {
+                runCatching { cloudAccessCodeLookup(existingBinding.networkId, boundCode) }.getOrNull()
+            } else null
+
+            if (remoteCodeEntry != null) {
+                mergeRemoteAccessCodes(listOf(remoteCodeEntry))
+            }
+
+            val effectivePerms = when (existingBinding.role) {
+                AppUserRole.NETWORK_OWNER -> AgentPermissions.FULL_OWNER
+                AppUserRole.DISTRIBUTOR_AGENT -> remoteCodeEntry?.permissions ?: existingBinding.permissions
+                AppUserRole.POS_MERCHANT -> AgentPermissions.READ_ONLY_NONE
+            }
+
+            val restoredSession = UserSession(
+                email = cleanEmail,
+                displayName = existingBinding.displayName.ifBlank { displayName.ifBlank { cleanEmail.substringBefore("@") } },
+                uid = existingBinding.uid.ifBlank { sanitizedKey },
+                isSignedIn = true,
+                role = existingBinding.role,
+                agentId = remoteCodeEntry?.agentId ?: existingBinding.agentId,
+                agentName = remoteCodeEntry?.agentName?.takeIf { it.isNotBlank() } ?: existingBinding.agentName,
+                boundPartyId = remoteCodeEntry?.partyId ?: existingBinding.partyId,
+                boundPartyName = remoteCodeEntry?.partyName?.takeIf { it.isNotBlank() } ?: existingBinding.partyName,
+                networkId = existingBinding.networkId.ifBlank { networkIdHint.ifBlank { "DEFAULT_ORG" } },
+                networkName = existingBinding.networkName.ifBlank { networkNameHint },
+                accessCode = boundCode,
+                agentPermissions = effectivePerms
+            )
+            if (restoredSession.role == AppUserRole.NETWORK_OWNER) {
+                saveOwnerBackupIdentity(restoredSession)
+            }
+            saveSession(restoredSession)
+            _currentUser.value = restoredSession
+            _activeRole.value = restoredSession.role
+            _activeAgentPermissions.value = effectivePerms
+            _authError.value = null
+            val refreshedBinding = existingBinding.copy(permissions = effectivePerms)
+            saveEmailBindingToPrefs(refreshedBinding)
+            return@withContext Result.success(
+                EmailIdentityResolution.RestoredFromCloud(restoredSession, refreshedBinding)
+            )
+        }
+
+        val targetRole = selectedRole ?: AppUserRole.NETWORK_OWNER
+        if (targetRole == AppUserRole.NETWORK_OWNER) {
+            val session = signInDirectly(cleanEmail, displayName)
+            val binding = buildCloudBindingForSession(session) ?: CloudUserIdentityBinding(
+                email = cleanEmail,
+                role = AppUserRole.NETWORK_OWNER,
+                networkId = session.networkId,
+                networkName = networkNameHint,
+                permissions = AgentPermissions.FULL_OWNER,
+                displayName = session.displayName,
+                uid = session.uid
+            )
+            saveEmailBindingToPrefs(binding)
+            return@withContext Result.success(
+                EmailIdentityResolution.NewOwnerSessionCreated(session, binding)
+            )
+        } else {
+            pendingOnboardingEmail = cleanEmail
+            pendingOnboardingName = displayName.trim().takeIf { it.isNotBlank() }
+            _authError.value = null
+            return@withContext Result.success(
+                EmailIdentityResolution.RequiresRoleCode(cleanEmail, targetRole)
+            )
+        }
+    }
+
+    /**
+     * Completes Network Owner onboarding (with or without an explicit email, e.g., direct MikroTik router login)
+     * so subsequent app launches auto-route directly to the Owner workspace.
+     */
+    fun completeOwnerOnboarding(
+        email: String = "",
+        displayName: String = "",
+        networkId: String = resolveActiveNetworkId(),
+        networkName: String = ""
+    ): UserSession {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isNotBlank() && cleanEmail.contains("@")) {
+            val baseSession = signInDirectly(cleanEmail, displayName)
+            val finalSession = baseSession.copy(
+                networkId = networkId.takeIf { it.isNotBlank() && it != "DEFAULT_ORG" } ?: baseSession.networkId,
+                networkName = networkName.ifBlank { baseSession.networkName }
+            )
+            saveOwnerBackupIdentity(finalSession)
+            saveSession(finalSession)
+            _currentUser.value = finalSession
+            buildCloudBindingForSession(finalSession)?.let { saveEmailBindingToPrefs(it) }
+            return finalSession
+        }
+        val existing = _currentUser.value
+        if (existing != null && existing.role == AppUserRole.NETWORK_OWNER) {
+            saveSession(existing)
+            return existing
+        }
+        val session = UserSession(
+            email = "owner@sammikrotik.local",
+            displayName = displayName.ifBlank { "مالك الشبكة" },
+            uid = "OWNER_LOCAL",
+            isSignedIn = true,
+            role = AppUserRole.NETWORK_OWNER,
+            networkId = networkId.ifBlank { "DEFAULT_ORG" },
+            networkName = networkName,
+            agentPermissions = AgentPermissions.FULL_OWNER
+        )
+        saveSession(session)
+        _currentUser.value = session
+        _activeRole.value = AppUserRole.NETWORK_OWNER
+        _activeAgentPermissions.value = AgentPermissions.FULL_OWNER
         _authError.value = null
         return session
     }
@@ -853,7 +1133,7 @@ class AuthManager(private val context: Context) {
                 saveSession(updated)
                 _currentUser.value = updated
             } else {
-                _currentUser.value = null
+                completeOwnerOnboarding()
             }
         }
         _activeRole.value = AppUserRole.NETWORK_OWNER
@@ -1146,13 +1426,15 @@ class AuthManager(private val context: Context) {
 
     /**
      * Sign out current user and clear credential manager state, while preserving generated access codes,
-     * verifications, restock orders, and support tickets.
+     * verifications, restock orders, support tickets, and cloud email bindings.
+     * Resets [isOnboardingComplete] to `false` so the Splash Role Selection Gateway is shown.
      */
     suspend fun signOut() = withContext(Dispatchers.IO) {
         val preservedCodesJson = prefs.getString(KEY_ACCESS_CODES_JSON, null)
         val preservedVerificationsJson = prefs.getString(KEY_DOC_VERIFICATIONS_JSON, null)
         val preservedOrdersJson = prefs.getString(KEY_POS_RESTOCK_ORDERS_JSON, null)
         val preservedTicketsJson = prefs.getString(KEY_POS_SUPPORT_TICKETS_JSON, null)
+        val preservedEmailBindingsJson = prefs.getString(KEY_EMAIL_BINDINGS_JSON, null)
         try {
             credentialManager.clearCredentialState(ClearCredentialStateRequest())
             if (FirebaseApp.getApps(context).isNotEmpty()) {
@@ -1162,25 +1444,37 @@ class AuthManager(private val context: Context) {
             Log.w("AuthManager", "Error clearing credentials: ${e.message}")
         }
         prefs.edit().clear().apply()
+        val editor = prefs.edit()
+            .putBoolean(KEY_ONBOARDING_COMPLETE, false)
+            .putBoolean(KEY_EXPLICIT_LOGGED_OUT, true)
         if (!preservedCodesJson.isNullOrBlank()) {
-            prefs.edit().putString(KEY_ACCESS_CODES_JSON, preservedCodesJson).apply()
+            editor.putString(KEY_ACCESS_CODES_JSON, preservedCodesJson)
         }
         if (!preservedVerificationsJson.isNullOrBlank()) {
-            prefs.edit().putString(KEY_DOC_VERIFICATIONS_JSON, preservedVerificationsJson).apply()
+            editor.putString(KEY_DOC_VERIFICATIONS_JSON, preservedVerificationsJson)
         }
         if (!preservedOrdersJson.isNullOrBlank()) {
-            prefs.edit().putString(KEY_POS_RESTOCK_ORDERS_JSON, preservedOrdersJson).apply()
+            editor.putString(KEY_POS_RESTOCK_ORDERS_JSON, preservedOrdersJson)
         }
         if (!preservedTicketsJson.isNullOrBlank()) {
-            prefs.edit().putString(KEY_POS_SUPPORT_TICKETS_JSON, preservedTicketsJson).apply()
+            editor.putString(KEY_POS_SUPPORT_TICKETS_JSON, preservedTicketsJson)
         }
+        if (!preservedEmailBindingsJson.isNullOrBlank()) {
+            editor.putString(KEY_EMAIL_BINDINGS_JSON, preservedEmailBindingsJson)
+        }
+        editor.apply()
+        pendingOnboardingEmail = null
+        pendingOnboardingName = null
         _currentUser.value = null
+        _isOnboardingComplete.value = false
         _activeRole.value = AppUserRole.NETWORK_OWNER
         _activeAgentPermissions.value = AgentPermissions.FULL_OWNER
     }
 
     private fun saveSession(session: UserSession) {
         prefs.edit()
+            .putBoolean(KEY_ONBOARDING_COMPLETE, true)
+            .putBoolean(KEY_EXPLICIT_LOGGED_OUT, false)
             .putString("user_email", session.email)
             .putString("user_name", session.displayName)
             .putString("user_photo", session.photoUrl)
@@ -1196,13 +1490,18 @@ class AuthManager(private val context: Context) {
             .putString("user_access_code", session.accessCode)
             .putString("user_agent_permissions_json", session.agentPermissions.toJson().toString())
             .apply()
+        _isOnboardingComplete.value = true
+        buildCloudBindingForSession(session)?.let { saveEmailBindingToPrefs(it) }
     }
 
     companion object {
         const val RC_GOOGLE_SIGN_IN = 9001
+        private const val KEY_ONBOARDING_COMPLETE = "is_onboarding_complete"
+        private const val KEY_EXPLICIT_LOGGED_OUT = "is_explicit_logged_out"
         private const val KEY_ACCESS_CODES_JSON = "access_codes_json"
         private const val KEY_DOC_VERIFICATIONS_JSON = "doc_verifications_json"
         private const val KEY_POS_RESTOCK_ORDERS_JSON = "pos_restock_orders_json"
         private const val KEY_POS_SUPPORT_TICKETS_JSON = "pos_support_tickets_json"
+        private const val KEY_EMAIL_BINDINGS_JSON = "email_identity_bindings_json"
     }
 }

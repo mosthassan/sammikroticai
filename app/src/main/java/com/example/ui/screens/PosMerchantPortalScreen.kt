@@ -241,10 +241,19 @@ fun PosMerchantPortalScreen(
                                     )
                                 }
                             }
+                            val activeCloudEmail = session?.email?.takeIf {
+                                it.isNotBlank() && !it.endsWith("@sammikrotik.local")
+                            }
                             Text(
-                                text = "بوابة الشفافية الرقمية — $networkName (${session?.accessCode ?: "POS"})",
+                                text = if (activeCloudEmail != null) {
+                                    "الحساب السحابي النشط: $activeCloudEmail • $networkName"
+                                } else {
+                                    "بوابة الشفافية الرقمية — $networkName (${session?.accessCode ?: "POS"})"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -280,11 +289,11 @@ fun PosMerchantPortalScreen(
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ExitToApp,
-                            contentDescription = "تبديل الدور أو تسجيل الخروج",
+                            contentDescription = "تبديل الحساب أو تسجيل الخروج",
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text("تبديل الدور", style = MaterialTheme.typography.labelMedium)
+                        Text("تبديل الحساب / خروج", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             )
