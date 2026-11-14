@@ -918,7 +918,7 @@ fun TreasuryBalanceRow(
             Spacer(modifier = Modifier.width(8.dp))
             Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
         }
-        AmountText(money = money, semanticType = AmountSemanticType.NEUTRAL, fontSize = 14)
+        AmountText(money = money, semanticType = AmountSemanticType.AUTO, fontSize = 14)
     }
 }
 

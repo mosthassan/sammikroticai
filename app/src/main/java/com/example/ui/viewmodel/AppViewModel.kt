@@ -430,6 +430,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val pendingCloudRestorePrompt = MutableStateFlow<com.example.data.sync.CloudBackupMeta?>(null)
 
     init {
+        viewModelScope.launch {
+            networkRepository.config.collect { conf ->
+                com.example.core.model.CurrencyCode.FUNCTIONAL = conf.baseCurrency
+            }
+        }
         refreshDashboard()
         runInvariantCheck()
         if (activeRouterProfile.value?.isActive == true) {
@@ -788,15 +793,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         rateZone: RateZone = RateZone.DEFAULT,
         rateSource: com.example.core.model.RateSource = com.example.core.model.RateSource.SYSTEM_DAILY,
-        allowOverdraft: Boolean = true,
         onError: (String) -> Unit = {},
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
             try {
-                if (allowOverdraft) {
-                    db.treasuryDao().setAllowNegative(treasuryId, true)
-                }
                 val now = getLocalNow()
                 val fiscalYear = now.year
                 val today = now.toEpochDay()
@@ -821,6 +822,63 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 val msg = e.message ?: "فشل تسجيل سند الصرف"
                 _userMessage.emit("فشل تسجيل سند الصرف: $msg")
+                onError(msg)
+            }
+        }
+    }
+
+    fun postCurrencyExchange(
+        sourceTreasuryId: String,
+        sourceAmountOrigMinor: Long,
+        destTreasuryId: String,
+        destAmountOrigMinor: Long,
+        notes: String,
+        rateZone: RateZone = RateZone.DEFAULT,
+        rateSource: com.example.core.model.RateSource = com.example.core.model.RateSource.SYSTEM_DAILY,
+        onError: (String) -> Unit = {},
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val sourceTreasury = db.treasuryDao().getTreasuryById(sourceTreasuryId) ?: error("Source not found")
+                val destTreasury = db.treasuryDao().getTreasuryById(destTreasuryId) ?: error("Dest not found")
+
+                if (sourceTreasury.currency == destTreasury.currency) {
+                    val rate = ExchangeRate.parity(CurrencyCode.fromString(sourceTreasury.currency))
+                    repository.ledgerWriter.postTreasuryTransfer(
+                        sourceTreasuryId = sourceTreasuryId,
+                        sourceAmountOrigMinor = sourceAmountOrigMinor,
+                        sourceCurrency = CurrencyCode.fromString(sourceTreasury.currency),
+                        sourceRate = rate,
+                        destTreasuryId = destTreasuryId,
+                        destAmountOrigMinor = destAmountOrigMinor,
+                        destCurrency = CurrencyCode.fromString(destTreasury.currency),
+                        destRate = rate,
+                        fiscalYear = com.example.core.time.FiscalCalendar.DEFAULT.fiscalYearOf(com.example.core.time.AppClock.todayEpochDay()),
+                        dateEpochDay = com.example.core.time.AppClock.todayEpochDay(),
+                        notes = notes,
+                        rateZone = rateZone,
+                        rateSource = rateSource
+                    )
+                } else {
+                    repository.ledgerWriter.postCurrencyExchange(
+                        sourceTreasuryId = sourceTreasuryId,
+                        sourceAmountOrigMinor = sourceAmountOrigMinor,
+                        destTreasuryId = destTreasuryId,
+                        destAmountOrigMinor = destAmountOrigMinor,
+                        fiscalYear = com.example.core.time.FiscalCalendar.DEFAULT.fiscalYearOf(com.example.core.time.AppClock.todayEpochDay()),
+                        dateEpochDay = com.example.core.time.AppClock.todayEpochDay(),
+                        notes = notes,
+                        rateZone = rateZone,
+                        rateSource = rateSource
+                    )
+                }
+                _userMessage.emit("تم ترحيل العملية بنجاح")
+                refreshDashboard()
+                onSuccess()
+            } catch (e: Exception) {
+                val msg = e.message ?: "فشل مصارفة / تحويل العملة"
+                _userMessage.emit("فشل العملية: $msg")
                 onError(msg)
             }
         }
