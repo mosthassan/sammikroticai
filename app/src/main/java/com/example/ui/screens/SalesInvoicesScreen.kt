@@ -103,6 +103,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.core.model.CurrencyCode
 import com.example.core.model.Money
+import com.example.data.auth.DocumentVerificationRecord
+import com.example.data.auth.DocumentVerificationStatus
 import com.example.data.ledger.SalesItemSpec
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.AllocationEntity
@@ -123,6 +125,8 @@ import com.example.ui.theme.MikroTikNavyLight
 import com.example.ui.theme.MikroTikPrimary
 import com.example.ui.theme.PaymentRed
 import com.example.ui.theme.SemanticExpenseRed
+import com.example.ui.theme.SemanticIncomeGreen
+import com.example.ui.theme.SemanticWarningAmber
 import com.example.ui.theme.StatusOnline
 import com.example.ui.theme.TextMutedDark
 import com.example.ui.theme.TextPrimaryDark
@@ -162,6 +166,7 @@ fun SalesInvoicesScreen(
     val packages by viewModel.allPackages.collectAsState()
     val treasuries by viewModel.allTreasuries.collectAsState()
     val stockMovements by viewModel.allStockMovements.collectAsState()
+    val documentVerifications by viewModel.documentVerifications.collectAsState()
 
     var partyBalances by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
     LaunchedEffect(documents, allocations) {
@@ -178,6 +183,7 @@ fun SalesInvoicesScreen(
         treasuries = treasuries,
         stockMovements = stockMovements,
         partyBalances = partyBalances,
+        documentVerifications = documentVerifications,
         onVoidInvoice = { docId, reason, onDone ->
             viewModel.voidDocument(docId, reason, onDone)
         },
@@ -211,6 +217,7 @@ fun SalesInvoicesContent(
     onVoidInvoice: (docId: String, reason: String, onDone: () -> Unit) -> Unit,
     onPostInvoice: (partyId: String, items: List<SalesItemSpec>, cashPaid: Long, treasuryId: String, notes: String, onDone: () -> Unit) -> Unit,
     fetchDocumentItems: (docId: String, callback: (List<DocumentItemEntity>) -> Unit) -> Unit,
+    documentVerifications: Map<String, DocumentVerificationRecord> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -591,6 +598,7 @@ fun SalesInvoicesContent(
 
                 val formattedDocNum = "#INV-${inv.fiscalYear}-${inv.docNumber.toString().padStart(4, '0')}"
                 val curr = CurrencyCode.fromString(inv.currency)
+                val verificationRecord = documentVerifications[inv.id]
 
                 InvoiceItemCard(
                     invoice = inv,
@@ -605,6 +613,7 @@ fun SalesInvoicesContent(
                     isPartial = isPartial,
                     currency = curr,
                     isExpanded = isExpanded,
+                    verificationRecord = verificationRecord,
                     onToggleExpand = {
                         expandedInvoiceIds[inv.id] = !isExpanded
                     },
@@ -1011,6 +1020,7 @@ fun InvoiceItemCard(
     onCloneClick: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    verificationRecord: DocumentVerificationRecord? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -1177,6 +1187,49 @@ fun InvoiceItemCard(
                                     )
                                 }
                             }
+                        }
+                    }
+
+                    // Mutual POS Verification Badge Row
+                    val verStatus = verificationRecord?.status ?: DocumentVerificationStatus.PENDING_POS_CONFIRMATION
+                    val verColor = when (verStatus) {
+                        DocumentVerificationStatus.CONFIRMED_BY_POS -> SemanticIncomeGreen
+                        DocumentVerificationStatus.DISPUTED_BY_POS -> SemanticWarningAmber
+                        DocumentVerificationStatus.PENDING_POS_CONFIRMATION -> TextMutedDark
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = verColor.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(5.dp),
+                            border = BorderStroke(0.6.dp, verColor.copy(alpha = 0.45f)),
+                            modifier = Modifier.testTag("invoice_pos_verification_badge_${invoice.docNumber}")
+                        ) {
+                            Text(
+                                text = verStatus.ownerBadgeAr,
+                                fontSize = 9.5.sp,
+                                color = verColor,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        if (verStatus == DocumentVerificationStatus.DISPUTED_BY_POS &&
+                            !verificationRecord?.disputeNote.isNullOrBlank()
+                        ) {
+                            Text(
+                                text = "ملاحظة: ${verificationRecord?.disputeNote}",
+                                fontSize = 9.5.sp,
+                                color = SemanticWarningAmber,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 6.dp)
+                            )
                         }
                     }
                 }

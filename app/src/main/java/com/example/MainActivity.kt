@@ -40,8 +40,11 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -119,7 +122,12 @@ import com.example.ui.theme.SamMikrotikTheme
 import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
 import androidx.compose.material.icons.filled.AutoAwesome
+import com.example.data.auth.AgentPermissions
+import com.example.data.auth.AppUserRole
+import com.example.data.auth.RoleAccessPolicy
 import com.example.ui.ai.AIAssistantScreen
+import com.example.ui.screens.PosMerchantPortalScreen
+import com.example.ui.screens.TeamAccessCodesScreen
 import com.example.ui.viewmodel.AppViewModel
 
 object AppBrand {
@@ -142,6 +150,39 @@ sealed class MainTab(val title: String, val icon: ImageVector, val tag: String) 
 
     companion object {
         val all = listOf(Operations, Dashboard, Sales, Vouchers, Purchases, Parties, CardsAndPackages, NetworkHub, Reports, Audit)
+
+        fun visibleTabsForRole(
+            role: AppUserRole,
+            permissions: AgentPermissions = AgentPermissions()
+        ): List<Pair<Int, MainTab>> {
+            return when (role) {
+                AppUserRole.NETWORK_OWNER -> all.mapIndexed { index, tab -> index to tab }
+                AppUserRole.DISTRIBUTOR_AGENT -> buildList {
+                    add(2 to Sales)
+                    if (RoleAccessPolicy.canCollectReceipts(role, permissions) ||
+                        RoleAccessPolicy.canCreateDisbursements(role, permissions)
+                    ) {
+                        add(3 to Vouchers)
+                    }
+                    if (RoleAccessPolicy.canViewAssignedStock(role, permissions)) {
+                        add(6 to CardsAndPackages)
+                    }
+                    add(5 to Parties)
+                }
+                AppUserRole.POS_MERCHANT -> emptyList()
+            }
+        }
+
+        fun displayTitleForRole(tab: MainTab, role: AppUserRole): String {
+            if (role == AppUserRole.DISTRIBUTOR_AGENT) {
+                return when (tab) {
+                    CardsAndPackages -> "مخزن الكروت"
+                    Parties -> "نقاط البيع"
+                    else -> tab.title
+                }
+            }
+            return tab.title
+        }
     }
 }
 
@@ -174,11 +215,22 @@ class MainActivity : ComponentActivity() {
                 val invariantResult by appViewModel.invariantResult.collectAsState()
                 val syncState by appViewModel.syncState.collectAsState()
                 val currentUser by appViewModel.currentUser.collectAsState()
+                val activeRole by appViewModel.activeRole.collectAsState()
+                val activeAgentPermissions by appViewModel.activeAgentPermissions.collectAsState()
+                val pendingPosInboxCount by appViewModel.pendingPosInboxCount.collectAsState()
+
+                val visibleTabs = remember(activeRole, activeAgentPermissions) {
+                    MainTab.visibleTabsForRole(activeRole, activeAgentPermissions)
+                }
 
                 var showCloudSyncSheet by rememberSaveable { mutableStateOf(false) }
                 var showAiAssistant by rememberSaveable { mutableStateOf(false) }
                 var showSubscriptionScreen by rememberSaveable { mutableStateOf(false) }
                 var showAdminDashboard by rememberSaveable { mutableStateOf(false) }
+                var showTeamAccessCodesScreen by rememberSaveable { mutableStateOf(false) }
+                var teamAccessCodesInitialTab by rememberSaveable { mutableIntStateOf(0) }
+                var showPosInboxScreen by rememberSaveable { mutableStateOf(false) }
+                var posInboxInitialTab by rememberSaveable { mutableIntStateOf(0) }
                 var showCardStudio by rememberSaveable { mutableStateOf(false) }
                 var showQuickCardGeneratorScreen by rememberSaveable { mutableStateOf(false) }
                 var showDeviceMonitorScreen by rememberSaveable { mutableStateOf(false) }
@@ -188,6 +240,16 @@ class MainActivity : ComponentActivity() {
                 var showSplashScreen by rememberSaveable { mutableStateOf(true) }
                 val syncSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+                // Ensure selectedTabIndex is always valid for the current role
+                LaunchedEffect(activeRole, visibleTabs) {
+                    if (activeRole == AppUserRole.DISTRIBUTOR_AGENT) {
+                        val allowedIndices = visibleTabs.map { it.first }
+                        if (selectedTabIndex !in allowedIndices) {
+                            selectedTabIndex = allowedIndices.firstOrNull() ?: 2
+                        }
+                    }
+                }
+
                 // Listen for business feedback messages
                 LaunchedEffect(appViewModel) {
                     appViewModel.userMessage.collect { msg ->
@@ -195,10 +257,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Handle system back navigation (navigate back to Dashboard if on sub-screens)
-                if (selectedTabIndex != 0) {
+                // Handle system back navigation (navigate back to first visible tab if on sub-screens)
+                val homeTabIndex = if (activeRole == AppUserRole.DISTRIBUTOR_AGENT) {
+                    visibleTabs.firstOrNull()?.first ?: 2
+                } else 0
+                if (selectedTabIndex != homeTabIndex) {
                     BackHandler {
-                        selectedTabIndex = 0
+                        selectedTabIndex = homeTabIndex
                     }
                 }
 
@@ -206,10 +271,10 @@ class MainActivity : ComponentActivity() {
                     com.example.ui.screens.SplashScreen(
                         onSplashFinished = { showSplashScreen = false }
                     )
-                } else if (showRouterLoginScreen || (selectedTabIndex == 0 && !isRouterSessionLoggedIn)) {
-                    BackHandler(enabled = isRouterSessionLoggedIn || selectedTabIndex != 0) {
+                } else if (showRouterLoginScreen || (activeRole == AppUserRole.NETWORK_OWNER && selectedTabIndex == 0 && !isRouterSessionLoggedIn)) {
+                    BackHandler(enabled = isRouterSessionLoggedIn || selectedTabIndex != 0 || activeRole != AppUserRole.NETWORK_OWNER) {
                         showRouterLoginScreen = false
-                        if (!isRouterSessionLoggedIn) {
+                        if (!isRouterSessionLoggedIn && activeRole == AppUserRole.NETWORK_OWNER) {
                             selectedTabIndex = 1
                         }
                     }
@@ -223,15 +288,44 @@ class MainActivity : ComponentActivity() {
                         },
                         onOfflineEnter = {
                             showRouterLoginScreen = false
-                            selectedTabIndex = 1
+                            selectedTabIndex = if (appViewModel.activeRole.value == AppUserRole.DISTRIBUTOR_AGENT) 2 else 1
                         }
                     )
-                } else if (showAdminDashboard) {
+                } else if (activeRole == AppUserRole.POS_MERCHANT) {
+                    PosMerchantPortalScreen(
+                        viewModel = appViewModel,
+                        onSwitchOrLogoutRole = {
+                            appViewModel.switchToNetworkOwnerRole {
+                                showRouterLoginScreen = true
+                            }
+                        }
+                    )
+                } else if (showPosInboxScreen && (activeRole == AppUserRole.NETWORK_OWNER || activeRole == AppUserRole.DISTRIBUTOR_AGENT)) {
+                    com.example.ui.screens.PosInboxScreen(
+                        viewModel = appViewModel,
+                        initialTab = posInboxInitialTab,
+                        onBack = { showPosInboxScreen = false }
+                    )
+                } else if (showTeamAccessCodesScreen && RoleAccessPolicy.canAccessTeamAndCodesManager(activeRole)) {
+                    TeamAccessCodesScreen(
+                        viewModel = appViewModel,
+                        initialTab = teamAccessCodesInitialTab,
+                        onBack = { showTeamAccessCodesScreen = false },
+                        onPreviewRoleActivated = {
+                            showTeamAccessCodesScreen = false
+                        }
+                    )
+                } else if (showAdminDashboard && RoleAccessPolicy.canAccessRouterOsSettings(activeRole)) {
                     com.example.ui.screens.AdminDashboardScreen(
                         viewModel = appViewModel,
-                        onNavigateBack = { showAdminDashboard = false }
+                        onNavigateBack = { showAdminDashboard = false },
+                        onOpenTeamAccessCodes = {
+                            showAdminDashboard = false
+                            teamAccessCodesInitialTab = 0
+                            showTeamAccessCodesScreen = true
+                        }
                     )
-                } else if (showSubscriptionScreen) {
+                } else if (showSubscriptionScreen && RoleAccessPolicy.canAccessRouterOsSettings(activeRole)) {
                     com.example.ui.screens.SubscriptionScreen(
                         viewModel = appViewModel,
                         onNavigateBack = { showSubscriptionScreen = false },
@@ -240,15 +334,15 @@ class MainActivity : ComponentActivity() {
                             showAdminDashboard = true
                         }
                     )
-                } else if (showAiAssistant) {
+                } else if (showAiAssistant && RoleAccessPolicy.canAccessRouterOsSettings(activeRole)) {
                     AIAssistantScreen(
                         onNavigateBack = { showAiAssistant = false }
                     )
-                } else if (showCardStudio) {
+                } else if (showCardStudio && RoleAccessPolicy.canAccessCardStudioGeneration(activeRole)) {
                     com.example.ui.cardstudio.CardStudioScreen(
                         onNavigateBack = { showCardStudio = false }
                     )
-                } else if (showQuickCardGeneratorScreen) {
+                } else if (showQuickCardGeneratorScreen && RoleAccessPolicy.canAccessCardStudioGeneration(activeRole)) {
                     val cardStudioViewModel: com.example.ui.cardstudio.CardStudioViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                     com.example.ui.screens.QuickCardGeneratorScreen(
                         viewModel = cardStudioViewModel,
@@ -258,12 +352,12 @@ class MainActivity : ComponentActivity() {
                             selectedTabIndex = 6 // Tab: الكروت والباقات
                         }
                     )
-                } else if (showDeviceMonitorScreen) {
+                } else if (showDeviceMonitorScreen && RoleAccessPolicy.canAccessRouterOsSettings(activeRole)) {
                     com.example.ui.screens.NetworkDevicesScreen(
                         networkRepository = appViewModel.networkRepository,
                         onNavigateBack = { showDeviceMonitorScreen = false }
                     )
-                } else if (showHotspotUsersScreen) {
+                } else if (showHotspotUsersScreen && RoleAccessPolicy.canAccessRouterOsSettings(activeRole)) {
                     com.example.ui.screens.HotspotUsersScreen(
                         viewModel = appViewModel,
                         onNavigateBack = { showHotspotUsersScreen = false }
@@ -295,7 +389,7 @@ class MainActivity : ComponentActivity() {
                                                 color = TextPrimaryDark
                                             )
                                             Text(
-                                                text = MainTab.all[selectedTabIndex].title,
+                                                text = MainTab.displayTitleForRole(MainTab.all[selectedTabIndex.coerceIn(0, MainTab.all.lastIndex)], activeRole),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = BrandCyanPrimary
                                             )
@@ -303,108 +397,222 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 actions = {
-                                    val isBalanced = invariantResult?.isValid ?: true
-                                    val badgeColor = if (isBalanced) SemanticIncomeGreen else SemanticExpenseRed
+                                    // POS Orders & Support Inbox Notification Badge (Owner & Distributor)
                                     Surface(
-                                        color = badgeColor.copy(alpha = 0.12f),
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.5f)),
+                                        color = if (pendingPosInboxCount > 0) SemanticIncomeGreen.copy(alpha = 0.16f) else CyberDarkCardElevated,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (pendingPosInboxCount > 0) SemanticIncomeGreen.copy(alpha = 0.6f) else CyberBorder
+                                        ),
                                         modifier = Modifier
                                             .padding(end = 4.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .clickable { selectedTabIndex = MainTab.all.indexOf(MainTab.Audit) /* Jump to Audit tab */ }
-                                            .testTag("top_bar_invariant_badge")
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable {
+                                                posInboxInitialTab = 0
+                                                showPosInboxScreen = true
+                                            }
+                                            .testTag("top_bar_pos_inbox_btn")
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isBalanced) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                                contentDescription = null,
-                                                tint = badgeColor,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = if (isBalanced) "IFRS متزن" else "خلل",
-                                                color = badgeColor,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 10.5.sp
-                                            )
-                                        }
-                                    }
-
-                                    val activeRouter by appViewModel.activeRouterProfile.collectAsState()
-                                    Surface(
-                                        color = Color(0xFF0F3A47),
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.5f)),
-                                        modifier = Modifier
-                                            .padding(end = 4.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .clickable { showRouterLoginScreen = true }
-                                            .testTag("top_bar_router_pill")
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Router,
-                                                contentDescription = "Router",
-                                                tint = BrandCyanPrimary,
-                                                modifier = Modifier.size(13.dp)
+                                                imageVector = Icons.Default.Inbox,
+                                                contentDescription = "صندوق طلبات الكروت وبلاغات النقاط",
+                                                tint = if (pendingPosInboxCount > 0) SemanticIncomeGreen else BrandCyanPrimary,
+                                                modifier = Modifier.size(15.dp)
                                             )
-                                            Text(
-                                                text = activeRouter?.name ?: "10.0.0.1",
-                                                color = TextPrimaryDark,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 10.5.sp
-                                            )
+                                            if (pendingPosInboxCount > 0) {
+                                                Text(
+                                                    text = "$pendingPosInboxCount",
+                                                    color = SemanticIncomeGreen,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
                                         }
                                     }
 
-                                    val isAdmin by appViewModel.isAdmin.collectAsState()
-                                    if (isAdmin) {
+                                    if (activeRole == AppUserRole.DISTRIBUTOR_AGENT) {
+                                        val agentLabel = currentUser?.agentName?.takeIf { it.isNotBlank() }
+                                            ?: currentUser?.displayName?.takeIf { it.isNotBlank() }
+                                            ?: "الموزع"
+                                        Surface(
+                                            color = BrandCyanPrimary.copy(alpha = 0.16f),
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.6f)),
+                                            modifier = Modifier
+                                                .padding(end = 6.dp)
+                                                .testTag("top_bar_agent_mode_badge")
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "وضع الوكيل الميداني: $agentLabel",
+                                                    color = BrandCyanPrimary,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                        Surface(
+                                            color = CyberDarkCardElevated,
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, CyberBorder),
+                                            modifier = Modifier
+                                                .padding(end = 6.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .clickable {
+                                                    appViewModel.switchToNetworkOwnerRole {
+                                                        showRouterLoginScreen = true
+                                                    }
+                                                }
+                                                .testTag("top_bar_switch_role_btn")
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.SwapHoriz,
+                                                    contentDescription = "تبديل الدور",
+                                                    tint = TextPrimaryDark,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                                Text(
+                                                    text = "تبديل الدور",
+                                                    color = TextPrimaryDark,
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        val isBalanced = invariantResult?.isValid ?: true
+                                        val badgeColor = if (isBalanced) SemanticIncomeGreen else SemanticExpenseRed
+                                        Surface(
+                                            color = badgeColor.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.5f)),
+                                            modifier = Modifier
+                                                .padding(end = 4.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable { selectedTabIndex = MainTab.all.indexOf(MainTab.Audit) /* Jump to Audit tab */ }
+                                                .testTag("top_bar_invariant_badge")
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isBalanced) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                                    contentDescription = null,
+                                                    tint = badgeColor,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = if (isBalanced) "IFRS متزن" else "خلل",
+                                                    color = badgeColor,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.5.sp
+                                                )
+                                            }
+                                        }
+
+                                        val activeRouter by appViewModel.activeRouterProfile.collectAsState()
+                                        Surface(
+                                            color = Color(0xFF0F3A47),
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.5f)),
+                                            modifier = Modifier
+                                                .padding(end = 4.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable { showRouterLoginScreen = true }
+                                                .testTag("top_bar_router_pill")
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Router,
+                                                    contentDescription = "Router",
+                                                    tint = BrandCyanPrimary,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Text(
+                                                    text = activeRouter?.name ?: "10.0.0.1",
+                                                    color = TextPrimaryDark,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.5.sp
+                                                )
+                                            }
+                                        }
+
                                         IconButton(
-                                            onClick = { showAdminDashboard = true },
-                                            modifier = Modifier.testTag("top_bar_admin_dashboard_btn")
+                                            onClick = {
+                                                teamAccessCodesInitialTab = 0
+                                                showTeamAccessCodesScreen = true
+                                            },
+                                            modifier = Modifier.testTag("top_bar_team_codes_btn")
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.AdminPanelSettings,
-                                                contentDescription = "لوحة تحكم المسؤول",
-                                                tint = Color(0xFFFFD700),
+                                                imageVector = Icons.Default.Groups,
+                                                contentDescription = "إدارة الوكلاء وأكواد نقاط البيع",
+                                                tint = BrandCyanPrimary,
                                                 modifier = Modifier.size(22.dp)
                                             )
                                         }
-                                    }
 
-                                    val subStatus by appViewModel.subscriptionStatus.collectAsState()
-                                    val isProActive = subStatus.isPro && !subStatus.isExpired
-                                    IconButton(
-                                        onClick = { showSubscriptionScreen = true },
-                                        modifier = Modifier.testTag("top_bar_subscription_btn")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.WorkspacePremium,
-                                            contentDescription = "الاشتراك والتفعيل",
-                                            tint = if (isProActive) Color(0xFFFFD700) else BrandCyanPrimary,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
+                                        val isAdmin by appViewModel.isAdmin.collectAsState()
+                                        if (isAdmin) {
+                                            IconButton(
+                                                onClick = { showAdminDashboard = true },
+                                                modifier = Modifier.testTag("top_bar_admin_dashboard_btn")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AdminPanelSettings,
+                                                    contentDescription = "لوحة تحكم المسؤول",
+                                                    tint = Color(0xFFFFD700),
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                        }
 
-                                    IconButton(
-                                        onClick = { showAiAssistant = true },
-                                        modifier = Modifier.testTag("top_bar_ai_assistant_btn")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.AutoAwesome,
-                                            contentDescription = "مساعد سامي الذكي (ERP AI)",
-                                            tint = BrandCyanPrimary,
-                                            modifier = Modifier.size(22.dp)
-                                        )
+                                        val subStatus by appViewModel.subscriptionStatus.collectAsState()
+                                        val isProActive = subStatus.isPro && !subStatus.isExpired
+                                        IconButton(
+                                            onClick = { showSubscriptionScreen = true },
+                                            modifier = Modifier.testTag("top_bar_subscription_btn")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.WorkspacePremium,
+                                                contentDescription = "الاشتراك والتفعيل",
+                                                tint = if (isProActive) Color(0xFFFFD700) else BrandCyanPrimary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { showAiAssistant = true },
+                                            modifier = Modifier.testTag("top_bar_ai_assistant_btn")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = "مساعد سامي الذكي (ERP AI)",
+                                                tint = BrandCyanPrimary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
                                     }
                                 },
                                 colors = TopAppBarDefaults.topAppBarColors(
@@ -429,8 +637,9 @@ class MainActivity : ComponentActivity() {
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    MainTab.all.forEachIndexed { index, tab ->
+                                    visibleTabs.forEach { (index, tab) ->
                                         val isSelected = selectedTabIndex == index
+                                        val tabTitle = MainTab.displayTitleForRole(tab, activeRole)
                                         Surface(
                                             onClick = { selectedTabIndex = index },
                                             shape = RoundedCornerShape(12.dp),
@@ -447,12 +656,12 @@ class MainActivity : ComponentActivity() {
                                             ) {
                                                 Icon(
                                                     imageVector = tab.icon,
-                                                    contentDescription = tab.title,
+                                                    contentDescription = tabTitle,
                                                     tint = if (isSelected) BrandCyanPrimary else TextSecondaryDark,
                                                     modifier = Modifier.size(19.dp)
                                                 )
                                                 Text(
-                                                    text = tab.title,
+                                                    text = tabTitle,
                                                     style = MaterialTheme.typography.labelMedium,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                                     color = if (isSelected) BrandCyanPrimary else TextSecondaryDark
@@ -501,23 +710,64 @@ class MainActivity : ComponentActivity() {
                             },
                             onNavigateToAiAssistant = { showAiAssistant = true },
                             onNavigateToCardStudio = { selectedTabIndex = 6 },
+                            onOpenPosInbox = { tab ->
+                                posInboxInitialTab = tab
+                                showPosInboxScreen = true
+                            },
                             modifier = modifier
                         )
-                        2 -> SalesScreen(viewModel = appViewModel, modifier = modifier)
-                        3 -> VouchersScreen(viewModel = appViewModel, initialTab = vouchersInitialTab, modifier = modifier)
-                        4 -> PurchasesAssetsScreen(viewModel = appViewModel, modifier = modifier)
-                        5 -> PartiesScreen(viewModel = appViewModel, modifier = modifier)
-                        6 -> CardsAndPackagesMainScreen(viewModel = appViewModel, modifier = modifier)
-                        7 -> NetworkHubScreen(
-                            networkRepository = appViewModel.networkRepository,
+                        2 -> SalesScreen(
                             viewModel = appViewModel,
-                            initialTab = networkHubInitialTab,
-                            onNavigateToSubscription = { showSubscriptionScreen = true },
-                            onNavigateToCardStudio = { selectedTabIndex = 6 },
+                            onOpenPosInbox = { tab ->
+                                posInboxInitialTab = tab
+                                showPosInboxScreen = true
+                            },
                             modifier = modifier
                         )
-                        8 -> ReportsScreen(viewModel = appViewModel, modifier = modifier)
-                        9 -> AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
+                        3 -> VouchersScreen(viewModel = appViewModel, initialTab = vouchersInitialTab, modifier = modifier)
+                        4 -> if (RoleAccessPolicy.canAccessPurchasesAndAssets(activeRole)) {
+                            PurchasesAssetsScreen(viewModel = appViewModel, modifier = modifier)
+                        } else {
+                            SalesScreen(
+                                viewModel = appViewModel,
+                                onOpenPosInbox = { tab ->
+                                    posInboxInitialTab = tab
+                                    showPosInboxScreen = true
+                                },
+                                modifier = modifier
+                            )
+                        }
+                        5 -> PartiesScreen(
+                            viewModel = appViewModel,
+                            onOpenTeamAccessCodes = { initialTab ->
+                                teamAccessCodesInitialTab = initialTab
+                                showTeamAccessCodesScreen = true
+                            },
+                            modifier = modifier
+                        )
+                        6 -> CardsAndPackagesMainScreen(viewModel = appViewModel, modifier = modifier)
+                        7 -> if (RoleAccessPolicy.canAccessRouterOsSettings(activeRole)) {
+                            NetworkHubScreen(
+                                networkRepository = appViewModel.networkRepository,
+                                viewModel = appViewModel,
+                                initialTab = networkHubInitialTab,
+                                onNavigateToSubscription = { showSubscriptionScreen = true },
+                                onNavigateToCardStudio = { selectedTabIndex = 6 },
+                                modifier = modifier
+                            )
+                        } else {
+                            SalesScreen(viewModel = appViewModel, modifier = modifier)
+                        }
+                        8 -> if (RoleAccessPolicy.canAccessNetProfitReports(activeRole)) {
+                            ReportsScreen(viewModel = appViewModel, modifier = modifier)
+                        } else {
+                            SalesScreen(viewModel = appViewModel, modifier = modifier)
+                        }
+                        9 -> if (RoleAccessPolicy.canAccessAuditAndInspection(activeRole)) {
+                            AuditScreen(inspectorViewModel = inspectorViewModel, modifier = modifier)
+                        } else {
+                            SalesScreen(viewModel = appViewModel, modifier = modifier)
+                        }
                     }
                 }
             }

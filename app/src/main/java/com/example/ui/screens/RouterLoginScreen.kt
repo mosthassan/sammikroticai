@@ -123,6 +123,7 @@ import com.example.ui.theme.SemanticWarningAmber
 import com.example.ui.theme.StatusOnline
 import com.example.ui.theme.TextMutedDark
 import com.example.ui.theme.TextPrimaryDark
+import com.example.data.auth.AppUserRole
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.viewmodel.AppViewModel
 import kotlinx.coroutines.launch
@@ -180,7 +181,15 @@ fun RouterLoginScreen(
     var authErrorTitle by remember { mutableStateOf<String?>(null) }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
 
+    var selectedLoginRole by rememberSaveable { mutableStateOf(AppUserRole.NETWORK_OWNER) }
+    var agentInviteCodeInput by rememberSaveable { mutableStateOf("") }
+    var agentNameOrPinInput by rememberSaveable { mutableStateOf("") }
+    var posAccessCodeInput by rememberSaveable { mutableStateOf("") }
+    var roleCodeError by rememberSaveable { mutableStateOf<String?>(null) }
+    val savedAccessCodes by viewModel.accessCodes.collectAsState()
+
     suspend fun completeLogin(profile: RouterConnectionProfile) {
+        viewModel.switchToNetworkOwnerRole()
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
             onLoginSuccess(profile)
         }
@@ -382,8 +391,64 @@ fun RouterLoginScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
+            // 1.5 Multi-Role Selector Segmented Control (Owner / Agent / POS)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = CyberDarkSurface,
+                border = BorderStroke(1.dp, CyberBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("login_role_selector_bar")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val roles = listOf(
+                        AppUserRole.NETWORK_OWNER to "👑 مالك الشبكة",
+                        AppUserRole.DISTRIBUTOR_AGENT to "🚚 وكيل / موزع",
+                        AppUserRole.POS_MERCHANT to "🏪 نقطة بيع (بقالة)"
+                    )
+                    roles.forEach { (roleItem, label) ->
+                        val isSelected = selectedLoginRole == roleItem
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) MikroTikCyan.copy(alpha = 0.18f) else Color.Transparent,
+                            border = if (isSelected) BorderStroke(1.dp, MikroTikCyan) else null,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    selectedLoginRole = roleItem
+                                    roleCodeError = null
+                                }
+                                .testTag("role_segment_${roleItem.name.lowercase()}")
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) MikroTikCyan else TextSecondaryDark,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (selectedLoginRole == AppUserRole.NETWORK_OWNER) {
             // 2. Login, saved routers, and local discovery tabs.
             TabRow(
                 selectedTabIndex = selectedTab,
@@ -469,10 +534,61 @@ fun RouterLoginScreen(
             }
 
             Spacer(modifier = Modifier.height(14.dp))
+            }
 
             // 3. Tab Body
             Box(modifier = Modifier.weight(1f)) {
-                if (selectedTab == 1) {
+                if (selectedLoginRole == AppUserRole.DISTRIBUTOR_AGENT) {
+                    DistributorAgentCodeLoginCard(
+                        inviteCode = agentInviteCodeInput,
+                        onInviteCodeChange = {
+                            agentInviteCodeInput = it.uppercase()
+                            roleCodeError = null
+                        },
+                        agentNameOrPin = agentNameOrPinInput,
+                        onAgentNameOrPinChange = {
+                            agentNameOrPinInput = it
+                            roleCodeError = null
+                        },
+                        errorMessage = roleCodeError,
+                        availableAgentCodes = savedAccessCodes.filter { it.role == AppUserRole.DISTRIBUTOR_AGENT && it.isActive },
+                        onLoginClick = {
+                            roleCodeError = null
+                            viewModel.loginWithAgentInviteCode(
+                                codeInput = agentInviteCodeInput,
+                                nameOrPinInput = agentNameOrPinInput,
+                                onSuccess = {
+                                    onOfflineEnter()
+                                },
+                                onError = { err ->
+                                    roleCodeError = err
+                                }
+                            )
+                        }
+                    )
+                } else if (selectedLoginRole == AppUserRole.POS_MERCHANT) {
+                    PosMerchantTransparencyLoginCard(
+                        posCode = posAccessCodeInput,
+                        onPosCodeChange = {
+                            posAccessCodeInput = it.uppercase()
+                            roleCodeError = null
+                        },
+                        errorMessage = roleCodeError,
+                        availablePosCodes = savedAccessCodes.filter { it.role == AppUserRole.POS_MERCHANT && it.isActive },
+                        onLoginClick = {
+                            roleCodeError = null
+                            viewModel.loginWithPosTransparencyCode(
+                                codeInput = posAccessCodeInput,
+                                onSuccess = {
+                                    onOfflineEnter()
+                                },
+                                onError = { err ->
+                                    roleCodeError = err
+                                }
+                            )
+                        }
+                    )
+                } else if (selectedTab == 1) {
                     // TAB 1: الراوترات المسجلة
                     SavedRoutersTabContent(
                         profiles = profiles,
@@ -547,7 +663,10 @@ fun RouterLoginScreen(
                                 Toast.makeText(context, "يرجى اختيار راوتر أولاً", Toast.LENGTH_SHORT).show()
                             }
                         },
-                        onOfflineEnter = onOfflineEnter,
+                        onOfflineEnter = {
+                            viewModel.switchToNetworkOwnerRole()
+                            onOfflineEnter()
+                        },
                         onRestoreBackup = {
                             restoreBackupText = ""
                             restoreError = null
@@ -644,7 +763,10 @@ fun RouterLoginScreen(
                                 }
                             }
                         },
-                        onOfflineEnter = onOfflineEnter,
+                        onOfflineEnter = {
+                            viewModel.switchToNetworkOwnerRole()
+                            onOfflineEnter()
+                        },
                         onCancel = {
                             resetForm()
                             selectedTab = 0
@@ -2063,3 +2185,293 @@ private fun OptionCheckCard(
         }
     }
 }
+
+@Composable
+private fun DistributorAgentCodeLoginCard(
+    inviteCode: String,
+    onInviteCodeChange: (String) -> Unit,
+    agentNameOrPin: String,
+    onAgentNameOrPinChange: (String) -> Unit,
+    errorMessage: String?,
+    availableAgentCodes: List<com.example.data.auth.AccessCodeEntry>,
+    onLoginClick: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("agent_login_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.45f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MikroTikCyan.copy(alpha = 0.16f),
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = MikroTikCyan
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "🚚 بوابة دخول الوكيل / الموزع الميداني",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
+                            Text(
+                                text = "أدخل كود الدعوة الممنوح لك من مالك الشبكة لمباشرة التوزيع والتحصيل",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = CyberBorder)
+
+                    OutlinedTextField(
+                        value = inviteCode,
+                        onValueChange = onInviteCodeChange,
+                        label = { Text("كود دعوة الوكيل (Invite Code)") },
+                        placeholder = { Text("AGT-XXXX أو AGT-XXXX-XXXX") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MikroTikCyan,
+                            unfocusedBorderColor = CyberBorder,
+                            focusedTextColor = TextPrimaryDark,
+                            unfocusedTextColor = TextPrimaryDark
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("agent_invite_code_input")
+                    )
+
+                    OutlinedTextField(
+                        value = agentNameOrPin,
+                        onValueChange = onAgentNameOrPinChange,
+                        label = { Text("اسم الوكيل أو رمز التحقق (PIN)") },
+                        placeholder = { Text("اختياري ما لم يحدد المالك رمز PIN") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MikroTikCyan,
+                            unfocusedBorderColor = CyberBorder,
+                            focusedTextColor = TextPrimaryDark,
+                            unfocusedTextColor = TextPrimaryDark
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("agent_pin_input")
+                    )
+
+                    if (!errorMessage.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = SemanticExpenseRed.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = errorMessage,
+                                color = SemanticExpenseRed,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = onLoginClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = MikroTikCyan, contentColor = Color(0xFF03252E)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("btn_agent_code_login")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("دخول بوضع الوكيل الميداني", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+
+                    if (availableAgentCodes.isNotEmpty()) {
+                        HorizontalDivider(color = CyberBorder)
+                        Text(
+                            text = "أكواد الوكلاء المحفوظة على هذا الجهاز (للاختبار السريع):",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            availableAgentCodes.take(3).forEach { entry ->
+                                OutlinedButton(
+                                    onClick = {
+                                        onInviteCodeChange(entry.code)
+                                        onAgentNameOrPinChange(entry.agentPin.ifBlank { entry.agentName })
+                                    },
+                                    border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f))
+                                ) {
+                                    Text("${entry.agentName} (${entry.code})", color = MikroTikCyan, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PosMerchantTransparencyLoginCard(
+    posCode: String,
+    onPosCodeChange: (String) -> Unit,
+    errorMessage: String?,
+    availablePosCodes: List<com.example.data.auth.AccessCodeEntry>,
+    onLoginClick: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("pos_login_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                border = BorderStroke(1.dp, SemanticIncomeGreen.copy(alpha = 0.45f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = SemanticIncomeGreen.copy(alpha = 0.16f),
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = SemanticIncomeGreen
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "🏪 بوابة الشفافية الرقمية لنقطة البيع (البقالة)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark
+                            )
+                            Text(
+                                text = "دخول فوري بدون تعقيد لمتابعة كشف الحساب والفواتير والدفعات لحظياً (قراءة فقط)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = CyberBorder)
+
+                    OutlinedTextField(
+                        value = posCode,
+                        onValueChange = onPosCodeChange,
+                        label = { Text("كود الشفافية الرقمية (POS-XXXXXX)") },
+                        placeholder = { Text("POS-XXXXXX") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SemanticIncomeGreen,
+                            unfocusedBorderColor = CyberBorder,
+                            focusedTextColor = TextPrimaryDark,
+                            unfocusedTextColor = TextPrimaryDark
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("pos_transparency_code_input")
+                    )
+
+                    if (!errorMessage.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = SemanticExpenseRed.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, SemanticExpenseRed.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = errorMessage,
+                                color = SemanticExpenseRed,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = onLoginClick,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SemanticIncomeGreen,
+                            contentColor = Color(0xFF03252E)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("btn_pos_code_login")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("فتح كشف الحساب وبوابة نقطة البيع", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+
+                    if (availablePosCodes.isNotEmpty()) {
+                        HorizontalDivider(color = CyberBorder)
+                        Text(
+                            text = "أكواد نقاط البيع المتاحة على هذا الجهاز (للاختبار السريع):",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondaryDark
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            availablePosCodes.take(3).forEach { entry ->
+                                OutlinedButton(
+                                    onClick = { onPosCodeChange(entry.code) },
+                                    border = BorderStroke(1.dp, SemanticIncomeGreen.copy(alpha = 0.5f))
+                                ) {
+                                    Text("${entry.partyName} (${entry.code})", color = SemanticIncomeGreen, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

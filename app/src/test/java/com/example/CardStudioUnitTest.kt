@@ -1,7 +1,6 @@
 package com.example
 
 import com.example.data.card.CardBatch
-import com.example.data.card.createMikrotikBatchComment
 import com.example.data.card.CardPrintGridSettings
 import com.example.data.card.CardTemplate
 import com.example.data.card.CardThemePreset
@@ -85,11 +84,11 @@ class CardStudioUnitTest {
         assertTrue("Script must contain /ip hotspot user", script.contains("/ip hotspot user"))
         assertTrue("Script must add user 771001", script.contains("add name=\"771001\" password=\"pin999\""))
         assertTrue("Script must specify profile", script.contains("profile=\"2G_1W\""))
-        assertTrue("Script must include technical batch comment", script.contains("comment=\"${batch.technicalMikrotikComment}\""))
+        assertTrue("Script must include batch comment", script.contains("comment=\"Batch_101_"))
 
         // Test removal script
         val removalScript = MikroTikCardProvisioner.generateRemovalScript(batch)
-        assertTrue("Removal script must target technical batch comment", removalScript.contains("/ip hotspot user remove [find comment=\"${batch.technicalMikrotikComment}\"]"))
+        assertTrue("Removal script must target batch comment", removalScript.contains("/ip hotspot user remove [find comment=\"Batch_101_"))
     }
 
     @Test
@@ -166,16 +165,6 @@ class CardStudioUnitTest {
         assertEquals(0.39f, codeLayout.topRatio, 0.001f)
         assertEquals(0.91f, codeLayout.rightRatio, 0.001f)
         assertEquals(0.69f, codeLayout.bottomRatio, 0.001f)
-    }
-
-    @Test
-    fun testRouterBatchCommentIsAsciiAndProfileSafe() {
-        val comment = createMikrotikBatchComment("بروفايل 200", 1_794_456_000_000L, 15L)
-
-        assertTrue(comment.all { it.code in 0x20..0x7E })
-        assertTrue(comment.startsWith("card"))
-        assertTrue(comment.endsWith("_B15"))
-        assertTrue(comment.contains("200"))
     }
 
     @Test

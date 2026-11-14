@@ -123,6 +123,7 @@ import java.time.LocalDate
 @Composable
 fun SalesScreen(
     viewModel: AppViewModel,
+    onOpenPosInbox: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val documents by viewModel.allDocuments.collectAsState()
@@ -131,6 +132,12 @@ fun SalesScreen(
     val packages by viewModel.allPackages.collectAsState()
     val treasuries by viewModel.allTreasuries.collectAsState()
     val stockMovements by viewModel.allStockMovements.collectAsState()
+    val activeRole by viewModel.activeRole.collectAsState()
+    val agentPermissions by viewModel.activeAgentPermissions.collectAsState()
+    val documentVerifications by viewModel.documentVerifications.collectAsState()
+    val pendingPosInboxCount by viewModel.pendingPosInboxCount.collectAsState()
+    val canCreateInvoices = com.example.data.auth.RoleAccessPolicy.canCreateSalesInvoices(activeRole, agentPermissions)
+    val canViewStock = com.example.data.auth.RoleAccessPolicy.canViewAssignedStock(activeRole, agentPermissions)
 
     var activeTab by rememberSaveable { mutableIntStateOf(1) } // 0: Points of Sale, 1: Sales Invoices, 2: Inventory Count
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -276,30 +283,62 @@ fun SalesScreen(
                     )
                 }
 
-                // Fast Action Shortcut "تسليم >"
-                Surface(
-                    color = CyberDarkCardElevated,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f)),
-                    modifier = Modifier.clickable { showNewInvoiceSheet = true }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // POS Orders & Tickets Inbox Button
+                    Surface(
+                        color = if (pendingPosInboxCount > 0) StatusOnline.copy(alpha = 0.16f) else CyberDarkCardElevated,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (pendingPosInboxCount > 0) StatusOnline.copy(alpha = 0.6f) else CyberBorder
+                        ),
+                        modifier = Modifier
+                            .clickable { onOpenPosInbox(0) }
+                            .testTag("sales_open_pos_inbox_btn")
                     ) {
-                        Icon(
-                            Icons.Default.Send,
-                            contentDescription = null,
-                            tint = MikroTikCyan,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "تسليم",
-                            color = MikroTikCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (pendingPosInboxCount > 0) "📦 الطلبات ($pendingPosInboxCount)" else "📦 الطلبات",
+                                color = if (pendingPosInboxCount > 0) StatusOnline else TextPrimaryDark,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Fast Action Shortcut "تسليم >" (Gated by canCreateInvoices)
+                    if (canCreateInvoices) {
+                        Surface(
+                            color = CyberDarkCardElevated,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.5f)),
+                            modifier = Modifier.clickable { showNewInvoiceSheet = true }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Send,
+                                    contentDescription = null,
+                                    tint = MikroTikCyan,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "تسليم",
+                                    color = MikroTikCyan,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -373,31 +412,33 @@ fun SalesScreen(
                     }
                 }
 
-                // Tab 2: Inventory Count
-                val tab2Selected = activeTab == 2
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(if (tab2Selected) MikroTikPrimary else Color.Transparent)
-                        .clickable { activeTab = 2 }
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Inventory2,
-                            contentDescription = null,
-                            tint = if (tab2Selected) TextPrimaryDark else TextSecondaryDark,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "المخزن بالعدد",
-                            fontSize = 11.sp,
-                            fontWeight = if (tab2Selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (tab2Selected) TextPrimaryDark else TextSecondaryDark
-                        )
+                // Tab 2: Inventory Count (Gated by canViewStock)
+                if (canViewStock) {
+                    val tab2Selected = activeTab == 2
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (tab2Selected) MikroTikPrimary else Color.Transparent)
+                            .clickable { activeTab = 2 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Inventory2,
+                                contentDescription = null,
+                                tint = if (tab2Selected) TextPrimaryDark else TextSecondaryDark,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "المخزن بالعدد",
+                                fontSize = 11.sp,
+                                fontWeight = if (tab2Selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (tab2Selected) TextPrimaryDark else TextSecondaryDark
+                            )
+                        }
                     }
                 }
             }
@@ -517,6 +558,7 @@ fun SalesScreen(
                         treasuries = treasuries,
                         stockMovements = stockMovements,
                         partyBalances = partyBalances,
+                        documentVerifications = documentVerifications,
                         onVoidInvoice = { docId, reason, onDone ->
                             viewModel.voidDocument(docId, reason, onDone)
                         },
@@ -548,7 +590,7 @@ fun SalesScreen(
     }
 
     // 5. New Modern Sales Invoice BottomSheet (Matching Screens 1 & 2)
-    if (showNewInvoiceSheet) {
+    if (showNewInvoiceSheet && canCreateInvoices) {
         NewSalesInvoiceBottomSheet(
             parties = parties.filter { it.isCustomer },
             packages = packages,

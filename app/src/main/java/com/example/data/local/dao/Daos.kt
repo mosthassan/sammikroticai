@@ -477,9 +477,7 @@ internal interface JournalDao {
         SELECT COALESCE(SUM(jl.origMinor * CASE WHEN jl.baseDebitMinor > 0 THEN 1 ELSE -1 END), 0)
         FROM journal_lines jl
         INNER JOIN journal_entries je ON jl.entryId = je.id
-        INNER JOIN treasury_accounts ta ON jl.treasuryId = ta.id
         WHERE jl.treasuryId = :treasuryId
-          AND jl.currency = ta.currency
           AND (:asOfEpochDay IS NULL OR je.entryDateEpochDay <= :asOfEpochDay)
     """)
     suspend fun getNetOrigBalanceForTreasury(treasuryId: String, asOfEpochDay: Long? = null): Long
@@ -1267,9 +1265,6 @@ interface CardPackageDao {
 
     @Query("SELECT * FROM stock_movements ORDER BY movementDateEpochDay DESC, createdAt DESC")
     suspend fun getAllStockMovementsSync(): List<StockMovementEntity>
-
-    @Query("SELECT * FROM stock_movements WHERE docId = :docId LIMIT 1")
-    suspend fun getStockMovementByDocId(docId: String): StockMovementEntity?
 
     @Query("""
         SELECT COALESCE(SUM(

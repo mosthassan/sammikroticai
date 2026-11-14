@@ -537,20 +537,34 @@ fun NewCapitalContributionDialog(
     }
 
     LaunchedEffect(selectedCurrency, selectedZone, effectiveConfig) {
-        if (selectedCurrency == CurrencyCode.FUNCTIONAL) {
-            exchangeRateText = "1.0"
-            resolvedRate = ExchangeRate.parity(CurrencyCode.FUNCTIONAL)
-            isRateManuallyEdited = false
-        } else {
-            val defaultRateMicros = when (selectedCurrency) {
-                CurrencyCode.USD -> if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultUsdRateMicros > 0L) effectiveConfig.defaultUsdRateMicros else null
-                CurrencyCode.SAR -> if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultSarRateMicros > 0L) effectiveConfig.defaultSarRateMicros else null
-                else -> null
-            } ?: effectiveResolver.resolveOrNull(selectedCurrency, today, selectedZone)?.rateMicros ?: ExchangeRate.SCALE_MICROS
-
-            exchangeRateText = ExchangeRate.formatRateMicros(defaultRateMicros)
-            resolvedRate = ExchangeRate(selectedCurrency, CurrencyCode.FUNCTIONAL, defaultRateMicros)
-            isRateManuallyEdited = false
+        when (selectedCurrency) {
+            CurrencyCode.YER -> {
+                exchangeRateText = "1.0"
+                resolvedRate = ExchangeRate.parity(CurrencyCode.FUNCTIONAL)
+                isRateManuallyEdited = false
+            }
+            CurrencyCode.USD -> {
+                val defaultRateMicros = if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultUsdRateMicros > 0L) {
+                    effectiveConfig.defaultUsdRateMicros
+                } else {
+                    effectiveResolver.resolveOrNull(CurrencyCode.USD, today, selectedZone)?.rateMicros
+                        ?: if (selectedZone == RateZone.ADEN) 1_600_000_000L else 535_000_000L
+                }
+                exchangeRateText = ExchangeRate.formatRateMicros(defaultRateMicros)
+                resolvedRate = ExchangeRate(CurrencyCode.USD, CurrencyCode.FUNCTIONAL, defaultRateMicros)
+                isRateManuallyEdited = false
+            }
+            CurrencyCode.SAR -> {
+                val defaultRateMicros = if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultSarRateMicros > 0L) {
+                    effectiveConfig.defaultSarRateMicros
+                } else {
+                    effectiveResolver.resolveOrNull(CurrencyCode.SAR, today, selectedZone)?.rateMicros
+                        ?: if (selectedZone == RateZone.ADEN) 420_000_000L else 140_500_000L
+                }
+                exchangeRateText = ExchangeRate.formatRateMicros(defaultRateMicros)
+                resolvedRate = ExchangeRate(CurrencyCode.SAR, CurrencyCode.FUNCTIONAL, defaultRateMicros)
+                isRateManuallyEdited = false
+            }
         }
     }
 
@@ -929,14 +943,22 @@ fun NewCapitalContributionDialog(
                                 if (isRateManuallyEdited) {
                                     IconButton(
                                         onClick = {
-                                            val defaultMicros = if (selectedCurrency == CurrencyCode.FUNCTIONAL) {
-                                                ExchangeRate.SCALE_MICROS
-                                            } else {
-                                                when (selectedCurrency) {
-                                                    CurrencyCode.USD -> if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultUsdRateMicros > 0L) effectiveConfig.defaultUsdRateMicros else null
-                                                    CurrencyCode.SAR -> if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultSarRateMicros > 0L) effectiveConfig.defaultSarRateMicros else null
-                                                    else -> null
-                                                } ?: ExchangeRate.SCALE_MICROS // Ideally we would query effectiveResolver here if needed, but keeping it simple for the refresh button
+                                            val defaultMicros = when (selectedCurrency) {
+                                                CurrencyCode.USD -> {
+                                                    if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultUsdRateMicros > 0L) {
+                                                        effectiveConfig.defaultUsdRateMicros
+                                                    } else {
+                                                        if (selectedZone == RateZone.ADEN) 1_600_000_000L else 535_000_000L
+                                                    }
+                                                }
+                                                CurrencyCode.SAR -> {
+                                                    if (selectedZone == effectiveConfig.rateZone && effectiveConfig.defaultSarRateMicros > 0L) {
+                                                        effectiveConfig.defaultSarRateMicros
+                                                    } else {
+                                                        if (selectedZone == RateZone.ADEN) 420_000_000L else 140_500_000L
+                                                    }
+                                                }
+                                                else -> ExchangeRate.SCALE_MICROS
                                             }
                                             exchangeRateText = ExchangeRate.formatRateMicros(defaultMicros)
                                             resolvedRate = ExchangeRate(selectedCurrency, CurrencyCode.FUNCTIONAL, defaultMicros)

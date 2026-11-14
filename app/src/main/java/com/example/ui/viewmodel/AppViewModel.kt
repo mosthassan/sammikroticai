@@ -11,8 +11,20 @@ import com.example.core.ledger.AccountConstants
 import com.example.core.model.CurrencyCode
 import com.example.core.model.ExchangeRate
 import com.example.core.model.Money
+import com.example.data.auth.AccessCodeEntry
+import com.example.data.auth.AgentPermissions
+import com.example.data.auth.AppUserRole
 import com.example.data.auth.AuthManager
+import com.example.data.auth.DocumentVerificationRecord
+import com.example.data.auth.DocumentVerificationStatus
 import com.example.data.auth.GoogleAuthManager
+import com.example.data.auth.PosRestockOrder
+import com.example.data.auth.PosRestockOrderItem
+import com.example.data.auth.PosSupportTicket
+import com.example.data.auth.RestockOrderStatus
+import com.example.data.auth.RoleAccessPolicy
+import com.example.data.auth.TicketCategory
+import com.example.data.auth.TicketStatus
 import com.example.data.auth.UserProfile
 import com.example.data.auth.UserSession
 import com.example.data.sync.FirebaseSyncManager
@@ -312,6 +324,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val firebaseSyncManager = FirebaseSyncManager(application, db)
 
     val currentUser: StateFlow<UserSession?> = authManager.currentUser
+    val activeRole: StateFlow<AppUserRole> = authManager.activeRole
+    val activeAgentPermissions: StateFlow<AgentPermissions> = authManager.activeAgentPermissions
+    val accessCodes: StateFlow<List<AccessCodeEntry>> = authManager.accessCodes
+    val documentVerifications: StateFlow<Map<String, DocumentVerificationRecord>> = authManager.documentVerifications
+    val posRestockOrders: StateFlow<List<PosRestockOrder>> = authManager.posRestockOrders
+    val posSupportTickets: StateFlow<List<PosSupportTicket>> = authManager.posSupportTickets
+    val pendingPosInboxCount: StateFlow<Int> = combine(posRestockOrders, posSupportTickets) { orders, tickets ->
+        val pendingOrders = orders.count {
+            it.status == RestockOrderStatus.PENDING || it.status == RestockOrderStatus.PREPARING
+        }
+        val activeTickets = tickets.count {
+            it.status == TicketStatus.OPEN || it.status == TicketStatus.IN_PROGRESS
+        }
+        pendingOrders + activeTickets
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
     val authError: StateFlow<String?> = authManager.authError
     val isAuthLoading: StateFlow<Boolean> = authManager.isLoading
 
@@ -430,11 +457,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val pendingCloudRestorePrompt = MutableStateFlow<com.example.data.sync.CloudBackupMeta?>(null)
 
     init {
-        viewModelScope.launch {
-            networkRepository.config.collect { conf ->
-                com.example.core.model.CurrencyCode.FUNCTIONAL = conf.baseCurrency
-            }
-        }
         refreshDashboard()
         runInvariantCheck()
         if (activeRouterProfile.value?.isActive == true) {
@@ -793,11 +815,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         rateZone: RateZone = RateZone.DEFAULT,
         rateSource: com.example.core.model.RateSource = com.example.core.model.RateSource.SYSTEM_DAILY,
+        allowOverdraft: Boolean = true,
         onError: (String) -> Unit = {},
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
             try {
+                if (allowOverdraft) {
+                    db.treasuryDao().setAllowNegative(treasuryId, true)
+                }
                 val now = getLocalNow()
                 val fiscalYear = now.year
                 val today = now.toEpochDay()
@@ -822,63 +848,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 val msg = e.message ?: "فشل تسجيل سند الصرف"
                 _userMessage.emit("فشل تسجيل سند الصرف: $msg")
-                onError(msg)
-            }
-        }
-    }
-
-    fun postCurrencyExchange(
-        sourceTreasuryId: String,
-        sourceAmountOrigMinor: Long,
-        destTreasuryId: String,
-        destAmountOrigMinor: Long,
-        notes: String,
-        rateZone: RateZone = RateZone.DEFAULT,
-        rateSource: com.example.core.model.RateSource = com.example.core.model.RateSource.SYSTEM_DAILY,
-        onError: (String) -> Unit = {},
-        onSuccess: () -> Unit
-    ) {
-        viewModelScope.launch {
-            try {
-                val sourceTreasury = db.treasuryDao().getTreasuryById(sourceTreasuryId) ?: error("Source not found")
-                val destTreasury = db.treasuryDao().getTreasuryById(destTreasuryId) ?: error("Dest not found")
-
-                if (sourceTreasury.currency == destTreasury.currency) {
-                    val rate = ExchangeRate.parity(CurrencyCode.fromString(sourceTreasury.currency))
-                    repository.ledgerWriter.postTreasuryTransfer(
-                        sourceTreasuryId = sourceTreasuryId,
-                        sourceAmountOrigMinor = sourceAmountOrigMinor,
-                        sourceCurrency = CurrencyCode.fromString(sourceTreasury.currency),
-                        sourceRate = rate,
-                        destTreasuryId = destTreasuryId,
-                        destAmountOrigMinor = destAmountOrigMinor,
-                        destCurrency = CurrencyCode.fromString(destTreasury.currency),
-                        destRate = rate,
-                        fiscalYear = com.example.core.time.FiscalCalendar.DEFAULT.fiscalYearOf(com.example.core.time.AppClock.todayEpochDay()),
-                        dateEpochDay = com.example.core.time.AppClock.todayEpochDay(),
-                        notes = notes,
-                        rateZone = rateZone,
-                        rateSource = rateSource
-                    )
-                } else {
-                    repository.ledgerWriter.postCurrencyExchange(
-                        sourceTreasuryId = sourceTreasuryId,
-                        sourceAmountOrigMinor = sourceAmountOrigMinor,
-                        destTreasuryId = destTreasuryId,
-                        destAmountOrigMinor = destAmountOrigMinor,
-                        fiscalYear = com.example.core.time.FiscalCalendar.DEFAULT.fiscalYearOf(com.example.core.time.AppClock.todayEpochDay()),
-                        dateEpochDay = com.example.core.time.AppClock.todayEpochDay(),
-                        notes = notes,
-                        rateZone = rateZone,
-                        rateSource = rateSource
-                    )
-                }
-                _userMessage.emit("تم ترحيل العملية بنجاح")
-                refreshDashboard()
-                onSuccess()
-            } catch (e: Exception) {
-                val msg = e.message ?: "فشل مصارفة / تحويل العملة"
-                _userMessage.emit("فشل العملية: $msg")
                 onError(msg)
             }
         }
@@ -2342,6 +2311,410 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _userMessage.emit(err)
                 onComplete(false, err)
             }
+        }
+    }
+
+    // =========================================================================
+    // SaaS Multi-Role Access Control (RBAC) & Invite/Transparency Codes
+    // =========================================================================
+
+    fun resolveCurrentNetworkId(): String {
+        val orgId = organization.value?.id?.takeIf { it.isNotBlank() }
+        return authManager.resolveActiveNetworkId().takeIf { it != "DEFAULT_ORG" }
+            ?: orgId
+            ?: "DEFAULT_ORG"
+    }
+
+    fun resolveCurrentNetworkName(): String {
+        val netName = networkRepository.config.value.networkName.trim()
+        val orgName = organization.value?.name?.trim().orEmpty()
+        return netName.ifBlank { orgName.ifBlank { "الشبكة الرئيسية" } }
+    }
+
+    fun createOrUpdateAgentInviteCode(
+        agentName: String,
+        agentPin: String = "",
+        agentPhone: String = "",
+        permissions: AgentPermissions = AgentPermissions(),
+        existingCode: String? = null,
+        onCreated: (AccessCodeEntry) -> Unit = {}
+    ) {
+        if (!RoleAccessPolicy.canAccessTeamAndCodesManager(activeRole.value)) {
+            viewModelScope.launch {
+                _userMessage.emit("عذراً، إدارة الوكلاء متاحة لمالك الشبكة فقط.")
+            }
+            return
+        }
+        val netId = resolveCurrentNetworkId()
+        val netName = resolveCurrentNetworkName()
+        val entry = authManager.createOrUpdateAgentInviteCode(
+            agentName = agentName,
+            agentPin = agentPin,
+            agentPhone = agentPhone,
+            permissions = permissions,
+            networkId = netId,
+            networkName = netName,
+            existingCode = existingCode
+        )
+        onCreated(entry)
+        viewModelScope.launch {
+            syncManager.syncAccessCodeToCloud(netId, entry)
+            _userMessage.emit("تم حفظ ملف الوكيل (${entry.agentName}) وإصدار الكود: ${entry.code}")
+        }
+    }
+
+    fun updateAgentPermissions(
+        code: String,
+        permissions: AgentPermissions
+    ) {
+        if (!RoleAccessPolicy.canAccessTeamAndCodesManager(activeRole.value)) {
+            viewModelScope.launch {
+                _userMessage.emit("عذراً، تعديل صلاحيات الوكلاء متاح لمالك الشبكة فقط.")
+            }
+            return
+        }
+        val updated = authManager.updateAgentPermissions(code, permissions) ?: return
+        val netId = resolveCurrentNetworkId()
+        viewModelScope.launch {
+            syncManager.syncAccessCodeToCloud(netId, updated)
+            _userMessage.emit("تم تحديث صلاحيات الوكيل (${updated.agentName}) بنجاح")
+        }
+    }
+
+    fun generateOrGetPosTransparencyCode(
+        partyId: String,
+        partyName: String,
+        partyPhone: String = "",
+        forceNew: Boolean = false,
+        onGenerated: (AccessCodeEntry) -> Unit = {}
+    ): AccessCodeEntry? {
+        if (!RoleAccessPolicy.canGeneratePosCodes(activeRole.value, activeAgentPermissions.value)) {
+            viewModelScope.launch {
+                _userMessage.emit("عذراً، ليس لديك صلاحية إصدار أكواد الشفافية لنقاط البيع.")
+            }
+            return null
+        }
+        val netId = resolveCurrentNetworkId()
+        val netName = resolveCurrentNetworkName()
+        val entry = authManager.generateOrGetPosCode(
+            partyId = partyId,
+            partyName = partyName,
+            partyPhone = partyPhone,
+            networkId = netId,
+            networkName = netName,
+            forceNew = forceNew
+        )
+        onGenerated(entry)
+        viewModelScope.launch {
+            syncManager.syncAccessCodeToCloud(netId, entry)
+            _userMessage.emit("كود الشفافية الرقمية لنقطة البيع (${entry.partyName}): ${entry.code}")
+        }
+        return entry
+    }
+
+    fun setAccessCodeActive(code: String, isActive: Boolean) {
+        if (!RoleAccessPolicy.canAccessTeamAndCodesManager(activeRole.value)) return
+        val updated = authManager.setAccessCodeActive(code, isActive) ?: return
+        val netId = resolveCurrentNetworkId()
+        viewModelScope.launch {
+            if (isActive) {
+                syncManager.syncAccessCodeToCloud(netId, updated)
+                _userMessage.emit("تم تفعيل الكود ${updated.code}")
+            } else {
+                syncManager.revokeAccessCodeInCloud(netId, updated.code)
+                _userMessage.emit("تم إيقاف الكود ${updated.code}")
+            }
+        }
+    }
+
+    fun syncAccessCodesWithCloud() {
+        val netId = resolveCurrentNetworkId()
+        viewModelScope.launch {
+            val remote = syncManager.pullAllAccessCodes(netId)
+            if (remote.isNotEmpty()) {
+                authManager.mergeRemoteAccessCodes(remote)
+            }
+            // Push any local active codes to ensure cloud parity
+            accessCodes.value.forEach { localEntry ->
+                syncManager.syncAccessCodeToCloud(netId, localEntry)
+            }
+        }
+    }
+
+    fun loginWithAgentInviteCode(
+        codeInput: String,
+        nameOrPinInput: String,
+        onSuccess: (UserSession) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        viewModelScope.launch {
+            val res = authManager.loginWithAgentInviteCode(
+                codeInput = codeInput,
+                nameOrPinInput = nameOrPinInput,
+                cloudLookup = { cleanCode ->
+                    syncManager.fetchAccessCodeFromCloud(netId, cleanCode)
+                }
+            )
+            if (res.isSuccess) {
+                val session = res.getOrThrow()
+                _userMessage.emit("تم الدخول بوضع الوكيل الميداني: ${session.agentName ?: session.displayName}")
+                onSuccess(session)
+            } else {
+                val err = res.exceptionOrNull()?.message ?: "تعذر الدخول بكود الوكيل"
+                _userMessage.emit(err)
+                onError(err)
+            }
+        }
+    }
+
+    fun loginWithPosTransparencyCode(
+        codeInput: String,
+        onSuccess: (UserSession) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        viewModelScope.launch {
+            val res = authManager.loginWithPosTransparencyCode(
+                codeInput = codeInput,
+                cloudLookup = { cleanCode ->
+                    syncManager.fetchAccessCodeFromCloud(netId, cleanCode)
+                }
+            )
+            if (res.isSuccess) {
+                val session = res.getOrThrow()
+                val pid = session.boundPartyId
+                if (!pid.isNullOrBlank()) {
+                    loadStatementOfAccount(pid, AccountConstants.ACCOUNTS_RECEIVABLE, null, null)
+                }
+                _userMessage.emit("مرحباً بك في بوابة الشفافية الرقمية: ${session.boundPartyName ?: session.displayName}")
+                onSuccess(session)
+            } else {
+                val err = res.exceptionOrNull()?.message ?: "تعذر الدخول بكود نقطة البيع"
+                _userMessage.emit(err)
+                onError(err)
+            }
+        }
+    }
+
+    fun previewRoleFromAccessCode(entry: AccessCodeEntry, onActivated: () -> Unit = {}) {
+        val session = authManager.activateRoleSessionFromEntry(entry)
+        if (session.role == AppUserRole.POS_MERCHANT && !session.boundPartyId.isNullOrBlank()) {
+            loadStatementOfAccount(session.boundPartyId, AccountConstants.ACCOUNTS_RECEIVABLE, null, null)
+        }
+        viewModelScope.launch {
+            _userMessage.emit("تم التبديل إلى وضع المعاينة: ${entry.role.badgeAr} (${session.displayName})")
+        }
+        onActivated()
+    }
+
+    fun switchToNetworkOwnerRole(onSwitched: () -> Unit = {}) {
+        authManager.switchToNetworkOwnerRole()
+        viewModelScope.launch {
+            _userMessage.emit("تمت العودة إلى وضع مالك الشبكة (صلاحيات كاملة)")
+        }
+        onSwitched()
+    }
+
+    // --- Phase 2: Mutual Invoice & Receipt Verification (Digital Handshake) ---
+
+    fun getDocumentVerificationStatus(documentId: String, partyId: String = ""): DocumentVerificationRecord {
+        return authManager.getDocumentVerification(
+            documentId = documentId,
+            partyId = partyId,
+            networkId = resolveCurrentNetworkId()
+        )
+    }
+
+    fun confirmDocumentReceiptByPos(
+        documentId: String,
+        partyId: String,
+        onConfirmed: (DocumentVerificationRecord) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        val effectivePartyId = partyId.ifBlank { currentUser.value?.boundPartyId.orEmpty() }
+        val record = authManager.confirmDocumentByPos(
+            documentId = documentId,
+            partyId = effectivePartyId,
+            networkId = netId
+        )
+        onConfirmed(record)
+        viewModelScope.launch {
+            syncManager.syncDocumentVerificationToCloud(netId, effectivePartyId, record)
+            _userMessage.emit("✅ تم تأكيد الاستلام والمطابقة الرقمية للمستند بنجاح")
+        }
+    }
+
+    fun disputeDocumentByPos(
+        documentId: String,
+        partyId: String,
+        disputeNote: String,
+        onDisputed: (DocumentVerificationRecord) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        val effectivePartyId = partyId.ifBlank { currentUser.value?.boundPartyId.orEmpty() }
+        val record = authManager.disputeDocumentByPos(
+            documentId = documentId,
+            partyId = effectivePartyId,
+            disputeNote = disputeNote,
+            networkId = netId
+        )
+        onDisputed(record)
+        viewModelScope.launch {
+            syncManager.syncDocumentVerificationToCloud(netId, effectivePartyId, record)
+            _userMessage.emit("⚠️ تم تسجيل الملاحظة / الاعتراض وإشعار إدارة الشبكة")
+        }
+    }
+
+    fun syncPartyVerificationsWithCloud(partyId: String) {
+        if (partyId.isBlank()) return
+        val netId = resolveCurrentNetworkId()
+        viewModelScope.launch {
+            val remote = syncManager.pullPartyDocumentVerifications(netId, partyId)
+            if (remote.isNotEmpty()) {
+                authManager.mergeRemoteDocumentVerifications(remote)
+            }
+            // Push any local non-pending verifications for this party to cloud
+            documentVerifications.value.values
+                .filter { it.partyId == partyId && it.status != DocumentVerificationStatus.PENDING_POS_CONFIRMATION }
+                .forEach { localRec ->
+                    syncManager.syncDocumentVerificationToCloud(netId, partyId, localRec)
+                }
+        }
+    }
+
+    // --- Phase 3: In-App POS Restock Orders, Support Tickets & Owner/Distributor Inbox ---
+
+    fun submitPosRestockOrder(
+        partyId: String,
+        partyName: String,
+        items: List<PosRestockOrderItem>,
+        note: String? = null,
+        onSubmitted: (PosRestockOrder) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        val effectivePartyId = partyId.ifBlank { currentUser.value?.boundPartyId.orEmpty() }
+        val effectivePartyName = partyName.ifBlank {
+            currentUser.value?.boundPartyName ?: currentUser.value?.displayName ?: "نقطة بيع"
+        }
+        try {
+            val order = authManager.createPosRestockOrder(
+                partyId = effectivePartyId,
+                partyName = effectivePartyName,
+                items = items,
+                note = note,
+                networkId = netId
+            )
+            onSubmitted(order)
+            viewModelScope.launch {
+                syncManager.syncPosRestockOrderToCloud(netId, order)
+                _userMessage.emit("📦 تم إرسال طلب دفعة الكروت (#${order.orderId}) إلى إدارة الشبكة بنجاح")
+            }
+        } catch (e: Exception) {
+            viewModelScope.launch {
+                _userMessage.emit("تعذر إرسال الطلب: ${e.message}")
+            }
+        }
+    }
+
+    fun updatePosRestockOrderStatus(
+        orderId: String,
+        newStatus: RestockOrderStatus,
+        handledBy: String? = null,
+        onUpdated: (PosRestockOrder) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        val actorName = handledBy?.takeIf { it.isNotBlank() }
+            ?: currentUser.value?.agentName?.takeIf { it.isNotBlank() }
+            ?: currentUser.value?.displayName?.takeIf { it.isNotBlank() }
+            ?: activeRole.value.titleAr
+        val updated = authManager.updatePosRestockOrderStatus(
+            orderId = orderId,
+            newStatus = newStatus,
+            handledBy = actorName
+        ) ?: return
+        onUpdated(updated)
+        viewModelScope.launch {
+            syncManager.syncPosRestockOrderToCloud(netId, updated)
+            _userMessage.emit("تم تحديث حالة الطلب (#${updated.orderId}) إلى: ${newStatus.badgeAr}")
+        }
+    }
+
+    fun submitPosSupportTicket(
+        partyId: String,
+        partyName: String,
+        category: TicketCategory,
+        message: String,
+        voucherCode: String? = null,
+        onSubmitted: (PosSupportTicket) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        val effectivePartyId = partyId.ifBlank { currentUser.value?.boundPartyId.orEmpty() }
+        val effectivePartyName = partyName.ifBlank {
+            currentUser.value?.boundPartyName ?: currentUser.value?.displayName ?: "نقطة بيع"
+        }
+        try {
+            val ticket = authManager.createPosSupportTicket(
+                partyId = effectivePartyId,
+                partyName = effectivePartyName,
+                category = category,
+                message = message,
+                voucherCode = voucherCode,
+                networkId = netId
+            )
+            onSubmitted(ticket)
+            viewModelScope.launch {
+                syncManager.syncPosSupportTicketToCloud(netId, ticket)
+                _userMessage.emit("💬 تم إرسال البلاغ (#${ticket.ticketId}) إلى إدارة الشبكة بنجاح")
+            }
+        } catch (e: Exception) {
+            viewModelScope.launch {
+                _userMessage.emit("تعذر إرسال البلاغ: ${e.message}")
+            }
+        }
+    }
+
+    fun updatePosSupportTicketStatus(
+        ticketId: String,
+        newStatus: TicketStatus,
+        adminReply: String? = null,
+        onUpdated: (PosSupportTicket) -> Unit = {}
+    ) {
+        val netId = resolveCurrentNetworkId()
+        val updated = authManager.updatePosSupportTicketStatus(
+            ticketId = ticketId,
+            newStatus = newStatus,
+            adminReply = adminReply
+        ) ?: return
+        onUpdated(updated)
+        viewModelScope.launch {
+            syncManager.syncPosSupportTicketToCloud(netId, updated)
+            _userMessage.emit("تم تحديث حالة البلاغ (#${updated.ticketId}) إلى: ${newStatus.badgeAr}")
+        }
+    }
+
+    fun syncPosOrdersAndTicketsWithCloud(partyId: String? = null) {
+        val netId = resolveCurrentNetworkId()
+        viewModelScope.launch {
+            val remoteOrders = syncManager.pullPosRestockOrders(netId, partyId)
+            if (remoteOrders.isNotEmpty()) {
+                authManager.mergeRemotePosRestockOrders(remoteOrders)
+            }
+            posRestockOrders.value
+                .filter { partyId.isNullOrBlank() || it.partyId == partyId }
+                .forEach { localOrder ->
+                    syncManager.syncPosRestockOrderToCloud(netId, localOrder)
+                }
+
+            val remoteTickets = syncManager.pullPosSupportTickets(netId, partyId)
+            if (remoteTickets.isNotEmpty()) {
+                authManager.mergeRemotePosSupportTickets(remoteTickets)
+            }
+            posSupportTickets.value
+                .filter { partyId.isNullOrBlank() || it.partyId == partyId }
+                .forEach { localTicket ->
+                    syncManager.syncPosSupportTicketToCloud(netId, localTicket)
+                }
         }
     }
 }

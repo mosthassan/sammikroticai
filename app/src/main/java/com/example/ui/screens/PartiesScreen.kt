@@ -112,6 +112,9 @@ import com.example.domain.usecase.StatementOfAccountReport
 import com.example.ui.components.AmountSemanticType
 import com.example.ui.components.AmountText
 import com.example.ui.components.SectionHeader
+import com.example.data.auth.AccessCodeEntry
+import com.example.data.auth.AppUserRole
+import com.example.data.auth.RoleAccessPolicy
 import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
 import com.example.ui.theme.SemanticWarningAmber
@@ -120,25 +123,45 @@ import com.example.ui.viewmodel.AppViewModel
 @Composable
 fun PartiesScreen(
     viewModel: AppViewModel,
+    onOpenTeamAccessCodes: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val parties by viewModel.allParties.collectAsState()
     val currentStatement by viewModel.currentPartyStatement.collectAsState()
+    val activeRole by viewModel.activeRole.collectAsState()
+    val agentPermissions by viewModel.activeAgentPermissions.collectAsState()
+    val accessCodes by viewModel.accessCodes.collectAsState()
+    val documentVerifications by viewModel.documentVerifications.collectAsState()
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: All, 1: Groceries/Agents, 2: Vendors, 3: Partners
+    val isOwner = RoleAccessPolicy.canAccessTeamAndCodesManager(activeRole)
+    val canGeneratePosCodes = RoleAccessPolicy.canGeneratePosCodes(activeRole, agentPermissions)
+
+    val posCodesByPartyId = remember(accessCodes) {
+        accessCodes
+            .filter { it.role == AppUserRole.POS_MERCHANT && it.isActive && !it.partyId.isNullOrBlank() }
+            .associateBy { it.partyId!! }
+    }
+
+    var selectedTab by remember(activeRole) {
+        mutableIntStateOf(if (activeRole == AppUserRole.DISTRIBUTOR_AGENT) 1 else 0)
+    } // 0: All, 1: Groceries/Agents, 2: Vendors, 3: Partners
     var searchQuery by remember { mutableStateOf("") }
     var showAddPartySheet by remember { mutableStateOf(false) }
     var showJsonBackupDialog by remember { mutableStateOf(false) }
     var selectedPartyForStatement by remember { mutableStateOf<PartyEntity?>(null) }
     var selectedPartnerForDetail by remember { mutableStateOf<PartyEntity?>(null) }
 
-    val filteredParties = remember(parties, selectedTab, searchQuery) {
+    val filteredParties = remember(parties, selectedTab, searchQuery, activeRole) {
         parties.filter { p ->
+            if (activeRole == AppUserRole.DISTRIBUTOR_AGENT && !p.isCustomer) {
+                return@filter false
+            }
             val matchesTab = when (selectedTab) {
                 1 -> p.isCustomer
-                2 -> p.isVendor
-                3 -> p.isPartner
-                else -> true
+                2 -> p.isVendor && isOwner
+                3 -> p.isPartner && isOwner
+                else -> if (isOwner) true else p.isCustomer
             }
             val matchesQuery = searchQuery.isBlank() || p.name.contains(searchQuery, ignoreCase = true) || p.phone.contains(searchQuery)
             matchesTab && matchesQuery
@@ -163,20 +186,39 @@ fun PartiesScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            // Action Bar with JSON Export/Import
+            // Action Bar with Team Codes Manager & JSON Export/Import
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("دليل الأطراف والوكلاء", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                OutlinedButton(
-                    onClick = { showJsonBackupDialog = true },
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("تصدير / استيراد JSON", fontSize = 12.sp)
+                Text(
+                    if (isOwner) "دليل الأطراف والوكلاء" else "نقاط البيع والبقالات",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (isOwner && onOpenTeamAccessCodes != null) {
+                        Button(
+                            onClick = { onOpenTeamAccessCodes(0) },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.testTag("btn_open_team_codes_from_parties")
+                        ) {
+                            Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("الوكلاء والأكواد", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (isOwner) {
+                        OutlinedButton(
+                            onClick = { showJsonBackupDialog = true },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("JSON", fontSize = 12.sp)
+                        }
+                    }
                 }
             }
 
@@ -186,7 +228,7 @@ fun PartiesScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                label = { Text("بحث عن بقالة أو وكيل أو مورد") },
+                label = { Text(if (isOwner) "بحث عن بقالة أو وكيل أو مورد" else "بحث عن نقطة بيع أو بقالة") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -195,54 +237,55 @@ fun PartiesScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Modern Tech Segmented Role Tabs
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(CyberDarkCardElevated)
-                    .border(BorderStroke(1.dp, CyberBorder), RoundedCornerShape(14.dp))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                PartyModernTabPill(
-                    title = "الكل",
-                    count = parties.size,
-                    icon = Icons.Default.Groups,
-                    tintColor = MikroTikCyan,
-                    isSelected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    modifier = Modifier.weight(1f)
-                )
-                PartyModernTabPill(
-                    title = "بقالات",
-                    count = parties.count { it.isCustomer },
-                    icon = Icons.Default.Store,
-                    tintColor = Color(0xFF10B981),
-                    isSelected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    modifier = Modifier.weight(1.1f)
-                )
-                PartyModernTabPill(
-                    title = "موردون",
-                    count = parties.count { it.isVendor },
-                    icon = Icons.Default.LocalShipping,
-                    tintColor = Color(0xFF3B82F6),
-                    isSelected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    modifier = Modifier.weight(1f)
-                )
-                PartyModernTabPill(
-                    title = "شركاء",
-                    count = parties.count { it.isPartner },
-                    icon = Icons.Default.Handshake,
-                    tintColor = Color(0xFFF59E0B),
-                    isSelected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    modifier = Modifier.weight(1f)
-                )
+            if (isOwner) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(CyberDarkCardElevated)
+                        .border(BorderStroke(1.dp, CyberBorder), RoundedCornerShape(14.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    PartyModernTabPill(
+                        title = "الكل",
+                        count = parties.size,
+                        icon = Icons.Default.Groups,
+                        tintColor = MikroTikCyan,
+                        isSelected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    PartyModernTabPill(
+                        title = "بقالات",
+                        count = parties.count { it.isCustomer },
+                        icon = Icons.Default.Store,
+                        tintColor = Color(0xFF10B981),
+                        isSelected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        modifier = Modifier.weight(1.1f)
+                    )
+                    PartyModernTabPill(
+                        title = "موردون",
+                        count = parties.count { it.isVendor },
+                        icon = Icons.Default.LocalShipping,
+                        tintColor = Color(0xFF3B82F6),
+                        isSelected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    PartyModernTabPill(
+                        title = "شركاء",
+                        count = parties.count { it.isPartner },
+                        icon = Icons.Default.Handshake,
+                        tintColor = Color(0xFFF59E0B),
+                        isSelected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
 
             // Parties List
             LazyColumn(
@@ -359,11 +402,57 @@ fun PartiesScreen(
                                     )
                                 }
                                 Text(
-                                    if (party.isPartner) "إدارة رأس المال والسندات ➔" else "انقر لكشف الحساب",
+                                    if (party.isPartner && isOwner) "إدارة رأس المال والسندات ➔" else "انقر لكشف الحساب",
                                     fontSize = 10.sp,
-                                    color = if (party.isPartner) MikroTikCyan else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = if (party.isPartner) FontWeight.Bold else FontWeight.Normal
+                                    color = if (party.isPartner && isOwner) MikroTikCyan else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = if (party.isPartner && isOwner) FontWeight.Bold else FontWeight.Normal
                                 )
+                                if (party.isCustomer && canGeneratePosCodes) {
+                                    val posEntry = posCodesByPartyId[party.id]
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MikroTikCyan.copy(alpha = 0.16f),
+                                        border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.45f)),
+                                        modifier = Modifier
+                                            .clickable {
+                                                val generated = viewModel.generateOrGetPosTransparencyCode(
+                                                    partyId = party.id,
+                                                    partyName = party.name,
+                                                    partyPhone = party.phone,
+                                                    forceNew = false
+                                                )
+                                                if (generated != null) {
+                                                    val msg = AccessCodeEntry.buildPosWhatsAppMessage(
+                                                        networkName = viewModel.resolveCurrentNetworkName(),
+                                                        code = generated.code
+                                                    )
+                                                    shareViaWhatsApp(context, party.phone, msg)
+                                                }
+                                            }
+                                            .testTag("party_pos_code_chip_${party.id}")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Share,
+                                                contentDescription = "إصدار ومشاركة كود الشفافية",
+                                                tint = MikroTikCyan,
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = posEntry?.code ?: "كود شفافية POS",
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MikroTikCyan
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -374,13 +463,19 @@ fun PartiesScreen(
 
     // Party Ledger & Statement Dialog
     selectedPartyForStatement?.let { party ->
+        LaunchedEffect(party.id) {
+            if (party.isCustomer) {
+                viewModel.syncPartyVerificationsWithCloud(party.id)
+            }
+        }
         PartyLedgerDialog(
             party = party,
             report = currentStatement,
             onDismiss = { selectedPartyForStatement = null },
             onEditParty = { updated ->
                 viewModel.updateParty(updated) {}
-            }
+            },
+            documentVerifications = documentVerifications
         )
     }
 

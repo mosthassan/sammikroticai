@@ -120,6 +120,8 @@ fun PackagesStockScreen(
     val packages by viewModel.allPackages.collectAsState()
     val movements by viewModel.allStockMovements.collectAsState()
     val assets by viewModel.allAssets.collectAsState()
+    val activeRole by viewModel.activeRole.collectAsState()
+    val isOwner = com.example.data.auth.RoleAccessPolicy.canAccessPurchasesAndAssets(activeRole)
 
     // 0: كروت وباقات الشبكة, 1: أجهزة ومعدات الشبكة, 2: مستلزمات واستهلاكية, 3: سجل الحركات
     var selectedCategoryTab by rememberSaveable { mutableIntStateOf(0) }
@@ -165,27 +167,29 @@ fun PackagesStockScreen(
 
     Scaffold(
         floatingActionButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FloatingActionButton(
-                    onClick = { showReceiveStockSheet = true },
-                    containerColor = SemanticIncomeGreen,
-                    contentColor = CyberDarkCanvas,
-                    modifier = Modifier.testTag("fab_receive_stock")
-                ) {
-                    Row(modifier = Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Inventory, contentDescription = null)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("استلام كروت", fontWeight = FontWeight.Bold)
+            if (isOwner) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FloatingActionButton(
+                        onClick = { showReceiveStockSheet = true },
+                        containerColor = SemanticIncomeGreen,
+                        contentColor = CyberDarkCanvas,
+                        modifier = Modifier.testTag("fab_receive_stock")
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Inventory, contentDescription = null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("استلام كروت", fontWeight = FontWeight.Bold)
+                        }
                     }
-                }
 
-                FloatingActionButton(
-                    onClick = { showAddPackageSheet = true },
-                    containerColor = MikroTikCyan,
-                    contentColor = CyberDarkCanvas,
-                    modifier = Modifier.testTag("fab_add_package")
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "باقة جديدة")
+                    FloatingActionButton(
+                        onClick = { showAddPackageSheet = true },
+                        containerColor = MikroTikCyan,
+                        contentColor = CyberDarkCanvas,
+                        modifier = Modifier.testTag("fab_add_package")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "باقة جديدة")
+                    }
                 }
             }
         },
@@ -309,38 +313,39 @@ fun PackagesStockScreen(
             }
 
             // CATEGORIZED TABS & SMART FILTERING
-            ModernFintechSegmentedTabs(
-                items = listOf(
-                    FintechTabItem(
-                        title = "كروت وباقات الشبكة",
-                        icon = Icons.Default.Inventory,
-                        count = packages.size,
-                        accentColor = MikroTikCyan
+            if (isOwner) {
+                ModernFintechSegmentedTabs(
+                    items = listOf(
+                        FintechTabItem(
+                            title = "كروت وباقات الشبكة",
+                            icon = Icons.Default.Inventory,
+                            count = packages.size,
+                            accentColor = MikroTikCyan
+                        ),
+                        FintechTabItem(
+                            title = "أجهزة ومعدات الشبكة",
+                            icon = Icons.Default.Router,
+                            count = assets.size,
+                            accentColor = AssetPurple
+                        ),
+                        FintechTabItem(
+                            title = "مستلزمات واستهلاكية",
+                            icon = Icons.Default.Cable,
+                            count = 0,
+                            accentColor = StatusWarning
+                        ),
+                        FintechTabItem(
+                            title = "حركات المخزون",
+                            icon = Icons.Default.History,
+                            count = movements.size,
+                            accentColor = SemanticIncomeGreen
+                        )
                     ),
-                    FintechTabItem(
-                        title = "أجهزة ومعدات الشبكة",
-                        icon = Icons.Default.Router,
-                        count = assets.size,
-                        accentColor = AssetPurple
-                    ),
-                    FintechTabItem(
-                        title = "مستلزمات واستهلاكية",
-                        icon = Icons.Default.Cable,
-                        count = 0,
-                        accentColor = StatusWarning
-                    ),
-                    FintechTabItem(
-                        title = "حركات المخزون",
-                        icon = Icons.Default.History,
-                        count = movements.size,
-                        accentColor = SemanticIncomeGreen
-                    )
-                ),
-                selectedIndex = selectedCategoryTab,
-                onTabSelected = { selectedCategoryTab = it }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
+                    selectedIndex = selectedCategoryTab,
+                    onTabSelected = { selectedCategoryTab = it }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             // TAB 1: كروت وباقات الشبكة (Hotspot Voucher Batches)
             when (selectedCategoryTab) {

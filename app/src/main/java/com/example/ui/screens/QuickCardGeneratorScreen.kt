@@ -653,27 +653,8 @@ fun QuickCardGeneratorScreen(
                         // Title / Batch Comment
                         OutlinedTextField(
                             value = uiState.batchTitleInput,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("عنوان الدفعة (تلقائي - للعرض فقط)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = BrandCyanPrimary,
-                                unfocusedBorderColor = Color(0xFF334155),
-                                focusedLabelColor = BrandCyanPrimary,
-                                unfocusedLabelColor = Color.Gray
-                            )
-                        )
-                        Text(
-                            text = "تعليق MikroTik (ASCII): ${uiState.mikrotikCommentPreview}",
-                            color = BrandCyanPrimary,
-                            fontSize = 11.sp
-                        )
-                        OutlinedTextField(
-                            value = uiState.internalNoteInput,
-                            onValueChange = { viewModel.updateBatchConfig(internalNote = it) },
-                            label = { Text("ملاحظة داخلية (تظهر في التطبيق فقط)") },
+                            onValueChange = { viewModel.updateBatchConfig(title = it) },
+                            label = { Text("عنوان أو تعليق الدفعة") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -800,7 +781,6 @@ fun QuickCardGeneratorScreen(
                     onClick = {
                         viewModel.generateBatchWithAction(andInjectToRouter = true)
                     },
-                    enabled = !uiState.isGenerating && !uiState.isInjectingToRouter,
                     colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -836,7 +816,6 @@ fun QuickCardGeneratorScreen(
                                 onNavigateToCardStudio()
                             }
                         },
-                        enabled = !uiState.isGenerating && !uiState.isInjectingToRouter,
                         colors = ButtonDefaults.buttonColors(containerColor = SemanticIncomeGreen),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
@@ -855,7 +834,6 @@ fun QuickCardGeneratorScreen(
                                 viewModel.shareMikrotikScript(context, batch)
                             }
                         },
-                        enabled = !uiState.isGenerating && !uiState.isInjectingToRouter,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
                         border = BorderStroke(1.dp, BrandCyanPrimary.copy(alpha = 0.6f)),
                         shape = RoundedCornerShape(10.dp),

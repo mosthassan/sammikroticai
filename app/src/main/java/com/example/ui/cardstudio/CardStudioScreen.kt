@@ -147,8 +147,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.composed
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.card.CardBatch
-import com.example.data.card.CardInjectionStatus
-import com.example.data.card.CardPrintStatus
 import com.example.data.card.CardCutLineStyle
 import com.example.data.card.CardCharacterSet
 import com.example.data.card.CardPreviewMode
@@ -169,7 +167,6 @@ import com.example.ui.theme.CyberDarkCardElevated
 import com.example.ui.theme.CyberDarkSurface
 import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
-import com.example.ui.theme.SemanticWarningAmber
 import com.example.util.MikroTikCardProvisioner
 import com.example.util.QrCodeGenerator
 import kotlin.math.roundToInt
@@ -483,7 +480,6 @@ fun CardStudioScreen(
                                     onUpdateConfig = { t, c, p, pr, ul, pat, cs, f ->
                                         viewModel.updateBatchConfig(t, c, p, pr, ul, pat, cs, f)
                                     },
-                                    onInternalNoteChange = { viewModel.updateBatchConfig(internalNote = it) },
                                     onGenerate = { viewModel.generateBatch() }
                                 )
                             }
@@ -856,11 +852,6 @@ fun CardStudioScreen(
                                     onInjectToRouter = { batch ->
                                         viewModel.injectBatchToRouter(batch)
                                     },
-                                    onRecheckInjection = { batch ->
-                                        viewModel.injectBatchToRouter(batch, recheckOnly = true)
-                                    },
-                                    activeInjectionBatchId = uiState.activeInjectionBatchId,
-                                    injectionProgress = uiState.injectProgress,
                                     onDeleteBatch = { viewModel.deleteBatch(it) }
                                 )
                             }
@@ -2986,7 +2977,6 @@ private fun GeneratorParametersTab(
     onSelectPackageProfile: (profile: String, packageName: String, price: String, quota: String) -> Unit,
     onSelectPrintFormat: (PrintPageFormat) -> Unit,
     onUpdateConfig: (String?, Int?, String?, String?, Int?, PasswordPattern?, CardCharacterSet?, PrintPageFormat?) -> Unit,
-    onInternalNoteChange: (String) -> Unit,
     onGenerate: () -> Unit
 ) {
     Column(
@@ -3038,39 +3028,6 @@ private fun GeneratorParametersTab(
                     text = "القالب النشط: ${template.name} • الحجم: ${template.quotaText} • الوقت: ${template.validityText} • السعر: ${template.priceText}",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.LightGray
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = uiState.batchTitleInput,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("عنوان الدفعة (تلقائي - للعرض فقط)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = BrandCyanPrimary,
-                        unfocusedBorderColor = Color(0xFF334155),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
-                Text(
-                    text = "تعليق MikroTik (ASCII): ${uiState.mikrotikCommentPreview}",
-                    color = BrandCyanPrimary,
-                    fontSize = 11.sp
-                )
-                OutlinedTextField(
-                    value = uiState.internalNoteInput,
-                    onValueChange = onInternalNoteChange,
-                    label = { Text("ملاحظة داخلية (تظهر في التطبيق فقط)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = BrandCyanPrimary,
-                        unfocusedBorderColor = Color(0xFF334155),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
                 )
             }
         }
@@ -4793,39 +4750,8 @@ private fun BatchesAndPrintTab(
     onExportPdf: (CardBatch, PrintPageFormat) -> Unit,
     onShareScript: (CardBatch) -> Unit,
     onInjectToRouter: (CardBatch) -> Unit,
-    onRecheckInjection: (CardBatch) -> Unit,
-    activeInjectionBatchId: String?,
-    injectionProgress: Pair<Int, Int>?,
     onDeleteBatch: (String) -> Unit
 ) {
-    var batchToRecheck by remember { mutableStateOf<CardBatch?>(null) }
-    batchToRecheck?.let { batch ->
-        AlertDialog(
-            onDismissRequest = { batchToRecheck = null },
-            title = { Text("إعادة التحقق من الدفعة", color = Color.White) },
-            text = {
-                Text(
-                    "سيتم فحص الكروت ذات التعليق ${batch.technicalMikrotikComment} على الراوتر، ولن تُحقن الكروت الموجودة مرة أخرى.",
-                    color = Color.LightGray
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    onRecheckInjection(batch)
-                    batchToRecheck = null
-                }) {
-                    Text("تأكيد التحقق", color = BrandCyanPrimary)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { batchToRecheck = null }) {
-                    Text("إلغاء", color = Color.LightGray)
-                }
-            },
-            containerColor = CyberDarkCardElevated
-        )
-    }
-
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -4891,29 +4817,6 @@ private fun BatchesAndPrintTab(
             }
         } else {
             items(batches, key = { it.id }) { batch ->
-                val isInjectingThisBatch = activeInjectionBatchId == batch.id
-                val confirmedCount = batch.injectedCardIds.size.coerceAtMost(batch.cardCount)
-                val remainingCount = (batch.cardCount - confirmedCount).coerceAtLeast(0)
-                val injectButtonText = when {
-                    isInjectingThisBatch -> {
-                        val progress = injectionProgress?.takeIf { activeInjectionBatchId == batch.id }
-                        "⏳ جاري الحقن في الميكروتك (${progress?.first ?: confirmedCount}/${batch.cardCount})..."
-                    }
-                    batch.injectionStatus == CardInjectionStatus.INJECTED && batch.isStockAdded ->
-                        "✅ مضاف للميكروتك والمخزن"
-                    batch.injectionStatus == CardInjectionStatus.INJECTED ->
-                        "✅ تم الحقن - استكمال إضافة المخزون"
-                    batch.injectionStatus == CardInjectionStatus.PARTIAL ->
-                        "⚠️ استئناف حقن المتبقي ($remainingCount كرت)"
-                    else -> "⚡ حقن مباشر للميكروتك"
-                }
-                val injectEnabled = !isInjectingThisBatch &&
-                    (batch.injectionStatus != CardInjectionStatus.INJECTED || !batch.isStockAdded)
-                val injectColor = when (batch.injectionStatus) {
-                    CardInjectionStatus.INJECTED -> SemanticIncomeGreen
-                    CardInjectionStatus.PARTIAL -> SemanticWarningAmber
-                    else -> BrandCyanPrimary
-                }
                 Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
@@ -4921,22 +4824,6 @@ private fun BatchesAndPrintTab(
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Surface(
-                                color = if (batch.printStatus == CardPrintStatus.PRINTED) {
-                                    SemanticIncomeGreen.copy(alpha = 0.18f)
-                                } else {
-                                    Color(0xFF334155)
-                                },
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text(
-                                    text = if (batch.printStatus == CardPrintStatus.PRINTED) "🖨️ تمت الطباعة" else "غير مطبوعة",
-                                    color = if (batch.printStatus == CardPrintStatus.PRINTED) SemanticIncomeGreen else Color.LightGray,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -4944,7 +4831,7 @@ private fun BatchesAndPrintTab(
                             ) {
                                 Column {
                                     Text(
-                                        text = "دفعة #${batch.batchNumber}: ${batch.displayTitle}",
+                                        text = "دفعة #${batch.batchNumber}: ${batch.batchTitle}",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -4955,17 +4842,6 @@ private fun BatchesAndPrintTab(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = Color.LightGray
                                     )
-                                    if (batch.internalNote.isNotBlank()) {
-                                        Text("ملاحظة: ${batch.internalNote}", fontSize = 10.sp, color = Color.Gray)
-                                    }
-                                }
-                                if (batch.injectionStatus == CardInjectionStatus.INJECTED && batch.isStockAdded) {
-                                    IconButton(
-                                        onClick = { batchToRecheck = batch },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Text("🔄", fontSize = 16.sp)
-                                    }
                                 }
                                 IconButton(
                                     onClick = { onDeleteBatch(batch.id) },
@@ -4980,21 +4856,13 @@ private fun BatchesAndPrintTab(
                             // 1. Primary Action: Direct MikroTik Injection
                             Button(
                                 onClick = { onInjectToRouter(batch) },
-                                enabled = injectEnabled,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = injectColor,
-                                    disabledContainerColor = injectColor.copy(alpha = 0.65f)
-                                ),
+                                colors = ButtonDefaults.buttonColors(containerColor = BrandCyanPrimary),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth().height(44.dp)
                             ) {
-                                if (isInjectingThisBatch) {
-                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.Black, strokeWidth = 2.dp)
-                                } else if (batch.injectionStatus == CardInjectionStatus.PENDING) {
-                                    Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                                }
+                                Icon(Icons.Default.Bolt, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(injectButtonText, color = Color.Black, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                                Text("حقن مباشر للميكروتك ⚡", color = Color.Black, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))

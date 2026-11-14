@@ -67,6 +67,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.core.model.CurrencyCode
 import com.example.core.model.Money
+import com.example.data.auth.DocumentVerificationRecord
+import com.example.data.auth.DocumentVerificationStatus
 import com.example.data.local.entity.PartyEntity
 import com.example.domain.usecase.StatementOfAccountReport
 import com.example.ui.components.AddEditPartyDialog
@@ -78,6 +80,7 @@ import com.example.ui.theme.MikroTikCyan
 import com.example.ui.theme.MikroTikPrimary
 import com.example.ui.theme.SemanticExpenseRed
 import com.example.ui.theme.SemanticIncomeGreen
+import com.example.ui.theme.SemanticWarningAmber
 import com.example.ui.theme.TextMutedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
@@ -92,7 +95,8 @@ fun PartyLedgerScreen(
     party: PartyEntity,
     report: StatementOfAccountReport?,
     onBack: () -> Unit,
-    onEditParty: ((PartyEntity) -> Unit)? = null
+    onEditParty: ((PartyEntity) -> Unit)? = null,
+    documentVerifications: Map<String, DocumentVerificationRecord> = emptyMap()
 ) {
     val context = LocalContext.current
     var showEditDialog by remember { mutableStateOf(false) }
@@ -143,6 +147,7 @@ fun PartyLedgerScreen(
             context = context,
             onOpenEdit = { showEditDialog = true },
             onOpenPdf = { previewPdfFile = it },
+            documentVerifications = documentVerifications,
             modifier = Modifier.padding(innerPadding)
         )
     }
@@ -181,7 +186,8 @@ fun PartyLedgerDialog(
     party: PartyEntity,
     report: StatementOfAccountReport?,
     onDismiss: () -> Unit,
-    onEditParty: ((PartyEntity) -> Unit)? = null
+    onEditParty: ((PartyEntity) -> Unit)? = null,
+    documentVerifications: Map<String, DocumentVerificationRecord> = emptyMap()
 ) {
     val context = LocalContext.current
     var showEditDialog by remember { mutableStateOf(false) }
@@ -260,6 +266,7 @@ fun PartyLedgerDialog(
                     context = context,
                     onOpenEdit = { showEditDialog = true },
                     onOpenPdf = { previewPdfFile = it },
+                    documentVerifications = documentVerifications,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -302,6 +309,7 @@ private fun PartyLedgerBody(
     context: Context,
     onOpenEdit: () -> Unit,
     onOpenPdf: (File) -> Unit,
+    documentVerifications: Map<String, DocumentVerificationRecord> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     val curr = CurrencyCode.FUNCTIONAL
@@ -574,58 +582,111 @@ private fun PartyLedgerBody(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         items(report.items) { itm ->
+                            val verification = documentVerifications[itm.docId]
+                            val verStatus = verification?.status ?: DocumentVerificationStatus.PENDING_POS_CONFIRMATION
+                            val verColor = when (verStatus) {
+                                DocumentVerificationStatus.CONFIRMED_BY_POS -> SemanticIncomeGreen
+                                DocumentVerificationStatus.DISPUTED_BY_POS -> SemanticWarningAmber
+                                DocumentVerificationStatus.PENDING_POS_CONFIRMATION -> TextMutedDark
+                            }
                             Surface(
                                 color = CyberDarkCardElevated,
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(0.5.dp, CyberBorder),
+                                border = BorderStroke(
+                                    width = if (verStatus == DocumentVerificationStatus.DISPUTED_BY_POS) 1.dp else 0.5.dp,
+                                    color = if (verStatus == DocumentVerificationStatus.DISPUTED_BY_POS) SemanticWarningAmber else CyberBorder
+                                ),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "${itm.docType} #${itm.docNumber}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = TextPrimaryDark
-                                        )
-                                        Text(
-                                            text = itm.memo,
-                                            fontSize = 10.sp,
-                                            color = TextSecondaryDark
-                                        )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${itm.docType} #${itm.docNumber}",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = TextPrimaryDark
+                                                )
+                                                if (party.isCustomer) {
+                                                    Surface(
+                                                        color = verColor.copy(alpha = 0.14f),
+                                                        shape = RoundedCornerShape(5.dp),
+                                                        border = BorderStroke(0.6.dp, verColor.copy(alpha = 0.45f))
+                                                    ) {
+                                                        Text(
+                                                            text = verStatus.ownerBadgeAr,
+                                                            fontSize = 9.sp,
+                                                            color = verColor,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                text = itm.memo,
+                                                fontSize = 10.sp,
+                                                color = TextSecondaryDark
+                                            )
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            if (itm.baseDebitMinor > 0L) {
+                                                Text(
+                                                    text = "مدين: +${Money(itm.baseDebitMinor, curr).format()}",
+                                                    color = SemanticIncomeGreen,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                            if (itm.baseCreditMinor > 0L) {
+                                                Text(
+                                                    text = "دائن: -${Money(itm.baseCreditMinor, curr).format()}",
+                                                    color = SemanticExpenseRed,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                            Text(
+                                                text = "الرصيد: ${Money(itm.runningBalanceMinor, curr).format()}",
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = MikroTikCyan,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        if (itm.baseDebitMinor > 0L) {
+
+                                    if (verStatus == DocumentVerificationStatus.DISPUTED_BY_POS &&
+                                        !verification?.disputeNote.isNullOrBlank()
+                                    ) {
+                                        Surface(
+                                            color = SemanticWarningAmber.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
                                             Text(
-                                                text = "مدين: +${Money(itm.baseDebitMinor, curr).format()}",
-                                                color = SemanticIncomeGreen,
-                                                fontSize = 11.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.SemiBold
+                                                text = "⚠️ ملاحظة البقالة: ${verification?.disputeNote}",
+                                                fontSize = 10.sp,
+                                                color = SemanticWarningAmber,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                             )
                                         }
-                                        if (itm.baseCreditMinor > 0L) {
-                                            Text(
-                                                text = "دائن: -${Money(itm.baseCreditMinor, curr).format()}",
-                                                color = SemanticExpenseRed,
-                                                fontSize = 11.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                        Text(
-                                            text = "الرصيد: ${Money(itm.runningBalanceMinor, curr).format()}",
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = MikroTikCyan,
-                                            fontWeight = FontWeight.Bold
-                                        )
                                     }
                                 }
                             }

@@ -111,6 +111,7 @@ fun DashboardScreen(
     onNavigateToWifiSpectrum: () -> Unit = {},
     onNavigateToAiAssistant: () -> Unit = {},
     onNavigateToCardStudio: () -> Unit = {},
+    onOpenPosInbox: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val summary by viewModel.dashboardSummary.collectAsState()
@@ -118,6 +119,7 @@ fun DashboardScreen(
     val invariantResult by viewModel.invariantResult.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
+    val pendingPosInboxCount by viewModel.pendingPosInboxCount.collectAsState()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
 
@@ -444,12 +446,54 @@ fun DashboardScreen(
             }
         }
 
-        // Quick Actions Bar
+        // Quick Actions Bar + POS Inbox Shortcut
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (pendingPosInboxCount > 0) MikroTikCyan.copy(alpha = 0.14f) else CyberDarkCardElevated,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (pendingPosInboxCount > 0) MikroTikCyan else CyberBorder
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onOpenPosInbox(0) }
+                        .testTag("dashboard_pos_inbox_btn")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "📦 صندوق طلبات الكروت وبلاغات نقاط البيع",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextPrimaryDark
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (pendingPosInboxCount > 0) SemanticWarningAmber.copy(alpha = 0.2f) else MikroTikCyan.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = if (pendingPosInboxCount > 0) "$pendingPosInboxCount قيد المتابعة" else "فتح الصندوق",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (pendingPosInboxCount > 0) SemanticWarningAmber else MikroTikCyan
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                 Button(
                     onClick = onNavigateToQuickSale,
                     colors = ButtonDefaults.buttonColors(
@@ -499,6 +543,7 @@ fun DashboardScreen(
                     Icon(Icons.Default.TrendingDown, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("سند صرف", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
                 }
             }
         }
@@ -918,7 +963,7 @@ fun TreasuryBalanceRow(
             Spacer(modifier = Modifier.width(8.dp))
             Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
         }
-        AmountText(money = money, semanticType = AmountSemanticType.AUTO, fontSize = 14)
+        AmountText(money = money, semanticType = AmountSemanticType.NEUTRAL, fontSize = 14)
     }
 }
 

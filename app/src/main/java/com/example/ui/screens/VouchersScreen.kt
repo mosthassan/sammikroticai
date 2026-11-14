@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Store
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -105,7 +104,6 @@ import com.example.ui.components.AmountSemanticType
 import com.example.ui.components.AmountText
 import com.example.ui.components.StatusChip
 import com.example.ui.theme.AssetPurple
-import kotlin.math.roundToLong
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberBorderGlow
 import com.example.ui.theme.CyberCardHighlight
@@ -132,15 +130,28 @@ fun VouchersScreen(
     val documents by viewModel.allDocuments.collectAsState()
     val parties by viewModel.allParties.collectAsState()
     val treasuries by viewModel.allTreasuries.collectAsState()
+    val activeRole by viewModel.activeRole.collectAsState()
+    val agentPermissions by viewModel.activeAgentPermissions.collectAsState()
 
-    var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab) } // 0: Receipts (قبض), 1: Payments (صرف), 2: Exchange (مصارفة)
+    val canCollectReceipts = com.example.data.auth.RoleAccessPolicy.canCollectReceipts(activeRole, agentPermissions)
+    val canCreateDisbursements = com.example.data.auth.RoleAccessPolicy.canCreateDisbursements(activeRole, agentPermissions)
+
+    val defaultAllowedTab = when {
+        initialTab == 1 && canCreateDisbursements -> 1
+        canCollectReceipts -> 0
+        canCreateDisbursements -> 1
+        else -> 0
+    }
+
+    var selectedTab by remember(initialTab, canCollectReceipts, canCreateDisbursements) {
+        mutableIntStateOf(defaultAllowedTab)
+    } // 0: Receipts (قبض), 1: Payments (صرف)
     var showVoucherCreationSheet by remember { mutableStateOf(false) }
-    var showExchangeSheet by remember { mutableStateOf(false) }
-    var voucherCreationInitialTab by remember(initialTab) { mutableIntStateOf(initialTab) }
+    var voucherCreationInitialTab by remember(initialTab) { mutableIntStateOf(defaultAllowedTab) }
 
-    LaunchedEffect(initialTab) {
-        selectedTab = initialTab
-        voucherCreationInitialTab = initialTab
+    LaunchedEffect(initialTab, canCollectReceipts, canCreateDisbursements) {
+        selectedTab = defaultAllowedTab
+        voucherCreationInitialTab = defaultAllowedTab
     }
 
     var selectedVoucherForDetail by remember { mutableStateOf<DocumentEntity?>(null) }
@@ -150,11 +161,8 @@ fun VouchersScreen(
     val partyMap = remember(parties) { parties.associateBy { it.id } }
 
     val filteredVouchers = remember(documents, selectedTab) {
-        when (selectedTab) {
-            0 -> documents.filter { it.type == "RECEIPT_VOUCHER" }
-            1 -> documents.filter { it.type == "PAYMENT_VOUCHER" }
-            else -> documents.filter { it.type == "CURRENCY_EXCHANGE" || it.type == "TREASURY_TRANSFER" }
-        }
+        val targetType = if (selectedTab == 0) "RECEIPT_VOUCHER" else "PAYMENT_VOUCHER"
+        documents.filter { it.type == targetType }
     }
 
     val receiptCount = remember(documents) {
@@ -162,9 +170,6 @@ fun VouchersScreen(
     }
     val paymentCount = remember(documents) {
         documents.count { it.type == "PAYMENT_VOUCHER" && it.status != "VOIDED" }
-    }
-    val exchangeCount = remember(documents) {
-        documents.count { (it.type == "CURRENCY_EXCHANGE" || it.type == "TREASURY_TRANSFER") && it.status != "VOIDED" }
     }
     val totalReceiptsMinor = remember(documents) {
         documents.filter { it.type == "RECEIPT_VOUCHER" && it.status != "VOIDED" }.sumOf { it.totalBaseMinor }
@@ -174,33 +179,33 @@ fun VouchersScreen(
     }
     val netCashFlowMinor = totalReceiptsMinor - totalPaymentsMinor
 
+    val canCreateSelectedVoucher = (selectedTab == 0 && canCollectReceipts) || (selectedTab == 1 && canCreateDisbursements)
+
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    if (selectedTab == 2) {
-                        showExchangeSheet = true
-                    } else {
+            if (canCreateSelectedVoucher) {
+                FloatingActionButton(
+                    onClick = {
                         voucherCreationInitialTab = selectedTab
                         showVoucherCreationSheet = true
-                    }
-                },
-                containerColor = if (selectedTab == 0) SemanticIncomeGreen else if (selectedTab == 1) SemanticExpenseRed else MikroTikCyan,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.testTag("fab_new_voucher")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    },
+                    containerColor = if (selectedTab == 0) SemanticIncomeGreen else SemanticExpenseRed,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.testTag("fab_new_voucher")
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        if (selectedTab == 0) "سند قبض جديد" else if (selectedTab == 1) "سند صرف جديد" else "مصارفة جديدة",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            if (selectedTab == 0) "سند قبض جديد" else "سند صرف جديد",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
                 }
             }
         },
@@ -217,6 +222,7 @@ fun VouchersScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (canCollectReceipts) {
                 // Receipts Tab Card (Tab 0)
                 Surface(
                     modifier = Modifier
@@ -284,8 +290,10 @@ fun VouchersScreen(
                         )
                     }
                 }
+                }
 
-                // Payments Tab Card (Tab 1)
+                // Payments Tab Card (Tab 1 - Gated by canCreateDisbursements)
+                if (canCreateDisbursements) {
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -326,7 +334,7 @@ fun VouchersScreen(
                                 color = SemanticExpenseRed.copy(alpha = 0.22f)
                             ) {
                                 Text(
-                                    "$paymentCount",
+                                    "$paymentCount سند",
                                     color = SemanticExpenseRed,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
@@ -337,88 +345,21 @@ fun VouchersScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            "سندات صرف",
+                            "سندات الصرف (صادر)",
                             color = if (selectedTab == 1) TextPrimaryDark else TextSecondaryDark,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            Money(totalPaymentsMinor, CurrencyCode.YER).format(includeSymbol = false),
+                            Money(totalPaymentsMinor, CurrencyCode.YER).format(),
                             color = SemanticExpenseRed,
-                            fontSize = 14.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
                     }
                 }
-                
-                // Exchanges Tab Card (Tab 2)
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(18.dp))
-                        .clickable { selectedTab = 2 }
-                        .border(
-                            BorderStroke(
-                                width = if (selectedTab == 2) 2.dp else 1.dp,
-                                color = if (selectedTab == 2) MikroTikCyan else CyberBorder
-                            ),
-                            RoundedCornerShape(18.dp)
-                        ),
-                    color = if (selectedTab == 2) MikroTikCyan.copy(alpha = 0.14f) else CyberDarkCardElevated
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(if (selectedTab == 2) MikroTikCyan.copy(alpha = 0.25f) else CyberDarkSurface),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.Sync,
-                                    contentDescription = null,
-                                    tint = MikroTikCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = MikroTikCyan.copy(alpha = 0.22f)
-                            ) {
-                                Text(
-                                    "$exchangeCount",
-                                    color = MikroTikCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            "مصارفة وتحويل",
-                            color = if (selectedTab == 2) TextPrimaryDark else TextSecondaryDark,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            "تبادل",
-                            color = MikroTikCyan,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
                 }
             }
 
@@ -630,24 +571,6 @@ fun VouchersScreen(
                     notes = notes,
                     rateZone = rateZone,
                     onSuccess = { showVoucherCreationSheet = false }
-                )
-            }
-        )
-    }
-
-    if (showExchangeSheet) {
-        ExchangeCreationBottomSheet(
-            treasuries = treasuries,
-            resolver = viewModel.exchangeRateResolver,
-            onDismiss = { showExchangeSheet = false },
-            onSubmitExchange = { sourceId, sourceAmt, destId, destAmt, notes ->
-                viewModel.postCurrencyExchange(
-                    sourceTreasuryId = sourceId,
-                    sourceAmountOrigMinor = sourceAmt,
-                    destTreasuryId = destId,
-                    destAmountOrigMinor = destAmt,
-                    notes = notes,
-                    onSuccess = { showExchangeSheet = false }
                 )
             }
         )
@@ -889,17 +812,25 @@ fun VoucherCreationBottomSheet(
     var isRateManuallyEdited by rememberSaveable(currency, inheritedZone) { mutableStateOf(false) }
 
     LaunchedEffect(currency, inheritedZone, effectiveConfig) {
-        if (currency == CurrencyCode.FUNCTIONAL) {
-            rateInputText = "1.0"
-            isRateManuallyEdited = false
-        } else {
-            val defaultRateMicros = when (currency) {
-                CurrencyCode.USD -> effectiveConfig.defaultUsdRateMicros.takeIf { it > 0L }
-                CurrencyCode.SAR -> effectiveConfig.defaultSarRateMicros.takeIf { it > 0L }
-                else -> null
-            } ?: effectiveResolver.resolveOrNull(currency, today, inheritedZone)?.rateMicros ?: ExchangeRate.SCALE_MICROS
-            rateInputText = ExchangeRate.formatRateMicros(defaultRateMicros)
-            isRateManuallyEdited = false
+        when (currency) {
+            CurrencyCode.YER -> {
+                rateInputText = "1.0"
+                isRateManuallyEdited = false
+            }
+            CurrencyCode.USD -> {
+                val defaultRateMicros = effectiveConfig.defaultUsdRateMicros.takeIf { it > 0L }
+                    ?: effectiveResolver.resolveOrNull(CurrencyCode.USD, today, inheritedZone)?.rateMicros
+                    ?: if (inheritedZone == RateZone.ADEN) 1_600_000_000L else 535_000_000L
+                rateInputText = ExchangeRate.formatRateMicros(defaultRateMicros)
+                isRateManuallyEdited = false
+            }
+            CurrencyCode.SAR -> {
+                val defaultRateMicros = effectiveConfig.defaultSarRateMicros.takeIf { it > 0L }
+                    ?: effectiveResolver.resolveOrNull(CurrencyCode.SAR, today, inheritedZone)?.rateMicros
+                    ?: if (inheritedZone == RateZone.ADEN) 420_000_000L else 140_500_000L
+                rateInputText = ExchangeRate.formatRateMicros(defaultRateMicros)
+                isRateManuallyEdited = false
+            }
         }
     }
 
@@ -1379,7 +1310,6 @@ fun VoucherCreationBottomSheet(
                                         TextButton(
                                             onClick = {
                                                 rateInputText = when (currency) {
-                                                    CurrencyCode.FUNCTIONAL -> "1.0"
                                                     CurrencyCode.USD -> ExchangeRate.formatRateMicros(
                                                         effectiveConfig.defaultUsdRateMicros.takeIf { it > 0L }
                                                             ?: if (inheritedZone == RateZone.ADEN) 1_600_000_000L else 535_000_000L
@@ -1659,186 +1589,6 @@ fun FintechCategoryTile(
                     maxLines = 1
                 )
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ExchangeCreationBottomSheet(
-    treasuries: List<TreasuryAccountEntity>,
-    resolver: ExchangeRateResolver? = null,
-    onDismiss: () -> Unit,
-    onSubmitExchange: (sourceTreasuryId: String, sourceAmount: Long, destTreasuryId: String, destAmount: Long, notes: String) -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    
-    var sourceTreasuryId by remember { mutableStateOf("") }
-    var destTreasuryId by remember { mutableStateOf("") }
-    var sourceAmount by remember { mutableStateOf("") }
-    var destAmount by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
-    
-    var sExpanded by remember { mutableStateOf(false) }
-    var dExpanded by remember { mutableStateOf(false) }
-    
-    var calculatedRateText by remember { mutableStateOf("") }
-    
-    // Auto-calculate logic
-    LaunchedEffect(sourceTreasuryId, destTreasuryId, sourceAmount) {
-        val sTr = treasuries.find { it.id == sourceTreasuryId }
-        val dTr = treasuries.find { it.id == destTreasuryId }
-        val sAmt = sourceAmount.toDoubleOrNull()
-        
-        if (sTr != null && dTr != null && sAmt != null && sAmt > 0 && resolver != null) {
-            if (sTr.currency == dTr.currency) {
-                destAmount = sourceAmount
-                calculatedRateText = "تحويل بنفس العملة (${sTr.currency})"
-            } else {
-                val sCurr = com.example.core.model.CurrencyCode.fromString(sTr.currency)
-                val dCurr = com.example.core.model.CurrencyCode.fromString(dTr.currency)
-                val today = com.example.core.time.AppClock.todayEpochDay()
-                val sRate = resolver.resolveOrNull(sCurr, today)
-                val dRate = resolver.resolveOrNull(dCurr, today)
-                
-                if (sRate != null && dRate != null) {
-                    val sBase = sAmt * (sRate.rateMicros.toDouble() / ExchangeRate.SCALE_MICROS.toDouble())
-                    val dFinal = sBase / (dRate.rateMicros.toDouble() / ExchangeRate.SCALE_MICROS.toDouble())
-                    
-                    val formattedDest = String.format(java.util.Locale.US, "%.2f", dFinal).replace(".00", "")
-                    destAmount = formattedDest
-                    
-                    val crossRate = if (sRate.rateMicros > dRate.rateMicros) {
-                        sRate.rateMicros.toDouble() / dRate.rateMicros.toDouble()
-                    } else {
-                        dRate.rateMicros.toDouble() / sRate.rateMicros.toDouble()
-                    }
-                    val crossLabel = if (sRate.rateMicros > dRate.rateMicros) {
-                        "1 ${sCurr.name} = ${String.format(java.util.Locale.US, "%.4f", crossRate)} ${dCurr.name}"
-                    } else {
-                        "1 ${dCurr.name} = ${String.format(java.util.Locale.US, "%.4f", crossRate)} ${sCurr.name}"
-                    }
-                    calculatedRateText = "سعر المصارفة التلقائي:\n$crossLabel"
-                } else {
-                    calculatedRateText = "عفواً، لا يتوفر سعر صرف حالي للعملتين."
-                }
-            }
-        }
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = CyberDarkCanvas
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text("مصارفة وتحويل نقدية", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = TextPrimaryDark)
-            
-            ExposedDropdownMenuBox(
-                expanded = sExpanded,
-                onExpandedChange = { sExpanded = it },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = treasuries.find { it.id == sourceTreasuryId }?.let { "${it.name} (${it.currency})" } ?: "اختر خزينة الصرف (من)",
-                    onValueChange = {}, readOnly = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sExpanded) },
-                    modifier = Modifier.menuAnchor().fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                ExposedDropdownMenu(expanded = sExpanded, onDismissRequest = { sExpanded = false }) {
-                    treasuries.forEach { tr ->
-                        DropdownMenuItem(
-                            text = { Text("${tr.name} (${tr.currency})") },
-                            onClick = { sourceTreasuryId = tr.id; sExpanded = false }
-                        )
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = sourceAmount,
-                onValueChange = { sourceAmount = it },
-                label = { Text("المبلغ المنصرف") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            ExposedDropdownMenuBox(
-                expanded = dExpanded,
-                onExpandedChange = { dExpanded = it },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = treasuries.find { it.id == destTreasuryId }?.let { "${it.name} (${it.currency})" } ?: "اختر الخزينة المستلمة (إلى)",
-                    onValueChange = {}, readOnly = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dExpanded) },
-                    modifier = Modifier.menuAnchor().fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                ExposedDropdownMenu(expanded = dExpanded, onDismissRequest = { dExpanded = false }) {
-                    treasuries.forEach { tr ->
-                        DropdownMenuItem(
-                            text = { Text("${tr.name} (${tr.currency})") },
-                            onClick = { destTreasuryId = tr.id; dExpanded = false }
-                        )
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = destAmount,
-                onValueChange = { destAmount = it },
-                label = { Text("المبلغ المستلم (بعد المصارفة)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-            
-            if (calculatedRateText.isNotEmpty()) {
-                Surface(
-                    color = MikroTikCyan.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, MikroTikCyan.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = calculatedRateText,
-                        color = MikroTikCyan,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            }
-
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text("البيان / ملاحظات") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            Button(
-                onClick = {
-                    val sAmount = sourceAmount.toDoubleOrNull()?.let { (it * 100).roundToLong() } ?: 0L
-                    val dAmount = destAmount.toDoubleOrNull()?.let { (it * 100).roundToLong() } ?: 0L
-                    if (sAmount > 0L && dAmount > 0L && sourceTreasuryId.isNotEmpty() && destTreasuryId.isNotEmpty()) {
-                        onSubmitExchange(sourceTreasuryId, sAmount, destTreasuryId, dAmount, notes)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("ترحيل المصارفة", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

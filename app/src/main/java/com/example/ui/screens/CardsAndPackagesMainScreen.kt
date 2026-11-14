@@ -14,6 +14,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +47,22 @@ fun CardsAndPackagesMainScreen(
     modifier: Modifier = Modifier,
     initialSubTab: Int = 0
 ) {
+    val activeRole by viewModel.activeRole.collectAsState()
+    val agentPermissions by viewModel.activeAgentPermissions.collectAsState()
+    val canAccessStudio = com.example.data.auth.RoleAccessPolicy.canAccessCardStudioGeneration(activeRole)
+    val canViewStock = com.example.data.auth.RoleAccessPolicy.canViewAssignedStock(activeRole, agentPermissions)
+
+    if (!canAccessStudio) {
+        if (canViewStock) {
+            PackagesStockScreen(
+                viewModel = viewModel,
+                onNavigateToCardStudioWithPackage = null,
+                modifier = modifier
+            )
+        }
+        return
+    }
+
     var subTab by rememberSaveable { mutableIntStateOf(initialSubTab) }
     var selectedPackageForStudio by remember { mutableStateOf<CardPackageEntity?>(null) }
     val cardStudioViewModel: CardStudioViewModel = viewModel()

@@ -90,6 +90,7 @@ import com.example.util.GeneratedLicenseResult
 fun AdminDashboardScreen(
     viewModel: AppViewModel,
     onNavigateBack: () -> Unit,
+    onOpenTeamAccessCodes: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -156,6 +157,17 @@ fun AdminDashboardScreen(
                     }
                 },
                 actions = {
+                    if (onOpenTeamAccessCodes != null) {
+                        OutlinedButton(
+                            onClick = onOpenTeamAccessCodes,
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .testTag("admin_open_team_codes_btn"),
+                            border = BorderStroke(1.dp, BrandCyanPrimary)
+                        ) {
+                            Text("إدارة الوكلاء والأكواد", color = BrandCyanPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                     Surface(
                         color = Color(0xFFFFD700).copy(alpha = 0.2f),
                         shape = RoundedCornerShape(8.dp),

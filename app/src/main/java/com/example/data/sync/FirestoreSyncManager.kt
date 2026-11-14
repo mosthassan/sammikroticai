@@ -1102,6 +1102,444 @@ class FirestoreSyncManager(
         return pullNetworkIdentityAndConfig(uid, userEmail)
     }
 
+    // --- SaaS Multi-Role Access Codes Cloud Sync (networks/{networkId}/access_codes/{code}) ---
+
+    private fun sanitizeNetworkId(networkId: String): String {
+        return networkId.trim().replace("/", "_").ifBlank { "DEFAULT_ORG" }
+    }
+
+    private fun sanitizeAccessCode(code: String): String {
+        return code.trim().uppercase().replace("/", "_")
+    }
+
+    suspend fun syncAccessCodeToCloud(
+        networkId: String,
+        entry: com.example.data.auth.AccessCodeEntry
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) {
+            return@withContext Result.failure(IllegalStateException("خدمة Firebase غير مهيأة على هذا الجهاز"))
+        }
+        val safeNetId = sanitizeNetworkId(networkId.ifBlank { entry.networkId })
+        val cleanCode = sanitizeAccessCode(entry.code)
+        if (cleanCode.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("كود الدخول غير صالح"))
+        }
+        try {
+            val payload = entry.copy(networkId = safeNetId, code = cleanCode).toMap()
+            adapter.set("networks/$safeNetId/access_codes/$cleanCode", payload, true)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "syncAccessCodeToCloud error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun revokeAccessCodeInCloud(
+        networkId: String,
+        code: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) {
+            return@withContext Result.failure(IllegalStateException("خدمة Firebase غير مهيأة على هذا الجهاز"))
+        }
+        val safeNetId = sanitizeNetworkId(networkId)
+        val cleanCode = sanitizeAccessCode(code)
+        if (cleanCode.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("كود الدخول غير صالح"))
+        }
+        try {
+            adapter.set(
+                "networks/$safeNetId/access_codes/$cleanCode",
+                mapOf("isActive" to false, "revokedAtEpochMs" to System.currentTimeMillis()),
+                true
+            )
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "revokeAccessCodeInCloud error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchAccessCodeFromCloud(
+        networkId: String,
+        code: String
+    ): com.example.data.auth.AccessCodeEntry? = withContext(Dispatchers.IO) {
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) return@withContext null
+        val safeNetId = sanitizeNetworkId(networkId)
+        val cleanCode = sanitizeAccessCode(code)
+        if (cleanCode.isBlank()) return@withContext null
+        try {
+            val doc = adapter.get("networks/$safeNetId/access_codes/$cleanCode")
+            com.example.data.auth.AccessCodeEntry.fromMap(doc)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "fetchAccessCodeFromCloud error: ${e.message}")
+            null
+        }
+    }
+
+    suspend fun pullAllAccessCodes(
+        networkId: String
+    ): List<com.example.data.auth.AccessCodeEntry> = withContext(Dispatchers.IO) {
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) return@withContext emptyList()
+        val safeNetId = sanitizeNetworkId(networkId)
+        try {
+            val docs = adapter.listCollection("networks/$safeNetId/access_codes")
+            docs.mapNotNull { (_, map) ->
+                com.example.data.auth.AccessCodeEntry.fromMap(map)
+            }.sortedByDescending { it.createdAtEpochMs }
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "pullAllAccessCodes error: ${e.message}")
+            emptyList()
+        }
+    }
+
+    // --- Phase 2: Mutual Invoice & Receipt Verification Sync (networks/{networkId}/parties/{partyId}/verifications/{documentId}) ---
+
+    private fun sanitizePathSegment(segment: String, defaultVal: String = "UNKNOWN"): String {
+        return segment.trim().replace("/", "_").ifBlank { defaultVal }
+    }
+
+    private fun saveLocalVerificationFallback(record: com.example.data.auth.DocumentVerificationRecord) {
+        try {
+            val raw = prefs.getString("local_verifications_fallback_json", null)
+            val obj = if (!raw.isNullOrBlank()) runCatching { JSONObject(raw) }.getOrNull() ?: JSONObject() else JSONObject()
+            obj.put(record.documentId, record.toJson())
+            prefs.edit().putString("local_verifications_fallback_json", obj.toString()).apply()
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "saveLocalVerificationFallback error: ${e.message}")
+        }
+    }
+
+    fun getLocalVerificationFallback(documentId: String): com.example.data.auth.DocumentVerificationRecord? {
+        return try {
+            val raw = prefs.getString("local_verifications_fallback_json", null) ?: return null
+            val obj = JSONObject(raw)
+            com.example.data.auth.DocumentVerificationRecord.fromJson(obj.optJSONObject(documentId.trim()))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun getAllLocalVerificationsFallback(partyId: String? = null): List<com.example.data.auth.DocumentVerificationRecord> {
+        return try {
+            val raw = prefs.getString("local_verifications_fallback_json", null) ?: return emptyList()
+            val obj = JSONObject(raw)
+            val result = mutableListOf<com.example.data.auth.DocumentVerificationRecord>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val rec = com.example.data.auth.DocumentVerificationRecord.fromJson(obj.optJSONObject(key))
+                if (rec != null && (partyId.isNullOrBlank() || rec.partyId == partyId)) {
+                    result.add(rec)
+                }
+            }
+            result.sortedByDescending { it.verifiedAtEpochMs }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Syncs a POS document verification status under `networks/{networkId}/parties/{partyId}/verifications/{documentId}`
+     * with automatic local storage fallback so it works seamlessly both offline and online.
+     */
+    suspend fun syncDocumentVerificationToCloud(
+        networkId: String,
+        partyId: String,
+        record: com.example.data.auth.DocumentVerificationRecord
+    ): Result<com.example.data.auth.DocumentVerificationRecord> = withContext(Dispatchers.IO) {
+        val safeNetId = sanitizeNetworkId(networkId.ifBlank { record.networkId })
+        val safePartyId = sanitizePathSegment(partyId.ifBlank { record.partyId }, "UNKNOWN_PARTY")
+        val safeDocId = sanitizePathSegment(record.documentId, "")
+        if (safeDocId.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("معرف المستند غير صالح"))
+        }
+
+        val normalized = record.copy(
+            documentId = safeDocId,
+            partyId = safePartyId,
+            networkId = safeNetId
+        )
+        // Always persist to local fallback immediately for 100% offline reliability
+        saveLocalVerificationFallback(normalized)
+
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) {
+            return@withContext Result.success(normalized)
+        }
+        try {
+            val path = "networks/$safeNetId/parties/$safePartyId/verifications/$safeDocId"
+            adapter.set(path, normalized.toMap(), true)
+            Result.success(normalized)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "syncDocumentVerificationToCloud offline fallback used: ${e.message}")
+            Result.success(normalized)
+        }
+    }
+
+    /**
+     * Fetches a single document verification status from `networks/{networkId}/parties/{partyId}/verifications/{documentId}`
+     * with local fallback when offline.
+     */
+    suspend fun fetchDocumentVerificationFromCloud(
+        networkId: String,
+        partyId: String,
+        documentId: String
+    ): com.example.data.auth.DocumentVerificationRecord? = withContext(Dispatchers.IO) {
+        val safeNetId = sanitizeNetworkId(networkId)
+        val safePartyId = sanitizePathSegment(partyId, "UNKNOWN_PARTY")
+        val safeDocId = sanitizePathSegment(documentId, "")
+        if (safeDocId.isBlank()) return@withContext null
+
+        val adapter = effectiveAdapter
+        if (adapter.isAvailable()) {
+            try {
+                val path = "networks/$safeNetId/parties/$safePartyId/verifications/$safeDocId"
+                val map = adapter.get(path)
+                val remote = com.example.data.auth.DocumentVerificationRecord.fromMap(map)
+                if (remote != null) {
+                    saveLocalVerificationFallback(remote)
+                    return@withContext remote
+                }
+            } catch (e: Exception) {
+                Log.w("FirestoreSyncManager", "fetchDocumentVerificationFromCloud error: ${e.message}")
+            }
+        }
+        getLocalVerificationFallback(safeDocId)
+    }
+
+    /**
+     * Pulls all document verifications for a party from `networks/{networkId}/parties/{partyId}/verifications`,
+     * merging with local offline fallback records.
+     */
+    suspend fun pullPartyDocumentVerifications(
+        networkId: String,
+        partyId: String
+    ): List<com.example.data.auth.DocumentVerificationRecord> = withContext(Dispatchers.IO) {
+        val safeNetId = sanitizeNetworkId(networkId)
+        val safePartyId = sanitizePathSegment(partyId, "UNKNOWN_PARTY")
+        val mergedByDocId = getAllLocalVerificationsFallback(safePartyId)
+            .associateBy { it.documentId }
+            .toMutableMap()
+
+        val adapter = effectiveAdapter
+        if (adapter.isAvailable()) {
+            try {
+                val docs = adapter.listCollection("networks/$safeNetId/parties/$safePartyId/verifications")
+                docs.forEach { (_, map) ->
+                    val remote = com.example.data.auth.DocumentVerificationRecord.fromMap(map)
+                    if (remote != null) {
+                        val existing = mergedByDocId[remote.documentId]
+                        if (existing == null || remote.verifiedAtEpochMs >= existing.verifiedAtEpochMs) {
+                            mergedByDocId[remote.documentId] = remote
+                            saveLocalVerificationFallback(remote)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("FirestoreSyncManager", "pullPartyDocumentVerifications error: ${e.message}")
+            }
+        }
+        mergedByDocId.values.sortedByDescending { it.verifiedAtEpochMs }
+    }
+
+    // --- Phase 3: POS Restock Orders & Support Tickets Sync (networks/{networkId}/pos_orders/{orderId} & networks/{networkId}/pos_tickets/{ticketId}) ---
+
+    private fun saveLocalOrderFallback(order: com.example.data.auth.PosRestockOrder) {
+        try {
+            val raw = prefs.getString("local_pos_orders_fallback_json", null)
+            val obj = if (!raw.isNullOrBlank()) runCatching { JSONObject(raw) }.getOrNull() ?: JSONObject() else JSONObject()
+            obj.put(order.orderId, order.toJson())
+            prefs.edit().putString("local_pos_orders_fallback_json", obj.toString()).apply()
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "saveLocalOrderFallback error: ${e.message}")
+        }
+    }
+
+    fun getAllLocalOrdersFallback(partyId: String? = null): List<com.example.data.auth.PosRestockOrder> {
+        return try {
+            val raw = prefs.getString("local_pos_orders_fallback_json", null) ?: return emptyList()
+            val obj = JSONObject(raw)
+            val result = mutableListOf<com.example.data.auth.PosRestockOrder>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val order = com.example.data.auth.PosRestockOrder.fromJson(obj.optJSONObject(key))
+                if (order != null && (partyId.isNullOrBlank() || order.partyId == partyId)) {
+                    result.add(order)
+                }
+            }
+            result.sortedByDescending { it.createdAtEpochMs }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Syncs a [com.example.data.auth.PosRestockOrder] under `networks/{networkId}/pos_orders/{orderId}`
+     * with full local storage fallback.
+     */
+    suspend fun syncPosRestockOrderToCloud(
+        networkId: String,
+        order: com.example.data.auth.PosRestockOrder
+    ): Result<com.example.data.auth.PosRestockOrder> = withContext(Dispatchers.IO) {
+        val safeNetId = sanitizeNetworkId(networkId.ifBlank { order.networkId })
+        val safeOrderId = sanitizePathSegment(order.orderId, "")
+        if (safeOrderId.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("معرف الطلب غير صالح"))
+        }
+
+        val normalized = order.copy(orderId = safeOrderId, networkId = safeNetId)
+        saveLocalOrderFallback(normalized)
+
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) {
+            return@withContext Result.success(normalized)
+        }
+        try {
+            val path = "networks/$safeNetId/pos_orders/$safeOrderId"
+            adapter.set(path, normalized.toMap(), true)
+            Result.success(normalized)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "syncPosRestockOrderToCloud offline fallback used: ${e.message}")
+            Result.success(normalized)
+        }
+    }
+
+    /**
+     * Pulls all [com.example.data.auth.PosRestockOrder] items from `networks/{networkId}/pos_orders`,
+     * merging with local fallback storage. Optionally filters by [partyId].
+     */
+    suspend fun pullPosRestockOrders(
+        networkId: String,
+        partyId: String? = null
+    ): List<com.example.data.auth.PosRestockOrder> = withContext(Dispatchers.IO) {
+        val safeNetId = sanitizeNetworkId(networkId)
+        val mergedById = getAllLocalOrdersFallback(partyId)
+            .associateBy { it.orderId }
+            .toMutableMap()
+
+        val adapter = effectiveAdapter
+        if (adapter.isAvailable()) {
+            try {
+                val docs = adapter.listCollection("networks/$safeNetId/pos_orders")
+                docs.forEach { (_, map) ->
+                    val remote = com.example.data.auth.PosRestockOrder.fromMap(map)
+                    if (remote != null && (partyId.isNullOrBlank() || remote.partyId == partyId)) {
+                        val existing = mergedById[remote.orderId]
+                        if (existing == null || remote.updatedAtEpochMs >= existing.updatedAtEpochMs) {
+                            mergedById[remote.orderId] = remote
+                            saveLocalOrderFallback(remote)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("FirestoreSyncManager", "pullPosRestockOrders error: ${e.message}")
+            }
+        }
+        mergedById.values.sortedByDescending { it.createdAtEpochMs }
+    }
+
+    private fun saveLocalTicketFallback(ticket: com.example.data.auth.PosSupportTicket) {
+        try {
+            val raw = prefs.getString("local_pos_tickets_fallback_json", null)
+            val obj = if (!raw.isNullOrBlank()) runCatching { JSONObject(raw) }.getOrNull() ?: JSONObject() else JSONObject()
+            obj.put(ticket.ticketId, ticket.toJson())
+            prefs.edit().putString("local_pos_tickets_fallback_json", obj.toString()).apply()
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "saveLocalTicketFallback error: ${e.message}")
+        }
+    }
+
+    fun getAllLocalTicketsFallback(partyId: String? = null): List<com.example.data.auth.PosSupportTicket> {
+        return try {
+            val raw = prefs.getString("local_pos_tickets_fallback_json", null) ?: return emptyList()
+            val obj = JSONObject(raw)
+            val result = mutableListOf<com.example.data.auth.PosSupportTicket>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val ticket = com.example.data.auth.PosSupportTicket.fromJson(obj.optJSONObject(key))
+                if (ticket != null && (partyId.isNullOrBlank() || ticket.partyId == partyId)) {
+                    result.add(ticket)
+                }
+            }
+            result.sortedByDescending { it.createdAtEpochMs }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Syncs a [com.example.data.auth.PosSupportTicket] under `networks/{networkId}/pos_tickets/{ticketId}`
+     * with full local storage fallback.
+     */
+    suspend fun syncPosSupportTicketToCloud(
+        networkId: String,
+        ticket: com.example.data.auth.PosSupportTicket
+    ): Result<com.example.data.auth.PosSupportTicket> = withContext(Dispatchers.IO) {
+        val safeNetId = sanitizeNetworkId(networkId.ifBlank { ticket.networkId })
+        val safeTicketId = sanitizePathSegment(ticket.ticketId, "")
+        if (safeTicketId.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("معرف البلاغ غير صالح"))
+        }
+
+        val normalized = ticket.copy(ticketId = safeTicketId, networkId = safeNetId)
+        saveLocalTicketFallback(normalized)
+
+        val adapter = effectiveAdapter
+        if (!adapter.isAvailable()) {
+            return@withContext Result.success(normalized)
+        }
+        try {
+            val path = "networks/$safeNetId/pos_tickets/$safeTicketId"
+            adapter.set(path, normalized.toMap(), true)
+            Result.success(normalized)
+        } catch (e: Exception) {
+            Log.w("FirestoreSyncManager", "syncPosSupportTicketToCloud offline fallback used: ${e.message}")
+            Result.success(normalized)
+        }
+    }
+
+    /**
+     * Pulls all [com.example.data.auth.PosSupportTicket] items from `networks/{networkId}/pos_tickets`,
+     * merging with local fallback storage. Optionally filters by [partyId].
+     */
+    suspend fun pullPosSupportTickets(
+        networkId: String,
+        partyId: String? = null
+    ): List<com.example.data.auth.PosSupportTicket> = withContext(Dispatchers.IO) {
+        val safeNetId = sanitizeNetworkId(networkId)
+        val mergedById = getAllLocalTicketsFallback(partyId)
+            .associateBy { it.ticketId }
+            .toMutableMap()
+
+        val adapter = effectiveAdapter
+        if (adapter.isAvailable()) {
+            try {
+                val docs = adapter.listCollection("networks/$safeNetId/pos_tickets")
+                docs.forEach { (_, map) ->
+                    val remote = com.example.data.auth.PosSupportTicket.fromMap(map)
+                    if (remote != null && (partyId.isNullOrBlank() || remote.partyId == partyId)) {
+                        val existing = mergedById[remote.ticketId]
+                        val remoteTs = remote.resolvedAtEpochMs ?: remote.createdAtEpochMs
+                        val existingTs = existing?.let { it.resolvedAtEpochMs ?: it.createdAtEpochMs } ?: 0L
+                        if (existing == null || remoteTs >= existingTs || remote.adminReply != null) {
+                            mergedById[remote.ticketId] = remote
+                            saveLocalTicketFallback(remote)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("FirestoreSyncManager", "pullPosSupportTickets error: ${e.message}")
+            }
+        }
+        mergedById.values.sortedByDescending { it.createdAtEpochMs }
+    }
+
     private fun logSync(
         action: String,
         email: String,
@@ -1122,3 +1560,5 @@ class FirestoreSyncManager(
         _syncHistory.value = updated
     }
 }
+
+

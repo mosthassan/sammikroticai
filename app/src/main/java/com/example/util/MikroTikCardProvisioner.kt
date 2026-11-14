@@ -36,7 +36,7 @@ object MikroTikCardProvisioner {
         sb.appendLine("# ================================================================")
         sb.appendLine()
 
-        val comment = escapeRsc(batch.technicalMikrotikComment)
+        val comment = escapeRsc(batch.batchTitle.ifBlank { "Batch_${batch.batchNumber}" })
         val quotaParam = if (plan.dataQuotaMb > 0) "limit-bytes-total=${plan.dataQuotaMb * 1048576L} " else ""
         val uptimeParam = if (plan.uptimeHours > 0) "limit-uptime=${plan.uptimeHours}h " else ""
         val profileParam = escapeRsc(plan.profileName)
@@ -80,9 +80,8 @@ object MikroTikCardProvisioner {
         sb.appendLine("# SamMikrotik User Manager Script - Batch #${batch.batchNumber}")
         sb.appendLine("# ================================================================")
         sb.appendLine("/tool user-manager user")
-        val comment = escapeRsc(batch.technicalMikrotikComment)
         for (card in batch.cards) {
-            sb.appendLine("add username=\"${escapeRsc(card.username)}\" password=\"${escapeRsc(card.password)}\" customer=admin comment=\"$comment\"")
+            sb.appendLine("add username=\"${escapeRsc(card.username)}\" password=\"${escapeRsc(card.password)}\" customer=admin")
         }
         return sb.toString()
     }
@@ -91,7 +90,7 @@ object MikroTikCardProvisioner {
      * Generates a rollback script to safely remove all users from this specific batch
      */
     fun generateRemovalScript(batch: CardBatch): String {
-        val comment = escapeRsc(batch.technicalMikrotikComment)
+        val comment = "Batch_${batch.batchNumber}_${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(batch.createdAt))}"
         return """
             # ================================================================
             # SamMikrotik Rollback Script for Batch #${batch.batchNumber}

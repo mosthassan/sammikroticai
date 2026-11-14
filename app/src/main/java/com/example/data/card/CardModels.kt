@@ -43,23 +43,6 @@ enum class PasswordPattern(val displayNameAr: String, val subtitleAr: String = "
     ALPHANUMERIC("أحرف وأرقام عشوائية معقدة", "أمان فائق")
 }
 
-enum class CardInjectionStatus {
-    PENDING,
-    INJECTING,
-    PARTIAL,
-    INJECTED
-}
-
-enum class CardPrintStatus {
-    NOT_PRINTED,
-    PRINTED
-}
-
-enum class CardInjectionTarget {
-    HOTSPOT,
-    USER_MANAGER
-}
-
 /**
  * Printable page format for A4 sheets and POS thermal rolls
  */
@@ -279,42 +262,11 @@ data class CardBatch(
     val createdAt: Long = System.currentTimeMillis(),
     val isSyncedToMikrotik: Boolean = false,
     val targetMikrotikHost: String = "",
-    val planSpec: NetworkPlanSpec? = null,
-    val mikrotikComment: String = "",
-    val displayTitle: String = batchTitle,
-    val internalNote: String = "",
-    val injectionTarget: CardInjectionTarget = CardInjectionTarget.HOTSPOT,
-    val injectionStatus: CardInjectionStatus = if (isSyncedToMikrotik) {
-        CardInjectionStatus.INJECTED
-    } else {
-        CardInjectionStatus.PENDING
-    },
-    val injectedCardIds: List<String> = emptyList(),
-    val injectionCompletedAt: Long? = null,
-    val isStockAdded: Boolean = false,
-    val inventoryPackageId: String? = null,
-    val printStatus: CardPrintStatus = CardPrintStatus.NOT_PRINTED,
-    val printedAt: Long? = null
+    val planSpec: NetworkPlanSpec? = null
 ) {
-    val technicalMikrotikComment: String
-        get() = mikrotikComment.takeIf { it.isNotBlank() && it.all { char -> char.code in 0x20..0x7E } }
-            ?: createMikrotikBatchComment(profileName, createdAt, batchNumber)
-
     fun getEffectivePlan(): NetworkPlanSpec {
-        val plan = planSpec ?: NetworkPlanSpec.fromTemplate(templateSnapshot, displayTitle)
-        return plan.copy(profileName = profileName, commentTag = technicalMikrotikComment)
+        return planSpec ?: NetworkPlanSpec.fromTemplate(templateSnapshot, batchTitle)
     }
-}
-
-fun createMikrotikBatchComment(profileName: String, createdAt: Long, sequence: Long): String {
-    val profile = profileName
-        .replace(Regex("[^A-Za-z0-9_-]"), "_")
-        .trim('_', '-')
-        .take(32)
-        .ifBlank { "default" }
-    val date = java.text.SimpleDateFormat("dd_MM", java.util.Locale.US)
-        .format(java.util.Date(createdAt))
-    return "card${profile}_${date}_B${sequence.coerceAtLeast(1L)}"
 }
 
 /**

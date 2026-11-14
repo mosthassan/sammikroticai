@@ -32,5 +32,5 @@ class InsufficientTreasuryFundsException(
     val treasuryId: String,
     val availableMinor: Long,
     val requiredMinor: Long,
-    message: String = "رصيد الخزينة لا يكفي لإتمام العملية (المتاح: $availableMinor، المطلوب: $requiredMinor). يرجى استخدام 'تحويل/مصارفة' لتغذية الخزينة بالسيولة الكافية أولاً."
+    message: String = "Insufficient treasury funds in $treasuryId: available $availableMinor minor units, required $requiredMinor minor units"
 ) : IllegalStateException(message)

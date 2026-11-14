@@ -27,7 +27,6 @@ data class NetworkConfig(
     val primaryDns: String = "8.8.8.8",
     val secondaryDns: String = "1.1.1.1",
     val approvedSubnet: String = "10.10.0.0/16",
-    val baseCurrency: com.example.core.model.CurrencyCode = com.example.core.model.CurrencyCode.YER,
     val rateZone: RateZone = RateZone.SANAA,
     val defaultUsdRateMicros: Long = 535_000_000L,
     val defaultSarRateMicros: Long = 140_500_000L,
@@ -151,8 +150,6 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
                 val json = JSONObject(configFile.readText())
                 val zoneStr = json.optString("rateZone", RateZone.SANAA.name)
                 val zone = runCatching { RateZone.valueOf(zoneStr) }.getOrDefault(RateZone.SANAA)
-                val currencyStr = json.optString("baseCurrency", com.example.core.model.CurrencyCode.YER.name)
-                val baseCurrency = runCatching { com.example.core.model.CurrencyCode.valueOf(currencyStr) }.getOrDefault(com.example.core.model.CurrencyCode.YER)
                 val usdMicros = json.optLong("defaultUsdRateMicros", 535_000_000L)
                 val sarMicros = json.optLong("defaultSarRateMicros", 140_500_000L)
                 val updatedAt = json.optLong("updatedAt", System.currentTimeMillis())
@@ -180,8 +177,6 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
                 val name = networkPrefs.getString("network_name", null) ?: networkPrefs.getString("networkName", "شبكة توزيع الإنترنت") ?: "شبكة توزيع الإنترنت"
                 val zoneStr = networkPrefs.getString("rate_zone", null) ?: networkPrefs.getString("rateZone", RateZone.SANAA.name) ?: RateZone.SANAA.name
                 val zone = runCatching { RateZone.valueOf(zoneStr) }.getOrDefault(RateZone.SANAA)
-                val currStr = networkPrefs.getString("base_currency", null) ?: networkPrefs.getString("baseCurrency", com.example.core.model.CurrencyCode.YER.name) ?: com.example.core.model.CurrencyCode.YER.name
-                val curr = runCatching { com.example.core.model.CurrencyCode.valueOf(currStr) }.getOrDefault(com.example.core.model.CurrencyCode.YER)
                 NetworkConfig(
                     networkName = name,
                     ownerName = networkPrefs.getString("owner_name", null) ?: networkPrefs.getString("ownerName", "مدير الشبكة") ?: "مدير الشبكة",
@@ -197,7 +192,6 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
                     primaryDns = networkPrefs.getString("primary_dns", null) ?: networkPrefs.getString("primaryDns", "8.8.8.8") ?: "8.8.8.8",
                     secondaryDns = networkPrefs.getString("secondary_dns", null) ?: networkPrefs.getString("secondaryDns", "1.1.1.1") ?: "1.1.1.1",
                     approvedSubnet = networkPrefs.getString("approved_subnet", null) ?: networkPrefs.getString("approvedSubnet", "10.10.0.0/16") ?: "10.10.0.0/16",
-                    baseCurrency = curr,
                     rateZone = zone,
                     defaultUsdRateMicros = networkPrefs.getLong("default_usd_rate_micros", networkPrefs.getLong("defaultUsdRateMicros", 535_000_000L)),
                     defaultSarRateMicros = networkPrefs.getLong("default_sar_rate_micros", networkPrefs.getLong("defaultSarRateMicros", 140_500_000L)),
@@ -227,7 +221,6 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
             put("primaryDns", newConfig.primaryDns)
             put("secondaryDns", newConfig.secondaryDns)
             put("approvedSubnet", newConfig.approvedSubnet)
-            put("baseCurrency", newConfig.baseCurrency.name)
             put("rateZone", newConfig.rateZone.name)
             put("defaultUsdRateMicros", newConfig.defaultUsdRateMicros)
             put("defaultSarRateMicros", newConfig.defaultSarRateMicros)
@@ -263,8 +256,6 @@ class NetworkRepository(private val context: Context) : com.example.data.local.d
             .putString("secondaryDns", newConfig.secondaryDns)
             .putString("approved_subnet", newConfig.approvedSubnet)
             .putString("approvedSubnet", newConfig.approvedSubnet)
-            .putString("base_currency", newConfig.baseCurrency.name)
-            .putString("baseCurrency", newConfig.baseCurrency.name)
             .putString("rate_zone", newConfig.rateZone.name)
             .putString("rateZone", newConfig.rateZone.name)
             .putLong("default_usd_rate_micros", newConfig.defaultUsdRateMicros)

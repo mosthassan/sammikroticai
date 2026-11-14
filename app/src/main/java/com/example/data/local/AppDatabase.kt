@@ -314,8 +314,6 @@ abstract class AppDatabase : RoomDatabase() {
         override fun onOpen(db: SupportSQLiteDatabase) {
             super.onOpen(db)
             installTriggers(db)
-            // Ensure no treasury is allowed to overdrive, correcting any dirty states safely
-            db.execSQL("UPDATE treasury_accounts SET allowNegative = 0")
         }
     }
 }
