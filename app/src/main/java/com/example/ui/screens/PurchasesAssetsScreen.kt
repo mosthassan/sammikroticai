@@ -746,31 +746,17 @@ fun NewPurchaseBottomSheet(
     val today = remember { com.example.core.time.AppClock.todayEpochDay() }
 
     LaunchedEffect(selectedCurrency, selectedZone, effectiveConfig) {
-        when (selectedCurrency) {
-            CurrencyCode.YER -> {
-                rateInputText = "1.0"
-                isRateManuallyEdited = false
-            }
-            CurrencyCode.USD -> {
-                val defaultRateMicros = if (selectedZone == effectiveConfig.rateZone) {
-                    effectiveConfig.defaultUsdRateMicros
-                } else {
-                    effectiveResolver.resolveOrNull(CurrencyCode.USD, today, selectedZone)?.rateMicros
-                        ?: if (selectedZone == RateZone.ADEN) 1_600_000_000L else 535_000_000L
-                }
-                rateInputText = ExchangeRate.formatRateMicros(defaultRateMicros)
-                isRateManuallyEdited = false
-            }
-            CurrencyCode.SAR -> {
-                val defaultRateMicros = if (selectedZone == effectiveConfig.rateZone) {
-                    effectiveConfig.defaultSarRateMicros
-                } else {
-                    effectiveResolver.resolveOrNull(CurrencyCode.SAR, today, selectedZone)?.rateMicros
-                        ?: if (selectedZone == RateZone.ADEN) 420_000_000L else 140_500_000L
-                }
-                rateInputText = ExchangeRate.formatRateMicros(defaultRateMicros)
-                isRateManuallyEdited = false
-            }
+        if (selectedCurrency == CurrencyCode.FUNCTIONAL) {
+            rateInputText = "1.0"
+            isRateManuallyEdited = false
+        } else {
+            val defaultRateMicros = when (selectedCurrency) {
+                CurrencyCode.USD -> if (selectedZone == effectiveConfig.rateZone) effectiveConfig.defaultUsdRateMicros else null
+                CurrencyCode.SAR -> if (selectedZone == effectiveConfig.rateZone) effectiveConfig.defaultSarRateMicros else null
+                else -> null
+            } ?: effectiveResolver.resolveOrNull(selectedCurrency, today, selectedZone)?.rateMicros ?: ExchangeRate.SCALE_MICROS
+            rateInputText = ExchangeRate.formatRateMicros(defaultRateMicros)
+            isRateManuallyEdited = false
         }
     }
 
@@ -1121,6 +1107,7 @@ fun NewPurchaseBottomSheet(
                                                 IconButton(
                                                     onClick = {
                                                         rateInputText = when (selectedCurrency) {
+                                                            CurrencyCode.FUNCTIONAL -> "1.0"
                                                             CurrencyCode.USD -> ExchangeRate.formatRateMicros(effectiveConfig.defaultUsdRateMicros)
                                                             CurrencyCode.SAR -> ExchangeRate.formatRateMicros(effectiveConfig.defaultSarRateMicros)
                                                             else -> "1.0"

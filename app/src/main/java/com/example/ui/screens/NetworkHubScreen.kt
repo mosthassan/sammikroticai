@@ -107,6 +107,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.CurrencyExchange
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.TextButton
@@ -586,6 +590,7 @@ private fun HubTabItem(
 // ==========================================
 // Tab 1: Network Configuration
 // ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NetworkConfigTab(
     config: NetworkConfig,
@@ -603,9 +608,12 @@ private fun NetworkConfigTab(
     var primaryDns by remember(config) { mutableStateOf(config.primaryDns) }
     var secondaryDns by remember(config) { mutableStateOf(config.secondaryDns) }
     var approvedSubnet by remember(config) { mutableStateOf(config.approvedSubnet) }
+    var baseCurrency by remember(config) { mutableStateOf(config.baseCurrency) }
     var rateZone by remember(config) { mutableStateOf(config.rateZone) }
     var usdRateText by remember(config) { mutableStateOf(ExchangeRate.formatRateMicros(config.defaultUsdRateMicros)) }
     var sarRateText by remember(config) { mutableStateOf(ExchangeRate.formatRateMicros(config.defaultSarRateMicros)) }
+    
+    var showCountryMenu by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -712,43 +720,51 @@ private fun NetworkConfigTab(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Text("النطاق الجغرافي للتسعير (Pricing Zone):", color = TextPrimaryDark, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("الدولة والعملة الأساسية (Base Currency):", color = TextPrimaryDark, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    
+                    ExposedDropdownMenuBox(
+                        expanded = showCountryMenu,
+                        onExpandedChange = { showCountryMenu = it },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        FilterChip(
-                            selected = rateZone == RateZone.SANAA,
-                            onClick = { rateZone = RateZone.SANAA },
-                            label = { Text("صنعاء والمحافظات الشمالية", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MikroTikPrimary,
-                                selectedLabelColor = Color.White
-                            ),
-                            modifier = Modifier.weight(1f)
+                        OutlinedTextField(
+                            value = "${rateZone.arabicName} - ${baseCurrency.arabicName} (${baseCurrency.name})",
+                            onValueChange = {}, readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showCountryMenu) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MikroTikPrimary,
+                                unfocusedBorderColor = CyberBorder,
+                                focusedTextColor = TextPrimaryDark,
+                                unfocusedTextColor = TextPrimaryDark,
+                                focusedContainerColor = CyberDarkSurface,
+                                unfocusedContainerColor = CyberDarkSurface
+                            )
                         )
-                        FilterChip(
-                            selected = rateZone == RateZone.ADEN,
-                            onClick = { rateZone = RateZone.ADEN },
-                            label = { Text("عدن والمحافظات الجنوبية", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MikroTikPrimary,
-                                selectedLabelColor = Color.White
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
+                        ExposedDropdownMenu(
+                            expanded = showCountryMenu,
+                            onDismissRequest = { showCountryMenu = false }
+                        ) {
+                            DropdownMenuItem(text = { Text("اليمن (صنعاء) - ريال يمني (YER)") }, onClick = { rateZone = RateZone.SANAA; baseCurrency = CurrencyCode.YER; showCountryMenu = false })
+                            DropdownMenuItem(text = { Text("اليمن (عدن) - ريال يمني (YER)") }, onClick = { rateZone = RateZone.ADEN; baseCurrency = CurrencyCode.YER; showCountryMenu = false })
+                            DropdownMenuItem(text = { Text("السعودية - ريال سعودي (SAR)") }, onClick = { rateZone = RateZone.KSA; baseCurrency = CurrencyCode.SAR; showCountryMenu = false })
+                            DropdownMenuItem(text = { Text("مصر - جنيه مصري (EGP)") }, onClick = { rateZone = RateZone.EGYPT; baseCurrency = CurrencyCode.EGP; showCountryMenu = false })
+                            DropdownMenuItem(text = { Text("العراق - دينار عراقي (IQD)") }, onClick = { rateZone = RateZone.IRAQ; baseCurrency = CurrencyCode.IQD; showCountryMenu = false })
+                            DropdownMenuItem(text = { Text("الإمارات - درهم إماراتي (AED)") }, onClick = { rateZone = RateZone.UAE; baseCurrency = CurrencyCode.AED; showCountryMenu = false })
+                            DropdownMenuItem(text = { Text("مخصص - عملة مخصصة (CUSTOM)") }, onClick = { rateZone = RateZone.CUSTOM; baseCurrency = CurrencyCode.CUSTOM; showCountryMenu = false })
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
                     HubTextField(
-                        label = "سعر صرف الدولار الافتراضي (1 USD مقابل YER)",
+                        label = "سعر صرف الدولار (1 USD مقابل ${baseCurrency.name})",
                         value = usdRateText,
                         onValueChange = { usdRateText = it }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     HubTextField(
-                        label = "سعر صرف الريال السعودي الافتراضي (1 SAR مقابل YER)",
+                        label = "سعر صرف السعودي (1 SAR مقابل ${baseCurrency.name})",
                         value = sarRateText,
                         onValueChange = { sarRateText = it }
                     )
@@ -785,6 +801,7 @@ private fun NetworkConfigTab(
                             approvedSubnet = approvedSubnet,
                             primaryDns = primaryDns,
                             secondaryDns = secondaryDns,
+                            baseCurrency = baseCurrency,
                             rateZone = rateZone,
                             defaultUsdRateMicros = parsedUsd,
                             defaultSarRateMicros = parsedSar,
@@ -1493,36 +1510,27 @@ private fun RatesHubTab(
 
     val primaryZone = org?.primaryRateZone ?: "SANAA"
 
-    // Group rates for USD and SAR by zone
-    val usdSanaa = remember(allRates) {
-        allRates.filter { it.currency == "USD" && it.zone == "SANAA" }
-            .maxByOrNull { it.effectiveDateEpochDay }
-    }
-    val usdAden = remember(allRates) {
-        allRates.filter { it.currency == "USD" && it.zone == "ADEN" }
-            .maxByOrNull { it.effectiveDateEpochDay }
-    }
-    val sarSanaa = remember(allRates) {
-        allRates.filter { it.currency == "SAR" && it.zone == "SANAA" }
-            .maxByOrNull { it.effectiveDateEpochDay }
-    }
-    val sarAden = remember(allRates) {
-        allRates.filter { it.currency == "SAR" && it.zone == "ADEN" }
-            .maxByOrNull { it.effectiveDateEpochDay }
+    val activeCurrencies = remember(allRates) {
+        allRates.mapNotNull { runCatching { CurrencyCode.valueOf(it.currency) }.getOrNull() }
+            .distinct()
+            .filter { it != CurrencyCode.FUNCTIONAL }
     }
 
     // Alerts
-    val isAnyRateOlderThan7Days = remember(usdSanaa, usdAden, sarSanaa, sarAden) {
-        listOfNotNull(usdSanaa, usdAden, sarSanaa, sarAden).any {
-            (todayEpoch - it.effectiveDateEpochDay) > 7
+    val isAnyRateOlderThan7Days = remember(allRates, todayEpoch) {
+        activeCurrencies.any { curr ->
+            val latest = allRates.filter { it.currency == curr.name }.maxByOrNull { it.effectiveDateEpochDay }
+            latest != null && (todayEpoch - latest.effectiveDateEpochDay) > 7
         }
     }
 
-    val isUsdDivergenceHigh = remember(usdSanaa, usdAden) {
-        if (usdSanaa != null && usdAden != null && usdSanaa.rateMicros > 0L && usdAden.rateMicros > 0L) {
-            val diff = kotlin.math.abs(usdSanaa.rateMicros - usdAden.rateMicros)
-            val minRate = minOf(usdSanaa.rateMicros, usdAden.rateMicros)
-            diff * 2L > minRate // > 50%
+    val isUsdDivergenceHigh = remember(allRates) {
+        val usdRates = allRates.filter { it.currency == "USD" }
+        val maxRate = usdRates.maxOfOrNull { it.rateMicros } ?: 0L
+        val minRate = usdRates.minOfOrNull { it.rateMicros } ?: 0L
+        if (minRate > 0L) {
+            val diff = maxRate - minRate
+            diff * 2L > minRate
         } else false
     }
 
@@ -1650,35 +1658,54 @@ private fun RatesHubTab(
             }
         }
 
-        // USD Dual Rates Section
-        CurrencyDualRatesSection(
-            currency = CurrencyCode.USD,
-            currencyLabel = "الدولار الأمريكي (USD)",
-            sanaaRate = usdSanaa,
-            adenRate = usdAden,
-            primaryZone = primaryZone,
-            onUpdateRate = { zone ->
-                selectedCurrencyForUpdate = CurrencyCode.USD
-                selectedZoneForUpdate = zone
-                showUpdateDialog = true
+        // Dynamic Rates Sections
+        activeCurrencies.forEach { curr ->
+            val sanaaRate = allRates.filter { it.currency == curr.name && it.zone == RateZone.SANAA.name }.maxByOrNull { it.effectiveDateEpochDay }
+            val adenRate = allRates.filter { it.currency == curr.name && it.zone == RateZone.ADEN.name }.maxByOrNull { it.effectiveDateEpochDay }
+            
+            CurrencyDualRatesSection(
+                currency = curr,
+                currencyLabel = "${curr.arabicName} (${curr.name})",
+                sanaaRate = sanaaRate,
+                adenRate = adenRate,
+                primaryZone = primaryZone,
+                onUpdateRate = { zone ->
+                    selectedCurrencyForUpdate = curr
+                    selectedZoneForUpdate = zone
+                    showUpdateDialog = true
+                }
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        
+        // USD/SAR Cross Rate Card
+        if (activeCurrencies.contains(CurrencyCode.USD) && activeCurrencies.contains(CurrencyCode.SAR)) {
+            val usdRate = allRates.filter { it.currency == "USD" && it.zone == primaryZone }.maxByOrNull { it.effectiveDateEpochDay }?.rateMicros
+            val sarRate = allRates.filter { it.currency == "SAR" && it.zone == primaryZone }.maxByOrNull { it.effectiveDateEpochDay }?.rateMicros
+            
+            if (usdRate != null && sarRate != null && sarRate > 0) {
+                val crossRate = usdRate.toDouble() / sarRate.toDouble()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = CyberDarkCardElevated),
+                    border = BorderStroke(1.dp, MikroTikCyan)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text("سعر الصرف التقاطعي (Cross Rate)", color = MikroTikCyan, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = String.format(java.util.Locale.US, "1 USD = %.4f SAR", crossRate),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimaryDark
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("ملاحظة: السعر محسوب بناءً على سعر الدولار والسعودي مقابل العملة الأساسية (${CurrencyCode.FUNCTIONAL.name}) في المنطقة الافتراضية ($primaryZone).", fontSize = 11.sp, color = TextMutedDark)
+                    }
+                }
             }
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // SAR Dual Rates Section
-        CurrencyDualRatesSection(
-            currency = CurrencyCode.SAR,
-            currencyLabel = "الريال السعودي (SAR)",
-            sanaaRate = sarSanaa,
-            adenRate = sarAden,
-            primaryZone = primaryZone,
-            onUpdateRate = { zone ->
-                selectedCurrencyForUpdate = CurrencyCode.SAR
-                selectedZoneForUpdate = zone
-                showUpdateDialog = true
-            }
-        )
+        }
     }
 
     if (showUpdateDialog && viewModel != null) {
@@ -1963,8 +1990,11 @@ private fun UpdateRateDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text("العملة الأجنبية:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(CurrencyCode.USD, CurrencyCode.SAR).forEach { c ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    CurrencyCode.entries.filter { it != CurrencyCode.FUNCTIONAL }.forEach { c ->
                         FilterChip(
                             selected = currency == c,
                             onClick = { currency = c },
@@ -1978,8 +2008,11 @@ private fun UpdateRateDialog(
                 }
 
                 Text("النطاق الجغرافي / المنطقة:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(RateZone.SANAA, RateZone.ADEN).forEach { z ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    RateZone.entries.forEach { z ->
                         FilterChip(
                             selected = zone == z,
                             onClick = { zone = z },

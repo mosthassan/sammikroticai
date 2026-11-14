@@ -381,9 +381,12 @@ class MikrotikApiClient(
         cards: List<GeneratedCard>,
         plan: NetworkPlanSpec,
         batchComment: String,
-        onProgress: (injected: Int, total: Int) -> Unit
+        onProgress: suspend (injected: Int, total: Int) -> Unit
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
+            require(batchComment.isNotBlank() && batchComment.all { it.code in 0x20..0x7E }) {
+                "يجب أن يكون تعليق الدفعة المرسل للراوتر ASCII فقط"
+            }
             if (cards.isEmpty()) return@runCatching 0
             val socket = Socket()
             socket.connect(InetSocketAddress(host, apiPort), 3000)
@@ -393,11 +396,24 @@ class MikrotikApiClient(
             var injectedCount = 0
             try {
                 loginRouterOs(inStream, outStream)
+                val existingUsernames = executeCommand(
+                    inStream,
+                    outStream,
+                    listOf("/ip/hotspot/user/print", "=.proplist=name,comment", "?comment=$batchComment")
+                ).asSequence()
+                    .filter { it["comment"] == batchComment }
+                    .mapNotNull { it["name"] }
+                    .toMutableSet()
 
                 // Chunk into 50 cards to avoid memory pressure on low-end RouterBOARDs
                 val chunks = cards.chunked(50)
                 for (chunk in chunks) {
                     for (card in chunk) {
+                        if (card.username in existingUsernames) {
+                            injectedCount++
+                            onProgress(injectedCount, cards.size)
+                            continue
+                        }
                         val words = mutableListOf(
                             "/ip/hotspot/user/add",
                             "=name=${card.username}",
@@ -412,12 +428,11 @@ class MikrotikApiClient(
                         if (plan.uptimeHours > 0) {
                             words.add("=limit-uptime=${plan.uptimeHours}h")
                         }
-                        runCatching {
-                            executeCommand(inStream, outStream, words)
-                            injectedCount++
-                        }
+                        executeCommand(inStream, outStream, words)
+                        existingUsernames.add(card.username)
+                        injectedCount++
+                        onProgress(injectedCount, cards.size)
                     }
-                    onProgress(injectedCount, cards.size)
                     kotlinx.coroutines.delay(40)
                 }
                 injectedCount
@@ -433,9 +448,12 @@ class MikrotikApiClient(
         cards: List<GeneratedCard>,
         plan: NetworkPlanSpec,
         batchComment: String,
-        onProgress: (injected: Int, total: Int) -> Unit
+        onProgress: suspend (injected: Int, total: Int) -> Unit
     ): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
+            require(batchComment.isNotBlank() && batchComment.all { it.code in 0x20..0x7E }) {
+                "يجب أن يكون تعليق الدفعة المرسل للراوتر ASCII فقط"
+            }
             if (cards.isEmpty()) return@runCatching 0
             val socket = Socket()
             socket.connect(InetSocketAddress(host, apiPort), 3000)
@@ -445,9 +463,31 @@ class MikrotikApiClient(
             var injectedCount = 0
             try {
                 loginRouterOs(inStream, outStream)
+                val existingUsers = try {
+                    executeCommand(
+                        inStream,
+                        outStream,
+                        listOf("/user-manager/user/print", "=.proplist=name,username,comment", "?comment=$batchComment")
+                    )
+                } catch (_: Exception) {
+                    executeCommand(
+                        inStream,
+                        outStream,
+                        listOf("/tool/user-manager/user/print", "=.proplist=name,username,comment", "?comment=$batchComment")
+                    )
+                }
+                val existingUsernames = existingUsers.asSequence()
+                    .filter { it["comment"] == batchComment }
+                    .mapNotNull { it["name"] ?: it["username"] }
+                    .toMutableSet()
                 val chunks = cards.chunked(50)
                 for (chunk in chunks) {
                     for (card in chunk) {
+                        if (card.username in existingUsernames) {
+                            injectedCount++
+                            onProgress(injectedCount, cards.size)
+                            continue
+                        }
                         // Try v7 user-manager command
                         val words = mutableListOf(
                             "/user-manager/user/add",
@@ -465,11 +505,12 @@ class MikrotikApiClient(
                                 "=customer=admin",
                                 "=comment=$batchComment"
                             )
-                            runCatching { executeCommand(inStream, outStream, v6Words) }
+                            executeCommand(inStream, outStream, v6Words)
                         }
+                        existingUsernames.add(card.username)
                         injectedCount++
+                        onProgress(injectedCount, cards.size)
                     }
-                    onProgress(injectedCount, cards.size)
                     kotlinx.coroutines.delay(40)
                 }
                 injectedCount

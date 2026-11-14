@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import android.net.Uri
 import com.example.data.card.CardBatch
+import com.example.data.card.CardInjectionStatus
+import com.example.data.card.CardInjectionTarget
 import com.example.data.card.CardPreviewMode
 import com.example.data.card.CardStudioRepository
 import com.example.data.card.CardTemplate
@@ -39,6 +41,11 @@ import com.example.data.network.RouterProfilesRepository
 import com.example.data.network.MikrotikApiClient
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 enum class CardStudioTab(
     val titleAr: String,
@@ -80,6 +87,8 @@ data class CardStudioUiState(
     val isGenerating: Boolean = false,
     val selectedBatchForPreview: CardBatch? = null,
     val batchTitleInput: String = "كرت 500 - باقة 2700 ميجا",
+    val mikrotikCommentPreview: String = "",
+    val internalNoteInput: String = "",
     val batchCountInput: Int = 24,
     val batchProfileInput: String = "2700M_35H",
     val batchPrefixInput: String = "",
@@ -91,6 +100,7 @@ data class CardStudioUiState(
     val isGeneratingPdf: Boolean = false,
     val pdfProgress: Pair<Int, Int>? = null,
     val isInjectingToRouter: Boolean = false,
+    val activeInjectionBatchId: String? = null,
     val injectProgress: Pair<Int, Int>? = null,
     val injectSuccessDialogCount: Int? = null,
     val missingProfileWarning: Pair<CardBatch, String>? = null
@@ -115,6 +125,11 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _userMessage = MutableSharedFlow<String>()
     val userMessage: SharedFlow<String> = _userMessage.asSharedFlow()
+    private val isCreatingBatch = AtomicBoolean(false)
+    private val isCreatingPdf = AtomicBoolean(false)
+    private val isAnyBatchInjecting = AtomicBoolean(false)
+    private val activeInjectionIds = ConcurrentHashMap.newKeySet<String>()
+    private var initialTemplateLoaded = false
 
     fun selectPackageForGeneration(pkg: CardPackageEntity) {
         val q = pkg.quotaMb
@@ -123,26 +138,31 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         val priceText = "${pkg.retailPriceMinor / 100L} ر.ي"
 
         _uiState.update { current ->
+            val updatedTemplate = current.editingTemplate.copy(
+                targetPackageName = pkg.name,
+                targetPackageProfile = p,
+                priceText = priceText,
+                quotaText = if (q > 0) "$q ميجا" else "سعة مفتوحة",
+                validityText = if (u > 0) "$u ساعة" else "وقت مفتوح"
+            )
             current.copy(
                 activeTab = CardStudioTab.GENERATOR,
-                batchTitleInput = "كروت ${pkg.name}",
                 batchProfileInput = p,
-                editingTemplate = current.editingTemplate.copy(
-                    targetPackageName = pkg.name,
-                    targetPackageProfile = p,
-                    priceText = priceText,
-                    quotaText = if (q > 0) "$q ميجا" else "سعة مفتوحة",
-                    validityText = if (u > 0) "$u ساعة" else "وقت مفتوح"
-                )
-            )
+                editingTemplate = updatedTemplate
+            ).withBatchIdentity(updatedTemplate, p, nextBatchNumber())
         }
     }
 
     init {
         viewModelScope.launch {
             repository.templates.collect { list ->
-                if (list.isNotEmpty() && _uiState.value.editingTemplate.id == CardTemplate().id) {
-                    _uiState.value = _uiState.value.copy(editingTemplate = list.first())
+                if (list.isNotEmpty() && !initialTemplateLoaded) {
+                    initialTemplateLoaded = true
+                    val template = list.first()
+                    _uiState.update {
+                        it.copy(editingTemplate = template, batchProfileInput = template.targetPackageProfile)
+                            .withBatchIdentity(template, template.targetPackageProfile, nextBatchNumber())
+                    }
                 }
             }
         }
@@ -157,18 +177,44 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun selectTemplate(template: CardTemplate) {
-        _uiState.update { it.copy(editingTemplate = template) }
+        _uiState.update { it.copy(editingTemplate = template, batchProfileInput = template.targetPackageProfile)
+            .withBatchIdentity(template, template.targetPackageProfile, nextBatchNumber()) }
     }
 
     fun setEditingTemplate(template: CardTemplate) {
-        _uiState.value = _uiState.value.copy(
-            editingTemplate = template,
-            activeTab = CardStudioTab.DESIGNER
-        )
+        _uiState.update {
+            it.copy(editingTemplate = template, activeTab = CardStudioTab.DESIGNER, batchProfileInput = template.targetPackageProfile)
+                .withBatchIdentity(template, template.targetPackageProfile, nextBatchNumber())
+        }
     }
 
     fun updateEditingTemplate(updated: CardTemplate) {
-        _uiState.value = _uiState.value.copy(editingTemplate = updated)
+        _uiState.update { current ->
+            val next = current.copy(editingTemplate = updated)
+            if (updated.targetPackageProfile != current.editingTemplate.targetPackageProfile ||
+                updated.targetPackageName != current.editingTemplate.targetPackageName
+            ) {
+                next.copy(batchProfileInput = updated.targetPackageProfile)
+                    .withBatchIdentity(updated, updated.targetPackageProfile, nextBatchNumber())
+            } else next
+        }
+    }
+
+    private fun nextBatchNumber(): Long = (batches.value.maxOfOrNull { it.batchNumber } ?: 0L) + 1L
+
+    private fun CardStudioUiState.withBatchIdentity(
+        template: CardTemplate,
+        profile: String,
+        sequence: Long,
+        createdAt: Long = System.currentTimeMillis()
+    ): CardStudioUiState {
+        val date = SimpleDateFormat("dd/MM", Locale.US).format(Date(createdAt))
+        val packageName = template.targetPackageName.ifBlank { template.name.ifBlank { profile } }
+        val title = "$packageName (${template.quotaText}) - $date #$sequence"
+        return copy(
+            batchTitleInput = title,
+            mikrotikCommentPreview = com.example.data.card.createMikrotikBatchComment(profile, createdAt, sequence)
+        )
     }
 
     fun applyThemePreset(preset: CardThemePreset) {
@@ -326,18 +372,24 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         userLength: Int? = null,
         pattern: PasswordPattern? = null,
         characterSet: CardCharacterSet? = null,
-        format: PrintPageFormat? = null
+        format: PrintPageFormat? = null,
+        internalNote: String? = null
     ) {
-        _uiState.value = _uiState.value.copy(
-            batchTitleInput = title ?: _uiState.value.batchTitleInput,
-            batchCountInput = count ?: _uiState.value.batchCountInput,
-            batchProfileInput = profile ?: _uiState.value.batchProfileInput,
-            batchPrefixInput = prefix ?: _uiState.value.batchPrefixInput,
-            batchUserLengthInput = userLength ?: _uiState.value.batchUserLengthInput,
-            batchPasswordPattern = pattern ?: _uiState.value.batchPasswordPattern,
-            batchCharacterSet = characterSet ?: _uiState.value.batchCharacterSet,
-            selectedPrintFormat = format ?: _uiState.value.selectedPrintFormat
-        )
+        _uiState.update { current ->
+            val updated = current.copy(
+                batchCountInput = count ?: current.batchCountInput,
+                batchProfileInput = profile ?: current.batchProfileInput,
+                batchPrefixInput = prefix ?: current.batchPrefixInput,
+                batchUserLengthInput = userLength ?: current.batchUserLengthInput,
+                batchPasswordPattern = pattern ?: current.batchPasswordPattern,
+                batchCharacterSet = characterSet ?: current.batchCharacterSet,
+                selectedPrintFormat = format ?: current.selectedPrintFormat,
+                internalNoteInput = internalNote ?: current.internalNoteInput
+            )
+            if (profile != null && profile != current.batchProfileInput) {
+                updated.withBatchIdentity(current.editingTemplate, profile, nextBatchNumber())
+            } else updated
+        }
     }
 
     fun generateBatch() {
@@ -345,29 +397,38 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun generateBatchWithAction(andInjectToRouter: Boolean = false, onSuccess: ((CardBatch) -> Unit)? = null) {
+        if (!isCreatingBatch.compareAndSet(false, true)) return
         val state = _uiState.value
         if (state.batchCountInput <= 0) {
+            isCreatingBatch.set(false)
             viewModelScope.launch { _userMessage.emit("يرجى تحديد عدد كروت صالح") }
             return
         }
 
+        _uiState.update { it.copy(isGenerating = true) }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isGenerating = true)
             try {
                 val batch = repository.generateBatch(
-                    title = state.batchTitleInput,
                     template = state.editingTemplate,
                     profileName = state.batchProfileInput,
                     count = state.batchCountInput,
                     prefix = state.batchPrefixInput,
                     usernameLength = state.batchUserLengthInput,
                     passwordPattern = state.batchPasswordPattern,
-                    characterSet = state.batchCharacterSet
+                    characterSet = state.batchCharacterSet,
+                    internalNote = state.internalNoteInput,
+                    injectionTarget = if (state.selectedSystemTarget == CardSystemTarget.USER_MANAGER) {
+                        CardInjectionTarget.USER_MANAGER
+                    } else {
+                        CardInjectionTarget.HOTSPOT
+                    }
                 )
                 _uiState.value = _uiState.value.copy(
                     isGenerating = false,
                     selectedBatchForPreview = batch,
-                    activeTab = CardStudioTab.BATCHES
+                    activeTab = CardStudioTab.BATCHES,
+                    batchTitleInput = batch.displayTitle,
+                    mikrotikCommentPreview = batch.technicalMikrotikComment
                 )
                 _userMessage.emit("تم توليد ${batch.cardCount} كرت بنجاح مع رموز QR الذكية!")
                 onSuccess?.invoke(batch)
@@ -377,6 +438,8 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isGenerating = false)
                 _userMessage.emit("تعذر توليد الدفعة: ${e.message}")
+            } finally {
+                isCreatingBatch.set(false)
             }
         }
     }
@@ -428,8 +491,9 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun exportAndSharePdf(context: Context, batch: CardBatch, format: PrintPageFormat = _uiState.value.selectedPrintFormat) {
+        if (!isCreatingPdf.compareAndSet(false, true)) return
+        _uiState.update { it.copy(isGeneratingPdf = true, pdfProgress = null) }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isGeneratingPdf = true, pdfProgress = null)
             try {
                 val file = withContext(Dispatchers.IO) {
                     CardPdfDocumentGenerator.generateBatchPdf(context, batch, format) { page, total ->
@@ -438,18 +502,24 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 _uiState.value = _uiState.value.copy(generatedPdfFile = file, isGeneratingPdf = false, pdfProgress = null)
                 CardPdfDocumentGenerator.sharePdfFile(context, file, "كروت الميكروتك - دفعة #${batch.batchNumber}")
+                repository.markBatchPrinted(batch.id)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isGeneratingPdf = false, pdfProgress = null)
                 _userMessage.emit("خطأ أثناء إنشاء ملف PDF: ${e.message}")
+            } finally {
+                isCreatingPdf.set(false)
             }
         }
     }
 
     fun shareMikrotikScript(context: Context, batch: CardBatch) {
-        try {
-            MikroTikCardProvisioner.shareScriptFile(context, batch)
-        } catch (e: Exception) {
-            viewModelScope.launch { _userMessage.emit("خطأ في تصدير السكربت: ${e.message}") }
+        viewModelScope.launch {
+            try {
+                MikroTikCardProvisioner.shareScriptFile(context, batch)
+                repository.markBatchPrinted(batch.id)
+            } catch (e: Exception) {
+                _userMessage.emit("خطأ في تصدير السكربت: ${e.message}")
+            }
         }
     }
 
@@ -553,11 +623,10 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             it.targetPackageProfile == profile || it.name.contains(price.filter { c -> c.isDigit() })
         }
         if (matchingTemplate != null) {
-            _uiState.value = _uiState.value.copy(
-                editingTemplate = matchingTemplate,
-                batchProfileInput = profile,
-                batchTitleInput = "كرت $price - $packageName"
-            )
+            _uiState.update {
+                it.copy(editingTemplate = matchingTemplate, batchProfileInput = profile)
+                    .withBatchIdentity(matchingTemplate, profile, nextBatchNumber())
+            }
             viewModelScope.launch {
                 _userMessage.emit("تم تفعيل قالب '${matchingTemplate.name}' المربوط بباقة $packageName 🎨")
             }
@@ -571,15 +640,16 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             )
             _uiState.value = _uiState.value.copy(
                 editingTemplate = updated,
-                batchProfileInput = profile,
-                batchTitleInput = "كرت $price - $packageName"
+                batchProfileInput = profile
             )
+            _uiState.update { it.withBatchIdentity(updated, profile, nextBatchNumber()) }
         }
     }
 
     fun previewAndSaveSamplePdf(context: Context) {
+        if (!isCreatingPdf.compareAndSet(false, true)) return
+        _uiState.update { it.copy(isGeneratingPdf = true, pdfProgress = null) }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isGeneratingPdf = true, pdfProgress = null)
             try {
                 val template = _uiState.value.editingTemplate
                 val format = _uiState.value.selectedPrintFormat
@@ -627,6 +697,8 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isGeneratingPdf = false, pdfProgress = null)
                 _userMessage.emit("خطأ أثناء تجهيز ورقة المعاينة: ${e.message}")
+            } finally {
+                isCreatingPdf.set(false)
             }
         }
     }
@@ -645,6 +717,7 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         val success = MikroTikCardProvisioner.copyScriptToClipboard(context, batch)
         viewModelScope.launch {
             if (success) {
+                repository.markBatchPrinted(batch.id)
                 _userMessage.emit("تم نسخ سكربت RouterOS (.rsc) للحافظة بنجاح 📋 جاهز للصق في Terminal")
             } else {
                 _userMessage.emit("تعذر نسخ السكربت للحافظة")
@@ -655,6 +728,7 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
     fun shareBatchScript(context: Context, batch: CardBatch) {
         runCatching {
             MikroTikCardProvisioner.shareScriptFile(context, batch)
+            viewModelScope.launch { repository.markBatchPrinted(batch.id) }
         }.onFailure {
             viewModelScope.launch {
                 _userMessage.emit("تعذر مشاركة ملف السكربت: ${it.message}")
@@ -662,7 +736,11 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun injectBatchToRouter(batch: CardBatch, skipProfileCheck: Boolean = false) {
+    fun injectBatchToRouter(
+        batch: CardBatch,
+        skipProfileCheck: Boolean = false,
+        recheckOnly: Boolean = false
+    ) {
         val active = routerProfilesRepository.activeProfile.value
         if (active == null) {
             viewModelScope.launch {
@@ -670,77 +748,122 @@ class CardStudioViewModel(application: Application) : AndroidViewModel(applicati
             }
             return
         }
+        if (!isAnyBatchInjecting.compareAndSet(false, true)) return
+        if (!activeInjectionIds.add(batch.id)) {
+            isAnyBatchInjecting.set(false)
+            return
+        }
 
         val plan = batch.getEffectivePlan()
 
         viewModelScope.launch {
-            val client = MikrotikApiClient(
-                host = active.host,
-                apiPort = active.apiPort,
-                httpPort = active.webPort,
-                username = active.username,
-                password = active.password
-            )
-
-            // Step 1: Pre-flight Profile Validation Gate (unless skipped by user)
-            if (!skipProfileCheck) {
-                _uiState.update { it.copy(isInjectingToRouter = true, injectProgress = null) }
-                val existsResult = client.checkHotspotProfileExists(plan.profileName)
-                if (existsResult.isSuccess && !existsResult.getOrDefault(true)) {
-                    _uiState.update {
-                        it.copy(
-                            isInjectingToRouter = false,
-                            missingProfileWarning = Pair(batch, plan.profileName)
-                        )
-                    }
-                    return@launch
-                }
-            }
-
-            // Step 2: Chunked Injection
+            var injectionStarted = false
+            var routerInjectionSucceeded = false
             _uiState.update {
                 it.copy(
                     isInjectingToRouter = true,
-                    missingProfileWarning = null,
-                    injectProgress = Pair(0, batch.cardCount)
+                    activeInjectionBatchId = batch.id,
+                    injectProgress = null,
+                    missingProfileWarning = null
                 )
             }
+            try {
+                val client = MikrotikApiClient(
+                    host = active.host,
+                    apiPort = active.apiPort,
+                    httpPort = active.webPort,
+                    username = active.username,
+                    password = active.password
+                )
+                val isUserManager = batch.injectionTarget == CardInjectionTarget.USER_MANAGER
 
-            val isUserManager = _uiState.value.selectedSystemTarget == CardSystemTarget.USER_MANAGER
-            val result = if (isUserManager) {
-                client.injectUserManagerBatch(
-                    cards = batch.cards,
-                    plan = plan,
-                    batchComment = batch.batchTitle
-                ) { injected, total ->
-                    _uiState.update { it.copy(injectProgress = Pair(injected, total)) }
+                if (!skipProfileCheck && !isUserManager) {
+                    val existsResult = client.checkHotspotProfileExists(plan.profileName)
+                    if (existsResult.isSuccess && !existsResult.getOrDefault(true)) {
+                        _uiState.update { it.copy(missingProfileWarning = Pair(batch, plan.profileName)) }
+                        return@launch
+                    }
                 }
-            } else {
-                client.injectHotspotBatch(
-                    cards = batch.cards,
-                    plan = plan,
-                    batchComment = batch.batchTitle
-                ) { injected, total ->
-                    _uiState.update { it.copy(injectProgress = Pair(injected, total)) }
-                }
-            }
 
-            if (result.isSuccess) {
-                val count = result.getOrDefault(batch.cardCount)
-                repository.markBatchSynced(batch.id, active.host)
+                val latestBatch = batches.value.firstOrNull { it.id == batch.id } ?: batch
+                repository.markBatchInjectionStarted(batch.id, active.host)
+                injectionStarted = true
+                val pendingCards = if (recheckOnly) {
+                    latestBatch.cards
+                } else {
+                    latestBatch.cards.filterNot { it.id in latestBatch.injectedCardIds }
+                }
+                val alreadyConfirmed = latestBatch.injectedCardIds.size.coerceAtMost(batch.cardCount)
+                _uiState.update { it.copy(injectProgress = alreadyConfirmed to batch.cardCount) }
+
+                val result = if (isUserManager) {
+                    client.injectUserManagerBatch(
+                        cards = pendingCards,
+                        plan = plan,
+                        batchComment = batch.technicalMikrotikComment
+                    ) { injected, _ ->
+                        pendingCards.getOrNull(injected - 1)?.let { card ->
+                            repository.markBatchCardsInjected(batch.id, listOf(card.id))
+                        }
+                        _uiState.update {
+                            it.copy(injectProgress = (alreadyConfirmed + injected).coerceAtMost(batch.cardCount) to batch.cardCount)
+                        }
+                    }
+                } else {
+                    client.injectHotspotBatch(
+                        cards = pendingCards,
+                        plan = plan,
+                        batchComment = batch.technicalMikrotikComment
+                    ) { injected, _ ->
+                        pendingCards.getOrNull(injected - 1)?.let { card ->
+                            repository.markBatchCardsInjected(batch.id, listOf(card.id))
+                        }
+                        _uiState.update {
+                            it.copy(injectProgress = (alreadyConfirmed + injected).coerceAtMost(batch.cardCount) to batch.cardCount)
+                        }
+                    }
+                }
+
+                if (result.isFailure) {
+                    val error = result.exceptionOrNull()?.message ?: "فشل غير معروف"
+                    repository.finishBatchInjection(batch.id, active.host, failed = true)
+                    val current = batches.value.firstOrNull { it.id == batch.id } ?: batch
+                    val remaining = (current.cardCount - current.injectedCardIds.size).coerceAtLeast(0)
+                    _userMessage.emit(
+                        if (current.injectedCardIds.isNotEmpty()) {
+                            "توقف الحقن بعد تأكيد ${current.injectedCardIds.size} كرت؛ يمكنك استئناف حقن المتبقي ($remaining). $error"
+                        } else {
+                            "فشل حقن الدفعة في الراوتر: $error"
+                        }
+                    )
+                    return@launch
+                }
+                repository.finishBatchInjection(batch.id, active.host, failed = false)
+                routerInjectionSucceeded = true
+                val stock = repository.addBatchStockToInventory(batch.id)
+                _uiState.update { it.copy(injectSuccessDialogCount = stock.quantity) }
+                _userMessage.emit(
+                    if (stock.alreadyAdded) {
+                        "✅ تم التحقق من الدفعة؛ مخزون (${stock.quantity}) كرت لباقة (${stock.packageName}) مسجل مسبقاً دون تكرار"
+                    } else {
+                        "✅ تم حقن الدفعة في الميكروتك وإضافة (${stock.quantity}) كرت إلى مخزن باقة (${stock.packageName}) بنجاح"
+                    }
+                )
+            } catch (error: Exception) {
+                if (injectionStarted && !routerInjectionSucceeded) {
+                    runCatching { repository.finishBatchInjection(batch.id, active.host, failed = true) }
+                }
+                _userMessage.emit("تعذر إكمال حقن الدفعة أو تحديث حالتها: ${error.message}")
+            } finally {
+                activeInjectionIds.remove(batch.id)
+                isAnyBatchInjecting.set(false)
                 _uiState.update {
                     it.copy(
                         isInjectingToRouter = false,
-                        injectProgress = null,
-                        injectSuccessDialogCount = count
+                        activeInjectionBatchId = null,
+                        injectProgress = null
                     )
                 }
-                val sysName = if (isUserManager) "اليوزرمانجر" else "الهوتسبوت"
-                _userMessage.emit("تم بنجاح حقن $count كرت في نظام $sysName بالراوتر (${active.host}) ⚡")
-            } else {
-                val err = result.exceptionOrNull()?.message ?: "فشل غير معروف"
-                _uiState.update { it.copy(isInjectingToRouter = false, injectProgress = null) }
-                _userMessage.emit("فشل حقن الدفعة في الراوتر: $err ⚠️")
             }
         }
     }

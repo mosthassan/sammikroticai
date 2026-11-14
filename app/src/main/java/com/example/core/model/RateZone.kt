@@ -6,11 +6,16 @@ package com.example.core.model
  * ADEN: Southern Governorates (Central Bank Aden rate regime).
  */
 enum class RateZone(val arabicName: String) {
-    SANAA("صنعاء والمحافظات الشمالية"),
-    ADEN("عدن والمحافظات الجنوبية");
+    SANAA("صنعاء والمحافظات الشمالية (اليمن)"),
+    ADEN("عدن والمحافظات الجنوبية (اليمن)"),
+    KSA("المملكة العربية السعودية"),
+    EGYPT("جمهورية مصر العربية"),
+    IRAQ("العراق"),
+    UAE("الإمارات العربية المتحدة"),
+    CUSTOM("دولة مخصصة / عالمي");
 
     companion object {
-        val DEFAULT = SANAA
+        var DEFAULT = SANAA
 
         fun fromString(value: String): RateZone {
             return entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
